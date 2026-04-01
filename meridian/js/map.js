@@ -15,12 +15,12 @@ const LAYER_COLORS = {
     'national-park':        ['fill-color',       '#264d36'],
   },
   light: {
-    background:             ['background-color', '#a8cce4'],
-    water:                  ['fill-color',       '#a8cce4'],
-    'water-shadow':         ['fill-color',       '#90b8d0'],
-    landcover:              ['fill-color',       '#c8d8a8'],
-    landuse:                ['fill-color',       '#b8cc90'],
-    'national-park':        ['fill-color',       '#b8cc90'],
+    background:             ['background-color', '#edf2e6'],
+    water:                  ['fill-color',       '#9fc7df'],
+    'water-shadow':         ['fill-color',       '#84b2cf'],
+    landcover:              ['fill-color',       '#cbd8a0'],
+    landuse:                ['fill-color',       '#b9cc8a'],
+    'national-park':        ['fill-color',       '#b9cc8a'],
   },
 };
 
@@ -37,7 +37,11 @@ export function initMap(theme) {
   /* global maplibregl */
   map = new maplibregl.Map({
     container: 'map',
-    style: STYLES[theme] ?? STYLES.dark,
+    // Start from a blank style, then apply the themed Carto style through
+    // setStyle() so we can transform the incoming JSON before MapLibre commits
+    // it. That avoids the base style briefly winning and then overwriting our
+    // runtime paint changes.
+    style: { version: 8, sources: {}, layers: [] },
     projection: currentProjection,
     center: [10, 20],
     zoom: 1.5,
@@ -47,12 +51,7 @@ export function initMap(theme) {
     attributionControl: false,
   });
 
-  // Persistent listener: re-applies the active theme's colour overrides on
-  // every style.load event — covers the initial load, theme switches, and any
-  // internal style refresh MapLibre v4 may trigger (e.g. on setProjection).
-  map.on('style.load', () => {
-    applyMapColors(_activeTheme);
-  });
+  setBaseStyle(theme);
 
   return map;
 }
@@ -73,26 +72,41 @@ export function getProjection() {
 
 export function updateMapTheme(theme) {
   if (!map) return;
-  // Update _activeTheme BEFORE setStyle so the persistent style.load listener
-  // picks up the new theme when the reload fires.
   _activeTheme = theme;
-  map.setStyle(STYLES[theme] ?? STYLES.dark);
+  setBaseStyle(theme);
   // Restore the active projection after the style reload; setStyle resets it.
   map.once('style.load', () => {
     map.setProjection(currentProjection);
   });
 }
 
-function applyMapColors(theme) {
+function setBaseStyle(theme) {
+  map.setStyle(STYLES[theme] ?? STYLES.dark, {
+    transformStyle: (_previousStyle, nextStyle) => applyThemeToStyle(nextStyle, theme),
+  });
+}
+
+function applyThemeToStyle(style, theme) {
   const colors = LAYER_COLORS[theme];
-  if (!colors) return;
-  for (const [layerId, [prop, color]] of Object.entries(colors)) {
-    try {
-      if (map.getLayer(layerId)) {
-        map.setPaintProperty(layerId, prop, color);
-      }
-    } catch {
-      // Layer absent in this style variant — ignore.
-    }
-  }
+  if (!colors?.background || !Array.isArray(style?.layers)) return style;
+
+  const themedLayers = style.layers.map(layer => {
+    const override = colors[layer.id];
+    if (!override) return layer;
+
+    const [prop, color] = override;
+    return {
+      ...layer,
+      paint: {
+        ...(layer.paint ?? {}),
+        [prop]: color,
+      },
+    };
+  });
+
+  return {
+    ...style,
+    transition: { duration: 0, delay: 0 },
+    layers: themedLayers,
+  };
 }
