@@ -25,7 +25,7 @@ const LAYER_COLORS = {
 };
 
 let map = null;
-let currentProjection = 'mercator';
+let currentProjection = 'globe';
 let _projectionRetryTimer = null;
 
 // Tracks the active theme so the persistent style.load listener always applies

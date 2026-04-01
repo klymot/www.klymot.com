@@ -80,10 +80,10 @@ test('AC2 – both projection buttons are visible', async ({ page }) => {
   await expect(page.locator('[data-view="globe"]')).toBeVisible();
 });
 
-test('AC2 – Mercator button is active by default', async ({ page }) => {
+test('AC2 – Globe button is active by default', async ({ page }) => {
   await loadPage(page);
-  await expect(page.locator('[data-view="mercator"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-view="globe"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-view="globe"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-view="mercator"]')).not.toHaveClass(/active/);
 });
 
 test('AC2 – clicking Globe makes it active and deactivates Mercator', async ({ page }) => {
