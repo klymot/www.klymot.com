@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian — Global Observatory Network</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Source+Sans+3:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+
+  <!-- Mapbox GL JS v3 -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <span class="header-logo" aria-hidden="true">◎</span>
+      <h1 class="header-title">Meridian</h1>
+      <span class="header-subtitle">Global Observatory Network</span>
+    </div>
+    <nav class="header-controls" aria-label="Map controls">
+      <div class="projection-toggle" role="group" aria-label="Map projection">
+        <button class="btn-control projection-btn active" data-projection="mercator" title="Mercator (flat) projection">
+          Mercator
+        </button>
+        <button class="btn-control projection-btn" data-projection="globe" title="Globe projection">
+          Globe
+        </button>
+      </div>
+      <button class="btn-control theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle theme">
+        <span class="theme-icon theme-icon-dark" aria-hidden="true">☽</span>
+        <span class="theme-icon theme-icon-light" aria-hidden="true">☀</span>
+      </button>
+    </nav>
+  </header>
+
+  <main class="map-wrapper">
+    <div id="map" class="map-container" aria-label="Interactive world map"></div>
+
+    <div class="zoom-controls" aria-label="Zoom controls">
+      <button class="btn-zoom" id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+      <span class="zoom-level" id="zoom-level" aria-label="Current zoom level">1.0×</span>
+      <button class="btn-zoom" id="zoom-out" aria-label="Zoom out" title="Zoom out">−</button>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <span class="footer-stat" id="station-count">— stations</span>
+    <span class="footer-sep" aria-hidden="true">·</span>
+    <span class="footer-coord" id="coord-display">0.00°N, 0.00°E</span>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
