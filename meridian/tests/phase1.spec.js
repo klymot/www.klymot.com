@@ -76,29 +76,29 @@ test('AC1 – dark theme is default when localStorage is empty', async ({ page }
 
 test('AC2 – both projection buttons are visible', async ({ page }) => {
   await loadPage(page);
-  await expect(page.locator('[data-projection="mercator"]')).toBeVisible();
-  await expect(page.locator('[data-projection="globe"]')).toBeVisible();
+  await expect(page.locator('[data-view="mercator"]')).toBeVisible();
+  await expect(page.locator('[data-view="globe"]')).toBeVisible();
 });
 
 test('AC2 – Mercator button is active by default', async ({ page }) => {
   await loadPage(page);
-  await expect(page.locator('[data-projection="mercator"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-projection="globe"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-view="mercator"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-view="globe"]')).not.toHaveClass(/active/);
 });
 
 test('AC2 – clicking Globe makes it active and deactivates Mercator', async ({ page }) => {
   await loadPage(page);
-  await page.click('[data-projection="globe"]');
-  await expect(page.locator('[data-projection="globe"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-projection="mercator"]')).not.toHaveClass(/active/);
+  await page.click('[data-view="globe"]');
+  await expect(page.locator('[data-view="globe"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-view="mercator"]')).not.toHaveClass(/active/);
 });
 
 test('AC2 – clicking back to Mercator restores active state', async ({ page }) => {
   await loadPage(page);
-  await page.click('[data-projection="globe"]');
-  await page.click('[data-projection="mercator"]');
-  await expect(page.locator('[data-projection="mercator"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-projection="globe"]')).not.toHaveClass(/active/);
+  await page.click('[data-view="globe"]');
+  await page.click('[data-view="mercator"]');
+  await expect(page.locator('[data-view="mercator"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-view="globe"]')).not.toHaveClass(/active/);
 });
 
 test('AC2 – projection toggle calls map.setProjection', async ({ page }) => {
@@ -113,10 +113,10 @@ test('AC2 – projection toggle calls map.setProjection', async ({ page }) => {
   // Additionally verify via mock map state by injecting a tracker.
   const projAfterGlobe = await page.evaluate(async () => {
     // Find the globe button and click programmatically, then read mock state.
-    document.querySelector('[data-projection="globe"]').click();
+    document.querySelector('[data-view="globe"]').click();
     await new Promise(r => setTimeout(r, 50));
     // The mock map is constructed inside map.js module scope; we verify via UI only.
-    return document.querySelector('[data-projection="globe"]').classList.contains('active');
+    return document.querySelector('[data-view="globe"]').classList.contains('active');
   });
   expect(projAfterGlobe).toBe(true);
 });

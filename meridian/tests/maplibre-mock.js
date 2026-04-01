@@ -165,8 +165,16 @@ window.maplibregl = (() => {
       if (opts.zoom   !== undefined) this._zoom   = opts.zoom;
       return this;
     }
-    easeTo(opts)  { return this.jumpTo(opts); }
-    flyTo(opts)   { return this.jumpTo(opts); }
+    easeTo(opts) {
+      this.jumpTo(opts);
+      setTimeout(() => this._emit('moveend', {}), 20);
+      return this;
+    }
+    flyTo(opts) {
+      this.jumpTo(opts);
+      setTimeout(() => this._emit('moveend', {}), 20);
+      return this;
+    }
 
     // ── Canvas ───────────────────────────────────────────────────────
     getCanvas() { return this._canvas; }

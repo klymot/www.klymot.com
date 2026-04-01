@@ -27,14 +27,18 @@
       <h1 class="header-title">Meridian</h1>
       <span class="header-subtitle">Global Observatory Network</span>
     </div>
-    <nav class="header-controls" aria-label="Map controls">
-      <div class="projection-toggle" role="group" aria-label="Map projection">
-        <button class="btn-control projection-btn active" data-projection="mercator" title="Mercator (flat) projection">
-          Mercator
-        </button>
-        <button class="btn-control projection-btn" data-projection="globe" title="Globe projection">
-          Globe
-        </button>
+    <div class="header-station-search" id="header-station-search">
+      <input type="search" id="station-search-input" class="station-search-input"
+             placeholder="Search stations…" autocomplete="off" spellcheck="false"
+             aria-label="Search stations by name or ID" aria-autocomplete="list"
+             aria-controls="station-dropdown">
+      <ul class="station-dropdown" id="station-dropdown" hidden role="listbox" aria-label="Matching stations"></ul>
+    </div>
+    <nav class="header-controls" aria-label="View and projection controls">
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button class="btn-control view-btn active" data-view="mercator" title="Mercator (flat) projection">Mercator</button>
+        <button class="btn-control view-btn" data-view="globe" title="Globe projection">Globe</button>
+        <button class="btn-control view-btn" data-view="table" title="Table view">Table</button>
       </div>
       <button class="btn-control theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle theme">
         <span class="theme-icon theme-icon-dark" aria-hidden="true">☽</span>
@@ -49,6 +53,32 @@
     <div class="qr-container" id="map-qr-container" aria-label="Share this view">
       <div class="qr-code"></div>
       <span class="qr-label">Share view</span>
+    </div>
+
+    <!-- Table View (hidden by default) -->
+    <div id="table-container" class="table-container" hidden>
+      <div class="table-toolbar">
+        <span class="table-count" id="table-count" aria-live="polite"></span>
+      </div>
+      <div class="table-scroller" id="table-scroller">
+        <table class="stations-table">
+          <thead id="table-head">
+            <tr>
+              <th data-col="id"          data-default-dir="asc"  data-label="ID"        class="col-id">ID</th>
+              <th data-col="name"        data-default-dir="asc"  data-label="Name">Name</th>
+              <th data-col="category"    data-default-dir="asc"  data-label="Category">Category</th>
+              <th data-col="country"     data-default-dir="asc"  data-label="Country">Country</th>
+              <th data-col="lat"         data-default-dir="desc" data-label="Latitude"  class="col-numeric">Latitude</th>
+              <th data-col="lng"         data-default-dir="asc"  data-label="Longitude" class="col-numeric col-lng">Longitude</th>
+              <th data-col="elevation_m" data-default-dir="desc" data-label="Elevation" class="col-numeric">Elevation</th>
+              <th data-col="established" data-default-dir="asc"  data-label="Est."      class="col-numeric">Est.</th>
+              <th data-col="network"     data-default-dir="asc"  data-label="Network"   class="col-network">Network</th>
+              <th class="col-action" aria-label="Actions"></th>
+            </tr>
+          </thead>
+          <tbody id="table-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="zoom-controls" aria-label="Zoom controls">

@@ -144,10 +144,10 @@ test('AC2 – #map hash activates the correct projection button', async ({ page 
   await loadPage(page, { hash: '#map=3.0/0.00/0.00/globe' });
 
   const globeActive = await page.evaluate(() =>
-    document.querySelector('[data-projection="globe"]')?.classList.contains('active')
+    document.querySelector('[data-view="globe"]')?.classList.contains('active')
   );
   const mercatorActive = await page.evaluate(() =>
-    document.querySelector('[data-projection="mercator"]')?.classList.contains('active')
+    document.querySelector('[data-view="mercator"]')?.classList.contains('active')
   );
 
   expect(globeActive).toBe(true);

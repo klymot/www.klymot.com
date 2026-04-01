@@ -11,7 +11,11 @@ import { renderQR } from './qr.js';
 import { serialiseStationState, pushState } from './url-state.js';
 
 /** Injected by initDetailPanel; returns the current map-state hash string (no leading #). */
-let _getMapHash = null;
+let _getMapHash    = null;
+/** Set by setReturnMode; returns the hash to restore when the panel closes. */
+let _getReturnHash = null;
+/** Which view to return to: 'map' | 'table'. */
+let _returnMode    = 'map';
 
 let _overlay = null;
 let _panel   = null;
@@ -20,9 +24,21 @@ let _panel   = null;
  * Initialise the detail panel.
  * @param {function(): string} getMapHash  — returns serialiseMapState(…) for the active map
  */
+/**
+ * Tell the panel which view to return to when it closes.
+ * @param {'map'|'table'} mode
+ * @param {function(): string} getHashFn  — returns the hash to restore on close
+ */
+export function setReturnMode(mode, getHashFn) {
+  _returnMode    = mode;
+  _getReturnHash = getHashFn ?? _getMapHash;
+}
+
 export function initDetailPanel(getMapHash) {
-  _getMapHash = getMapHash;
-  _overlay    = document.getElementById('detail-overlay');
+  _getMapHash    = getMapHash;
+  _getReturnHash = getMapHash;
+  _returnMode    = 'map';
+  _overlay       = document.getElementById('detail-overlay');
   _panel      = document.getElementById('detail-panel');
 
   if (!_overlay) return;
@@ -79,14 +95,22 @@ export function openDetail(locationId) {
 }
 
 /**
- * Close the detail panel and restore the map view URL hash.
+ * Close the detail panel, restore the appropriate view URL hash, and notify
+ * app.js which view to return to via the 'detail:closed' event.
  */
 export function closeDetail() {
   if (!_overlay) return;
   _overlay.hidden = true;
   _panel.innerHTML = '';
 
-  if (_getMapHash) pushState(_getMapHash());
+  if (_getReturnHash) pushState(_getReturnHash());
+
+  const returnTo = _returnMode;
+  // Reset to map defaults so the next open starts clean.
+  _returnMode    = 'map';
+  _getReturnHash = _getMapHash;
+
+  document.dispatchEvent(new CustomEvent('detail:closed', { detail: { returnTo } }));
 }
 
 // ── Private renderers ─────────────────────────────────────────────────────────
