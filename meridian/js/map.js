@@ -51,6 +51,11 @@ export function initMap(theme) {
     attributionControl: false,
   });
 
+  // Keep Mercator north-up across desktop and mobile interactions.
+  map.dragRotate?.disable?.();
+  map.touchZoomRotate?.disableRotation?.();
+  map.touchPitch?.disable?.();
+
   setBaseStyle(theme);
 
   return map;

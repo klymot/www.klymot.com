@@ -14,13 +14,13 @@
  * Serialise the current map viewport to a hash fragment string.
  * @param {object} map         — MapLibre map instance
  * @param {string} projection  — 'mercator' | 'globe'
- * @returns {string}  e.g. 'map=5.2/19.47/-155.59/globe'
+ * @returns {string}  e.g. 'map=5.2/19.4721/-155.5922/globe'
  */
 export function serialiseMapState(map, projection) {
   const center = map.getCenter();
   const zoom   = map.getZoom().toFixed(1);
-  const lat    = center.lat.toFixed(2);
-  const lng    = center.lng.toFixed(2);
+  const lat    = center.lat.toFixed(4);
+  const lng    = center.lng.toFixed(4);
   return `map=${zoom}/${lat}/${lng}/${projection}`;
 }
 
