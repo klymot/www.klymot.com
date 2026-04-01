@@ -1,4 +1,4 @@
-import { initMap, getMap, setProjection, getProjection, updateMapTheme } from './map.js';
+import { initMap, getMap, setProjection, getProjection, updateMapTheme, supportsProjection } from './map.js';
 import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
 import { initMarkers, setMarkersTheme, getLocations } from './markers.js';
 import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
@@ -22,11 +22,17 @@ function init() {
 
   // ── Projection toggle ──────────────────────────────────────────────
   const projectionBtns = document.querySelectorAll('.projection-btn');
+  const projectionSupported = supportsProjection();
+
+  if (!projectionSupported) {
+    document.querySelector('[data-projection="globe"]')?.setAttribute('disabled', 'disabled');
+  }
 
   function applyProjection(projection) {
-    setProjection(projection);
+    const nextProjection = projectionSupported ? projection : 'mercator';
+    setProjection(nextProjection);
     projectionBtns.forEach(btn =>
-      btn.classList.toggle('active', btn.dataset.projection === projection)
+      btn.classList.toggle('active', btn.dataset.projection === nextProjection)
     );
   }
 

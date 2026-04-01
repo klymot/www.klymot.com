@@ -60,8 +60,18 @@ export function getMap() {
   return map;
 }
 
+export function supportsProjection() {
+  return Boolean(map && typeof map.setProjection === 'function');
+}
+
 export function setProjection(projection) {
   if (!map) return;
+
+  if (!supportsProjection()) {
+    currentProjection = 'mercator';
+    return;
+  }
+
   currentProjection = projection;
   map.setProjection(projection);
 }
@@ -74,9 +84,16 @@ export function updateMapTheme(theme) {
   if (!map) return;
   _activeTheme = theme;
   setBaseStyle(theme);
-  // Restore the active projection after the style reload; setStyle resets it.
+
+  // Only restore projection if the new style came back with a different mode.
+  // Reapplying Mercator unnecessarily after every theme toggle can disrupt
+  // custom layers in some MapLibre builds.
   map.once('style.load', () => {
-    map.setProjection(currentProjection);
+    if (!supportsProjection()) return;
+    const activeProjection = map.getProjection?.()?.name ?? 'mercator';
+    if (activeProjection !== currentProjection) {
+      map.setProjection(currentProjection);
+    }
   });
 }
 

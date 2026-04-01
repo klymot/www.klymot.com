@@ -4,7 +4,6 @@ import { getMap } from './map.js';
 let _locations       = [];
 let _featureCollection = null;
 let _currentTheme    = 'dark';
-let _styleLoaded     = false;
 
 // ── Colour palette ───────────────────────────────────────────────────────────
 const COLORS = {
@@ -22,6 +21,14 @@ const COLORS = {
   },
 };
 
+const SOURCE_ID = 'locations';
+const LAYER_IDS = {
+  clusters: 'clusters',
+  clusterCount: 'cluster-count',
+  markers: 'location-markers',
+  labels: 'location-labels',
+};
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Return the loaded location array (consumed by table-view, detail-panel, etc.). */
@@ -37,12 +44,14 @@ export async function initMarkers(theme) {
   _currentTheme = theme;
   const map = getMap();
 
-  // Re-add source+layers every time the map style is (re-)loaded.
-  // Covers both initial load and theme-driven style swaps.
-  map.on('style.load', () => {
-    _styleLoaded = true;
-    if (_featureCollection) _addLayers();
-  });
+  // Re-add source+layers whenever the style lifecycle advances. In the real
+  // MapLibre runtime a theme-driven setStyle() can rebuild the style across
+  // multiple events; relying on a single style.load is not robust enough.
+  for (const eventName of ['style.load', 'styledata', 'idle']) {
+    map.on(eventName, () => {
+      _syncLayers();
+    });
+  }
 
   const resp = await fetch('data/index.json');
   const { locations } = await resp.json();
@@ -50,8 +59,7 @@ export async function initMarkers(theme) {
   _featureCollection = _toGeoJSON(locations);
   _updateStationCount();
 
-  // If style.load already fired before the fetch finished, add layers now.
-  if (_styleLoaded) _addLayers();
+  _syncLayers();
 
   // ── Event wiring (done once; survives style reloads) ───────────────────────
 
@@ -107,19 +115,21 @@ function _addLayers() {
   const map    = getMap();
   const colors = COLORS[_currentTheme] ?? COLORS.dark;
 
-  map.addSource('locations', {
-    type:           'geojson',
-    data:           _featureCollection,
-    cluster:        true,
-    clusterRadius:  50,
-    clusterMaxZoom: 10,
-  });
+  if (!map.getSource(SOURCE_ID)) {
+    map.addSource(SOURCE_ID, {
+      type:           'geojson',
+      data:           _featureCollection,
+      cluster:        true,
+      clusterRadius:  50,
+      clusterMaxZoom: 10,
+    });
+  }
 
   // ── Cluster circles ──────────────────────────────────────────────────
-  map.addLayer({
-    id:     'clusters',
+  _addLayerIfMissing({
+    id:     LAYER_IDS.clusters,
     type:   'circle',
-    source: 'locations',
+    source: SOURCE_ID,
     filter: ['has', 'point_count'],
     paint:  {
       'circle-color': [
@@ -140,10 +150,10 @@ function _addLayers() {
   });
 
   // Cluster count labels
-  map.addLayer({
-    id:     'cluster-count',
+  _addLayerIfMissing({
+    id:     LAYER_IDS.clusterCount,
     type:   'symbol',
-    source: 'locations',
+    source: SOURCE_ID,
     filter: ['has', 'point_count'],
     layout: {
       'text-field': '{point_count_abbreviated}',
@@ -154,10 +164,10 @@ function _addLayers() {
   });
 
   // ── Unclustered markers ──────────────────────────────────────────────
-  map.addLayer({
-    id:     'location-markers',
+  _addLayerIfMissing({
+    id:     LAYER_IDS.markers,
     type:   'circle',
-    source: 'locations',
+    source: SOURCE_ID,
     filter: ['!', ['has', 'point_count']],
     paint:  {
       'circle-color': [
@@ -177,10 +187,10 @@ function _addLayers() {
   });
 
   // ── Location labels (only visible when zoomed in) ────────────────────
-  map.addLayer({
-    id:      'location-labels',
+  _addLayerIfMissing({
+    id:      LAYER_IDS.labels,
     type:    'symbol',
-    source:  'locations',
+    source:  SOURCE_ID,
     minzoom: 8,
     filter:  ['!', ['has', 'point_count']],
     layout:  {
@@ -197,6 +207,19 @@ function _addLayers() {
       'text-halo-width': 1,
     },
   });
+}
+
+function _syncLayers() {
+  if (!_featureCollection) return;
+  const map = getMap();
+  if (!map?.getStyle?.()) return;
+  _addLayers();
+}
+
+function _addLayerIfMissing(config) {
+  const map = getMap();
+  if (map.getLayer(config.id)) return;
+  map.addLayer(config);
 }
 
 function _updateStationCount() {
