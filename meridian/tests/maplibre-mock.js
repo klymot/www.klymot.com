@@ -9,16 +9,25 @@
  *   window.__mapSources   — object of source configs added via addSource() (reset on setStyle)
  */
 window.maplibregl = (() => {
+  function normaliseProjection(projection) {
+    if (typeof projection === 'string') return projection;
+    return projection?.type ?? 'mercator';
+  }
+
   class MockMap {
     constructor(opts) {
       this._zoom       = opts.zoom       ?? 1.5;
       this._center     = opts.center     ?? [0, 0];
-      this._projection = opts.projection ?? 'mercator';
+      this._projection = normaliseProjection(opts.projection);
       this._style      = opts.style      ?? '';
       this._handlers   = {};
       this._layers     = [];
       this._sources    = {};
       this._canvas     = { style: { cursor: '' } };
+      this._styleLoaded = false;
+      this.dragRotate = { disable() {} };
+      this.touchZoomRotate = { disableRotation() {} };
+      this.touchPitch = { disable() {} };
 
       // Expose for test access.
       window.__mapInstance = this;
@@ -28,7 +37,10 @@ window.maplibregl = (() => {
       // Emit style.load then load asynchronously so all synchronous listeners
       // are registered before the events fire.
       setTimeout(() => {
+        this._styleLoaded = true;
+        this._emit('styledata', {});
         this._emit('style.load', {});
+        this._emit('idle', {});
         this._emit('load', {});
       }, 30);
     }
@@ -90,23 +102,28 @@ window.maplibregl = (() => {
     zoomOut()  { this._zoom = Math.max(1,  this._zoom - 1); this._emit('zoom', {}); }
 
     // ── Projection ───────────────────────────────────────────────────
-    setProjection(p) { this._projection = p; }
+    setProjection(p) { this._projection = normaliseProjection(p); }
     getProjection()  { return { name: this._projection }; }
 
     // ── Style ────────────────────────────────────────────────────────
     setStyle(url) {
       this._style = url;
+      this._styleLoaded = false;
       setTimeout(() => {
         // Reset sources and layers to simulate MapLibre's style-reload behaviour.
         this._layers  = [];
         this._sources = {};
         window.__mapLayers  = this._layers;
         window.__mapSources = this._sources;
+        this._styleLoaded = true;
+        this._emit('styledata', {});
         this._emit('style.load', {});
+        this._emit('idle', {});
       }, 30);
       return this;
     }
     getStyle() { return { name: this._style }; }
+    isStyleLoaded() { return this._styleLoaded; }
 
     // ── Sources ──────────────────────────────────────────────────────
     addSource(id, opts) {

@@ -26,6 +26,7 @@ const LAYER_COLORS = {
 
 let map = null;
 let currentProjection = 'mercator';
+let _projectionRetryTimer = null;
 
 // Tracks the active theme so the persistent style.load listener always applies
 // the correct colours regardless of what triggered the style reload.
@@ -42,7 +43,7 @@ export function initMap(theme) {
     // it. That avoids the base style briefly winning and then overwriting our
     // runtime paint changes.
     style: { version: 8, sources: {}, layers: [] },
-    projection: currentProjection,
+    projection: { type: currentProjection },
     center: [10, 20],
     zoom: 1.5,
     minZoom: 1,
@@ -55,6 +56,12 @@ export function initMap(theme) {
   map.dragRotate?.disable?.();
   map.touchZoomRotate?.disableRotation?.();
   map.touchPitch?.disable?.();
+
+  // setStyle() can reset projection during initial boot and theme changes.
+  // Keep the runtime projection aligned with module state after every style load.
+  map.on('style.load', () => {
+    _syncProjectionToStyle();
+  });
 
   setBaseStyle(theme);
 
@@ -72,13 +79,8 @@ export function supportsProjection() {
 export function setProjection(projection) {
   if (!map) return;
 
-  if (!supportsProjection()) {
-    currentProjection = 'mercator';
-    return;
-  }
-
   currentProjection = projection;
-  map.setProjection(projection);
+  _syncProjectionToStyle();
 }
 
 export function getProjection() {
@@ -89,22 +91,38 @@ export function updateMapTheme(theme) {
   if (!map) return;
   _activeTheme = theme;
   setBaseStyle(theme);
-
-  // Only restore projection if the new style came back with a different mode.
-  // Reapplying Mercator unnecessarily after every theme toggle can disrupt
-  // custom layers in some MapLibre builds.
-  map.once('style.load', () => {
-    if (!supportsProjection()) return;
-    const activeProjection = map.getProjection?.()?.name ?? 'mercator';
-    if (activeProjection !== currentProjection) {
-      map.setProjection(currentProjection);
-    }
-  });
 }
 
 function setBaseStyle(theme) {
   map.setStyle(STYLES[theme] ?? STYLES.dark, {
+    diff: false,
     transformStyle: (_previousStyle, nextStyle) => applyThemeToStyle(nextStyle, theme),
+  });
+}
+
+function _syncProjectionToStyle() {
+  if (!supportsProjection()) return;
+  const projectionState = map.getProjection?.();
+  const activeProjection = projectionState?.name ?? projectionState?.type ?? 'mercator';
+  if (activeProjection === currentProjection) {
+    globalThis.clearTimeout(_projectionRetryTimer);
+    _projectionRetryTimer = null;
+    return;
+  }
+
+  try {
+    map.setProjection({ type: currentProjection });
+  } catch (_err) {
+    // MapLibre throws while the style is still booting; retry shortly so a
+    // user click takes effect as soon as the style is ready.
+  }
+
+  globalThis.clearTimeout(_projectionRetryTimer);
+  _projectionRetryTimer = globalThis.setTimeout(() => {
+    _syncProjectionToStyle();
+  }, 100);
+  map.once?.('idle', () => {
+    _syncProjectionToStyle();
   });
 }
 

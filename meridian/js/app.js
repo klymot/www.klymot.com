@@ -28,12 +28,16 @@ function init() {
     document.querySelector('[data-projection="globe"]')?.setAttribute('disabled', 'disabled');
   }
 
-  function applyProjection(projection) {
+  function applyProjection(projection, { syncUrl = true } = {}) {
     const nextProjection = projectionSupported ? projection : 'mercator';
     setProjection(nextProjection);
     projectionBtns.forEach(btn =>
       btn.classList.toggle('active', btn.dataset.projection === nextProjection)
     );
+    if (syncUrl) {
+      pushState(serialiseMapState(map, getProjection()));
+      updateMapQR(window.location.href);
+    }
   }
 
   projectionBtns.forEach(btn => {
@@ -80,7 +84,7 @@ function init() {
   const initialState = parseHash(window.location.hash);
   if (initialState?.type === 'map') {
     map.jumpTo({ center: [initialState.lng, initialState.lat], zoom: initialState.zoom });
-    applyProjection(initialState.projection);
+    applyProjection(initialState.projection, { syncUrl: false });
   }
 
   // Respond to browser back/forward navigation.
@@ -89,7 +93,7 @@ function init() {
     if (!state) return;
     if (state.type === 'map') {
       map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom });
-      applyProjection(state.projection);
+      applyProjection(state.projection, { syncUrl: false });
     } else if (state.type === 'station') {
       _restoreStation(state.id);
     }

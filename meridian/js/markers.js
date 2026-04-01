@@ -4,6 +4,7 @@ import { getMap } from './map.js';
 let _locations       = [];
 let _featureCollection = null;
 let _currentTheme    = 'dark';
+let _syncRetryTimer  = null;
 
 // ── Colour palette ───────────────────────────────────────────────────────────
 const COLORS = {
@@ -44,10 +45,10 @@ export async function initMarkers(theme) {
   _currentTheme = theme;
   const map = getMap();
 
-  // Re-add source+layers whenever the style lifecycle advances. In the real
-  // MapLibre runtime a theme-driven setStyle() can rebuild the style across
-  // multiple events; relying on a single style.load is not robust enough.
-  for (const eventName of ['style.load', 'styledata', 'idle']) {
+  // Retry marker attachment across the style lifecycle. The live MapLibre 5 +
+  // Carto basemap combination can reject custom layer insertion briefly during
+  // style rebuilds even after style events have started firing.
+  for (const eventName of ['load', 'styledata', 'style.load', 'idle']) {
     map.on(eventName, () => {
       _syncLayers();
     });
@@ -211,9 +212,17 @@ function _addLayers() {
 
 function _syncLayers() {
   if (!_featureCollection) return;
-  const map = getMap();
-  if (!map?.getStyle?.()) return;
-  _addLayers();
+  clearTimeout(_syncRetryTimer);
+
+  try {
+    const map = getMap();
+    if (!map?.getStyle?.()) return;
+    _addLayers();
+  } catch (_err) {
+    _syncRetryTimer = setTimeout(() => {
+      _syncLayers();
+    }, 100);
+  }
 }
 
 function _addLayerIfMissing(config) {
