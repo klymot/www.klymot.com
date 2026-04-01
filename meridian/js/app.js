@@ -1,6 +1,6 @@
-import { initMap, getMap, setProjection } from './map.js';
+import { initMap, getMap, setProjection, updateMapTheme } from './map.js';
 import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
-import { updateMapTheme } from './map.js';
+import { initMarkers, setMarkersTheme } from './markers.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
@@ -12,7 +12,11 @@ function init() {
   document.getElementById('theme-toggle')
     ?.addEventListener('click', toggleTheme);
 
-  onThemeChange((newTheme) => updateMapTheme(newTheme));
+  onThemeChange((newTheme) => {
+    // Update markers theme variable before the style reload fires.
+    setMarkersTheme(newTheme);
+    updateMapTheme(newTheme);
+  });
 
   // ── Projection toggle ──────────────────────────────────────────────
   const projectionBtns = document.querySelectorAll('.projection-btn');
@@ -47,6 +51,9 @@ function init() {
     const lngStr = `${Math.abs(lng).toFixed(2)}°${lng >= 0 ? 'E' : 'W'}`;
     coordDisplay.textContent = `${latStr}, ${lngStr}`;
   });
+
+  // ── Markers ────────────────────────────────────────────────────────
+  initMarkers(getTheme()).catch(err => console.error('Markers load failed:', err));
 }
 
 if (document.readyState === 'loading') {

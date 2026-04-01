@@ -1,0 +1,169 @@
+{
+  "locations": [
+    {
+      "id": "reykjavik",
+      "name": "Reykjavík",
+      "lat": 64.1466,
+      "lng": -21.9426,
+      "category": "station",
+      "country": "Iceland",
+      "elevation_m": 52,
+      "established": 1949,
+      "network": "WMO / GHCN"
+    },
+    {
+      "id": "svalbard",
+      "name": "Svalbard",
+      "lat": 78.2232,
+      "lng": 15.6267,
+      "category": "station",
+      "country": "Norway",
+      "elevation_m": 28,
+      "established": 1969,
+      "network": "WMO / GHCN"
+    },
+    {
+      "id": "mauna-loa",
+      "name": "Mauna Loa",
+      "lat": 19.4721,
+      "lng": -155.5922,
+      "category": "observatory",
+      "country": "USA (Hawaii)",
+      "elevation_m": 3397,
+      "established": 1958,
+      "network": "NOAA GML / WMO GAW"
+    },
+    {
+      "id": "cape-grim",
+      "name": "Cape Grim",
+      "lat": -40.6833,
+      "lng": 144.6894,
+      "category": "station",
+      "country": "Australia",
+      "elevation_m": 94,
+      "established": 1976,
+      "network": "WMO GAW / CSIRO"
+    },
+    {
+      "id": "south-pole",
+      "name": "South Pole",
+      "lat": -90.0,
+      "lng": 0.0,
+      "category": "observatory",
+      "country": "Antarctica",
+      "elevation_m": 2835,
+      "established": 1957,
+      "network": "NOAA GML / NSF"
+    },
+    {
+      "id": "barrow",
+      "name": "Utqiaġvik",
+      "lat": 71.2906,
+      "lng": -156.7886,
+      "category": "station",
+      "country": "USA (Alaska)",
+      "elevation_m": 11,
+      "established": 1973,
+      "network": "NOAA GML"
+    },
+    {
+      "id": "mace-head",
+      "name": "Mace Head",
+      "lat": 53.3267,
+      "lng": -9.8994,
+      "category": "station",
+      "country": "Ireland",
+      "elevation_m": 25,
+      "established": 1958,
+      "network": "AGAGE / WMO GAW"
+    },
+    {
+      "id": "samoa",
+      "name": "American Samoa",
+      "lat": -14.2475,
+      "lng": -170.5644,
+      "category": "observatory",
+      "country": "USA (Samoa)",
+      "elevation_m": 42,
+      "established": 1974,
+      "network": "NOAA GML"
+    },
+    {
+      "id": "halley",
+      "name": "Halley Station",
+      "lat": -75.58,
+      "lng": -26.66,
+      "category": "station",
+      "country": "Antarctica",
+      "elevation_m": 30,
+      "established": 1956,
+      "network": "British Antarctic Survey"
+    },
+    {
+      "id": "alert",
+      "name": "Alert, Nunavut",
+      "lat": 82.5,
+      "lng": -62.35,
+      "category": "station",
+      "country": "Canada",
+      "elevation_m": 67,
+      "established": 1950,
+      "network": "WMO / GHCN"
+    },
+    {
+      "id": "izana",
+      "name": "Izaña Observatory",
+      "lat": 28.309,
+      "lng": -16.499,
+      "category": "observatory",
+      "country": "Spain (Canary Islands)",
+      "elevation_m": 2367,
+      "established": 1916,
+      "network": "WMO GAW / AEMET"
+    },
+    {
+      "id": "zugspitze",
+      "name": "Zugspitze",
+      "lat": 47.4211,
+      "lng": 10.9856,
+      "category": "station",
+      "country": "Germany",
+      "elevation_m": 2962,
+      "established": 1900,
+      "network": "WMO / DWD"
+    },
+    {
+      "id": "lauder",
+      "name": "Lauder",
+      "lat": -45.038,
+      "lng": 169.684,
+      "category": "station",
+      "country": "New Zealand",
+      "elevation_m": 370,
+      "established": 1987,
+      "network": "NIWA / NDACC"
+    },
+    {
+      "id": "tokyo",
+      "name": "Tokyo",
+      "lat": 35.6762,
+      "lng": 139.6503,
+      "category": "station",
+      "country": "Japan",
+      "elevation_m": 25,
+      "established": 1875,
+      "network": "WMO / JMA"
+    },
+    {
+      "id": "nyalesund",
+      "name": "Ny-Ålesund",
+      "lat": 78.9231,
+      "lng": 11.9244,
+      "category": "station",
+      "country": "Norway (Svalbard)",
+      "elevation_m": 8,
+      "established": 1968,
+      "network": "WMO GAW / NILU"
+    }
+  ]
+}
