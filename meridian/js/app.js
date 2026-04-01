@@ -3,6 +3,7 @@ import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
 import { initMarkers, setMarkersTheme, getLocations } from './markers.js';
 import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
 import { initMapQR } from './qr.js';
+import { initDetailPanel, openDetail } from './detail-panel.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
@@ -65,6 +66,13 @@ function init() {
     const latStr = `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}`;
     const lngStr = `${Math.abs(lng).toFixed(2)}°${lng >= 0 ? 'E' : 'W'}`;
     coordDisplay.textContent = `${latStr}, ${lngStr}`;
+  });
+
+  // ── Detail panel ───────────────────────────────────────────────────
+  initDetailPanel(() => serialiseMapState(map, getProjection()));
+
+  document.addEventListener('location:select', (e) => {
+    openDetail(e.detail.id);
   });
 
   // ── URL state & QR ─────────────────────────────────────────────────

@@ -1,0 +1,10 @@
+{
+  "name": "Reykjavík",
+  "country": "Iceland",
+  "elevation": "52m",
+  "established": "1949",
+  "type": "Surface Monitoring Station",
+  "description": "Long-running meteorological station in the North Atlantic, contributing to GISTEMP and ERA5 reanalysis datasets. A key node in the sparse high-latitude observation network, providing data on sub-arctic climate variability and storm track behaviour.",
+  "variables": ["Temperature", "Pressure", "Wind", "Humidity"],
+  "network": "WMO / GHCN"
+}

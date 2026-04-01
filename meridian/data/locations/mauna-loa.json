@@ -1,0 +1,10 @@
+{
+  "name": "Mauna Loa Observatory",
+  "country": "USA (Hawaii)",
+  "elevation": "3397m",
+  "established": "1958",
+  "type": "Atmospheric Baseline Observatory",
+  "description": "Premier atmospheric research facility operated by NOAA. Home to the Keeling Curve — the longest continuous CO₂ measurement record. Located on the northern slope of Mauna Loa volcano at 3,397 metres elevation, above most water vapour and local pollution sources.",
+  "variables": ["CO₂", "CH₄", "N₂O", "O₃", "Solar Radiation"],
+  "network": "NOAA GML / WMO GAW"
+}
