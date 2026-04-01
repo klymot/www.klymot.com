@@ -17,7 +17,7 @@ meridian/
 │   └── style.css           # All styles (CSS variables for theming)
 ├── js/
 │   ├── app.js              # Entry: bootstraps map, wires UI controls
-│   ├── map.js              # Map rendering (Mapbox GL JS wrapper)
+│   ├── map.js              # Map rendering (MapLibre GL JS wrapper)
 │   ├── markers.js          # Marker layer management, label visibility
 │   ├── detail-panel.js     # Location detail overlay (fetch + render)
 │   ├── sources-panel.js    # Data sources/references popover
@@ -37,7 +37,7 @@ meridian/
 └── README.md
 ```
 
-**No framework.** Vanilla JS + Mapbox GL JS. The site is fully static — no server, no build step beyond optional minification. All data is JSON fetched at runtime.
+**No framework.** Vanilla JS + MapLibre GL JS. The site is fully static — no server, no build step beyond optional minification. All data is JSON fetched at runtime.
 
 ---
 
@@ -45,7 +45,7 @@ meridian/
 
 | Concern | Choice | Rationale |
 |---|---|---|
-| Map renderer | Mapbox GL JS v3 | Vector tiles, native globe projection, smooth zoom/pan, free tier sufficient for static hosting |
+| Map renderer | MapLibre GL JS v4 | Vector tiles, native globe projection, smooth zoom/pan, fully open-source and no API token required |
 | Styling | Plain CSS with custom properties | No build step, theme switching via class on `<html>` |
 | JS | Vanilla ES modules | No bundler needed, `<script type="module">` works in all modern browsers |
 | Fonts | Google Fonts (Playfair Display, Source Sans 3, JetBrains Mono) | Matches mockup typography |
@@ -116,13 +116,13 @@ Start with plain gzipped JSON. Only optimise the format if initial load time is 
 
 ### Map markers (30k points)
 
-Rendering 30k individual DOM elements or SVG circles would be catastrophic. Mapbox GL JS renders GeoJSON sources on the GPU via WebGL, so 30k points in a single GeoJSON source with a `circle` layer is **fine** — this is well within Mapbox's design envelope (it handles millions of points).
+Rendering 30k individual DOM elements or SVG circles would be catastrophic. MapLibre GL JS renders GeoJSON sources on the GPU via WebGL, so 30k points in a single GeoJSON source with a `circle` layer is **fine** — this is well within MapLibre's design envelope (it handles millions of points).
 
 **Key requirements:**
 - **Single GeoJSON source, not 30k individual markers.** The entire dataset is one `FeatureCollection` added as one source.
-- **No HTML markers.** Use only Mapbox GL's native `circle` and `symbol` layers, which render on the GPU.
-- **Clustering at low zoom.** At zoom levels 1–5, 30k overlapping dots are visual noise. Enable Mapbox's built-in clustering on the source: `cluster: true, clusterRadius: 50, clusterMaxZoom: 10`. Render clusters as circles with a count label. Unclustered points render as individual markers at higher zoom. This is a Mapbox-native feature — no custom code needed beyond configuration.
-- **Label layer minzoom.** The `location-labels` symbol layer should have a high `minzoom` (e.g., 8–10). At lower zooms with clustering active, labels would overlap impossibly. Mapbox's collision detection will handle some of this, but setting a firm minzoom avoids the GPU cost entirely.
+- **No HTML markers.** Use only MapLibre GL's native `circle` and `symbol` layers, which render on the GPU.
+- **Clustering at low zoom.** At zoom levels 1–5, 30k overlapping dots are visual noise. Enable MapLibre's built-in clustering on the source: `cluster: true, clusterRadius: 50, clusterMaxZoom: 10`. Render clusters as circles with a count label. Unclustered points render as individual markers at higher zoom. This is a MapLibre-native feature — no custom code needed beyond configuration.
+- **Label layer minzoom.** The `location-labels` symbol layer should have a high `minzoom` (e.g., 8–10). At lower zooms with clustering active, labels would overlap impossibly. MapLibre's collision detection will handle some of this, but setting a firm minzoom avoids the GPU cost entirely.
 
 ### Table view (30k rows)
 
@@ -168,14 +168,14 @@ Rendering 30k `<tr>` elements in the DOM is feasible but sluggish — initial re
 
 ### Phase 1 — Project Skeleton & Map
 
-**Goal:** Mapbox GL JS rendering a styled globe with land/water colours, zoom controls, and pan. No markers yet.
+**Goal:** MapLibre GL JS rendering a styled globe with land/water colours, zoom controls, and pan. No markers yet.
 
 **Tasks:**
 
 1. Create directory structure as shown above.
 2. Create `index.html`:
    - Load Google Fonts.
-   - Load Mapbox GL JS v3 CSS + JS from CDN.
+   - Load MapLibre GL JS v4 CSS + JS from CDN (unpkg.com/maplibre-gl@4).
    - Load `css/style.css` and `js/app.js` (type=module).
    - HTML structure: header (logo + controls), map container div, zoom controls, footer bar.
 3. Create `css/style.css`:
@@ -185,12 +185,12 @@ Rendering 30k `<tr>` elements in the DOM is feasible but sluggish — initial re
    - Style all UI chrome: header, footer, zoom buttons, projection toggle, theme toggle.
    - Map container fills available viewport between header and footer.
 4. Create `js/map.js`:
-   - Initialise Mapbox GL JS map in the container div.
-   - Use a style that renders land green and water blue (customise a Mapbox style or use `map.setPaintProperty` on a base style to override land/water fill colours to match the theme).
+   - Initialise MapLibre GL JS map in the container div (no API token required).
+   - Use Carto free styles: `dark-matter-gl-style` for dark mode, `positron-gl-style` for light mode (both from `basemaps.cartocdn.com/gl/`). Override land/water paint properties via `map.setPaintProperty` to match the theme palette.
    - Set `projection: 'mercator'` as default; expose a function `setProjection('mercator' | 'globe')`.
    - Set `minZoom: 1` (cannot zoom out past full globe), `maxZoom: 16`.
-   - On projection change, if switching to globe, set `projection: 'globe'`; if switching to mercator, set `projection: 'mercator'`. Mapbox GL v3 supports this natively via `map.setProjection()`.
-   - Mercator wrapping is handled automatically by Mapbox (`renderWorldCopies: true` — this is the default).
+   - On projection change, call `map.setProjection()` with the new value. MapLibre GL v4 supports globe projection natively.
+   - Mercator wrapping is handled automatically (`renderWorldCopies: true` — this is the default).
 5. Create `js/app.js`:
    - Import map.js, theme.js.
    - Wire projection toggle buttons to `map.setProjection()`.
@@ -200,7 +200,7 @@ Rendering 30k `<tr>` elements in the DOM is feasible but sluggish — initial re
    - On load, check `localStorage` for saved theme; default to `'dark'`.
    - Toggle sets `document.documentElement.dataset.theme` and saves to localStorage.
    - Expose `getTheme()` and `toggleTheme()`.
-   - When theme changes, also update Mapbox map paint properties (land fill, water fill, background) to match. Define colour sets for both themes.
+   - When theme changes, also update MapLibre map paint properties (land fill, water fill, background) to match. Define colour sets for both themes.
 
 **Acceptance criteria:**
 - Page loads showing a styled map (correct land/water colours).
@@ -235,7 +235,7 @@ Rendering 30k `<tr>` elements in the DOM is feasible but sluggish — initial re
    - Add three layers:
      - `clusters`: circle layer filtered to `['has', 'point_count']`. Circle-radius scaled by `point_count` (step or interpolate expression). Fill colour uses a colour ramp (e.g., amber at low count → deeper amber at high count). A symbol layer on top shows the cluster count as text.
      - `location-markers`: circle layer filtered to `['!', ['has', 'point_count']]` (unclustered points only). Paint: circle-color driven by `category` property (observatory → `#5ca8c4` dark / `#1e6e90` light, station → `#d4a855` dark / `#7a5f20` light). Circle-radius interpolated by zoom (small at low zoom, larger when zoomed in). Circle-stroke for ring effect.
-     - `location-labels`: symbol layer filtered to unclustered points. Text-field: `["get", "name"]`. Set `minzoom: 8` (labels only appear when zoomed in enough that clusters have dissolved). Text-font, size, colour, halo matching mockup. Text-offset to position labels beside markers. Mapbox's built-in collision detection (`text-allow-overlap: false`) prevents label stacking.
+     - `location-labels`: symbol layer filtered to unclustered points. Text-field: `["get", "name"]`. Set `minzoom: 8` (labels only appear when zoomed in enough that clusters have dissolved). Text-font, size, colour, halo matching mockup. Text-offset to position labels beside markers. MapLibre's built-in collision detection (`text-allow-overlap: false`) prevents label stacking.
    - All layers respond to theme changes (update paint properties).
    - **Clicking a cluster**: zoom into it. Use `map.getSource('locations').getClusterExpansionZoom(clusterId)` to find the right zoom level, then `map.easeTo({ center, zoom })`.
 3. Wire unclustered marker click:
@@ -297,7 +297,7 @@ Examples:
    - **`onHashChange(callback)`** → listens for `hashchange` events (user navigates back/forward or edits URL).
 
 2. Wire state serialisation (in `app.js`):
-   - **Map movement → URL**: On Mapbox `moveend` event (fires after pan/zoom completes), if no station is selected, call `pushState(serialiseMapState(...))`. Debounce by 300ms to avoid thrashing during continuous interaction.
+   - **Map movement → URL**: On MapLibre `moveend` event (fires after pan/zoom completes), if no station is selected, call `pushState(serialiseMapState(...))`. Debounce by 300ms to avoid thrashing during continuous interaction.
    - **Station selection → URL**: When `openDetail(id)` is called, call `pushState(serialiseStationState(id))`.
    - **Station close → URL**: When `closeDetail()` is called, serialise the current map viewport back to the URL.
 
@@ -401,7 +401,7 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
    - `hideTable()`:
      - Hide the table container.
      - Show the map container and associated controls.
-     - Trigger a Mapbox `map.resize()` (required after the container was hidden).
+     - Trigger a MapLibre `map.resize()` (required after the container was hidden).
      - Update URL hash back to the current map state.
 
    - **Virtual scrolling implementation:**
@@ -517,7 +517,7 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
    - On viewports < 768px: header stacks vertically (logo above controls), zoom controls shrink, sources panel goes full-width, detail panel goes near-full-width.
    - Table view on viewports < 768px: hide Longitude and Network columns; use horizontal scroll with a fade-edge indicator if needed.
    - QR code on the map hides on viewports < 480px (screen too small to be useful; detail panel QR still shows).
-   - Touch: ensure pan/zoom works on mobile (Mapbox handles this natively).
+   - Touch: ensure pan/zoom works on mobile (MapLibre handles this natively).
 2. **Accessibility:**
    - All buttons have `aria-label`.
    - Detail panel traps focus when open, restores on close.
@@ -526,7 +526,7 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
    - Table: sortable column headers use `aria-sort="ascending"` / `"descending"` / `"none"`. Table rows are keyboard-navigable (Enter to open detail).
    - Sufficient colour contrast in both themes (check with axe or Lighthouse).
 3. **Performance (critical at 30k scale):**
-   - Preconnect to Google Fonts and Mapbox CDN in `<head>`.
+   - Preconnect to Google Fonts and MapLibre CDN in `<head>`.
    - `data/index.json` is ~4.5MB raw, ~500KB gzipped. Fetch on DOMContentLoaded. Show a loading indicator until the index is parsed and the map source is ready.
    - Parse the index JSON in a single `JSON.parse` call (fast, ~50ms for 4.5MB). Do NOT stream-parse or chunk — the browser's native parser is the fastest path.
    - Detail JSON files are small; fetch on demand with `Cache-Control` headers for repeat views.
@@ -539,7 +539,7 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
    - Project description.
    - How to run locally (just serve the directory — `python -m http.server` or similar).
    - How to add new locations (add to index.json + create detail JSON).
-   - Mapbox token setup (required — document where to set it).
+   - No API token needed (MapLibre + Carto free styles).
    - URL hash format documentation (how bookmarkable URLs work).
    - Deployment instructions.
 
@@ -554,21 +554,21 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
 
 ## Notes for the Implementer
 
-1. **Mapbox token**: You'll need a Mapbox access token. Add it as a constant at the top of `js/map.js` or load from a `config.js`. For a static site this is necessarily public, which is fine — use Mapbox URL restrictions to lock it to your domain.
+1. **No API token required**: MapLibre GL JS is fully open-source and uses Carto free base styles (`basemaps.cartocdn.com/gl/`). No token or account needed.
 
-2. **Map style colours**: The simplest approach is to start with `mapbox://styles/mapbox/dark-v11` for dark mode and `mapbox://styles/mapbox/light-v11` for light mode, then override the land and water paint properties via `map.setPaintProperty()`. Alternatively create custom styles in Mapbox Studio.
+2. **Map style colours**: Use `https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json` for dark mode and `https://basemaps.cartocdn.com/gl/positron-gl-style/style.json` for light mode, then override land and water paint properties via `map.setPaintProperty()` to match the theme palette.
 
 3. **Theme switching the map**: When the user toggles theme, call `map.setStyle(newStyleUrl)` and re-add the location source/layers after `style.load` fires. This is cleaner than patching dozens of paint properties individually.
 
-4. **Zoom-to-label mapping**: The mockup uses "2× zoom" as the label threshold. In Mapbox GL terms, this maps to roughly zoom level 3–4 for a full-window map. Set `location-labels` layer `minzoom` accordingly and tune by eye.
+4. **Zoom-to-label mapping**: The mockup uses "2× zoom" as the label threshold. In MapLibre GL terms, this maps to roughly zoom level 3–4 for a full-window map. Set `location-labels` layer `minzoom` accordingly and tune by eye.
 
-5. **The mockup's rough continent rendering** (bounding-box land detection) is only for the SVG prototype. Mapbox provides actual vector tile coastlines — you don't need any of that logic.
+5. **The mockup's rough continent rendering** (bounding-box land detection) is only for the SVG prototype. MapLibre provides actual vector tile coastlines — you don't need any of that logic.
 
 6. **Data scale**: The production dataset contains ~30,000 locations. The 15 mock locations and 4 detail files are for development. The index schema and all rendering paths must be tested against the full dataset before shipping. Generate a synthetic 30k-entry `index.json` for development testing if the real data isn't available yet (random lat/lng, realistic names, mixed categories).
 
 7. **URL hash — `replaceState` not `pushState`**: Map panning generates many `moveend` events. Using `history.pushState` would create hundreds of history entries and break the back button. Use `history.replaceState` for map movement updates. Only use `pushState` (or equivalent) when the user explicitly selects/deselects a station, so that back/forward navigates between stations.
 
-8. **URL hash — debounce `moveend`**: Mapbox fires `moveend` frequently during animated transitions (flyTo, easeTo). Debounce hash updates by 300ms so we only serialise the final resting position.
+8. **URL hash — debounce `moveend`**: MapLibre fires `moveend` frequently during animated transitions (flyTo, easeTo). Debounce hash updates by 300ms so we only serialise the final resting position.
 
 9. **URL hash — page load race condition**: On initial load, you need the location index to be loaded before you can restore a `#station=<id>` hash (to look up lat/lng). Sequence: fetch index → parse hash → restore state. Don't initialise hash listeners until the index is loaded.
 
@@ -584,7 +584,7 @@ When table view is active, the projection toggle (Mercator/Globe) is hidden sinc
 
 15. **Table view — detail panel return context**: When the detail panel opens from a table row click, it needs to return to table view on close (not map view). The simplest approach: store a `viewModeBeforeDetail` variable. `openDetail` saves the current mode; `closeDetail` restores it.
 
-16. **Table view — Mapbox resize**: When switching from table back to map, the map container was `display: none`. Mapbox GL requires `map.resize()` after the container becomes visible again, otherwise the canvas dimensions are wrong. Call it in a `requestAnimationFrame` after showing the container to ensure the DOM has updated.
+16. **Table view — MapLibre resize**: When switching from table back to map, the map container was `display: none`. MapLibre GL requires `map.resize()` after the container becomes visible again, otherwise the canvas dimensions are wrong. Call it in a `requestAnimationFrame` after showing the container to ensure the DOM has updated.
 
 17. **Table view — "Show on map"**: This button should use `pushState` (not `replaceState`) so the user can press Back to return to the table. The sequence: push `#map` hash → switch to map view → `map.flyTo({ center: [lng, lat], zoom: 8 })`.
 

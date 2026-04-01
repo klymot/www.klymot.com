@@ -147,7 +147,7 @@ function _addLayers() {
     filter: ['has', 'point_count'],
     layout: {
       'text-field': '{point_count_abbreviated}',
-      'text-font':  ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+      'text-font':  ['Open Sans Semibold', 'Arial Unicode MS Bold'],
       'text-size':  12,
     },
     paint: { 'text-color': '#ffffff' },
@@ -185,7 +185,7 @@ function _addLayers() {
     filter:  ['!', ['has', 'point_count']],
     layout:  {
       'text-field':         ['get', 'name'],
-      'text-font':          ['DIN Offc Pro Regular', 'Arial Unicode MS Regular'],
+      'text-font':          ['Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-size':          12,
       'text-offset':        [0, 1.2],
       'text-anchor':        'top',

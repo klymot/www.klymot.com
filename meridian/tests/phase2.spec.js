@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MOCK_BODY  = readFileSync(join(__dirname, 'mapbox-mock.js'), 'utf8');
+const MOCK_BODY  = readFileSync(join(__dirname, 'maplibre-mock.js'), 'utf8');
 const EMPTY_CSS  = '';
 
 // Minimal index used by all tests (keeps test data self-contained).
@@ -36,10 +36,10 @@ const MOCK_INDEX = {
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
 async function loadPage(page) {
-  await page.route('**mapbox-gl.js**', route =>
+  await page.route('**maplibre-gl.js**', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: MOCK_BODY })
   );
-  await page.route('**mapbox-gl.css**', route =>
+  await page.route('**maplibre-gl.css**', route =>
     route.fulfill({ status: 200, contentType: 'text/css', body: EMPTY_CSS })
   );
   await page.route('**fonts.googleapis.com**', route => route.fulfill({ status: 200, body: '' }));

@@ -18,17 +18,17 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MOCK_BODY  = readFileSync(join(__dirname, 'mapbox-mock.js'), 'utf8');
+const MOCK_BODY  = readFileSync(join(__dirname, 'maplibre-mock.js'), 'utf8');
 const EMPTY_CSS  = '';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 async function loadPage(page) {
-  // Intercept Mapbox CDN requests to avoid network dependency + token requirement.
-  await page.route('**mapbox-gl.js**', route =>
+  // Intercept MapLibre CDN requests to avoid network dependency.
+  await page.route('**maplibre-gl.js**', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: MOCK_BODY })
   );
-  await page.route('**mapbox-gl.css**', route =>
+  await page.route('**maplibre-gl.css**', route =>
     route.fulfill({ status: 200, contentType: 'text/css', body: EMPTY_CSS })
   );
   // Suppress Google Fonts network calls (not needed for tests).
@@ -230,10 +230,10 @@ test('AC5 – saved theme is restored on reload', async ({ page }) => {
   await page.click('#theme-toggle'); // dark → light (saves 'light')
 
   // Re-intercept CDN for the reload.
-  await page.route('**mapbox-gl.js**', route =>
+  await page.route('**maplibre-gl.js**', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: MOCK_BODY })
   );
-  await page.route('**mapbox-gl.css**', route =>
+  await page.route('**maplibre-gl.css**', route =>
     route.fulfill({ status: 200, contentType: 'text/css', body: EMPTY_CSS })
   );
 

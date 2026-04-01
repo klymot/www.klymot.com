@@ -1,13 +1,9 @@
-// Replace with your Mapbox public token.
-// Obtain one at https://account.mapbox.com/
-export const MAPBOX_TOKEN = 'pk.PLACEHOLDER_TOKEN';
-
 const STYLES = {
-  dark:  'mapbox://styles/mapbox/dark-v11',
-  light: 'mapbox://styles/mapbox/light-v11',
+  dark:  'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
 };
 
-// Layer IDs present in both dark-v11 and light-v11 that control
+// Layer IDs present in Carto dark-matter / positron that control
 // land and water colours. Missing layers are silently skipped.
 const LAYER_COLORS = {
   dark: {
@@ -32,10 +28,8 @@ let map = null;
 let currentProjection = 'mercator';
 
 export function initMap(theme) {
-  /* global mapboxgl */
-  mapboxgl.accessToken = MAPBOX_TOKEN;
-
-  map = new mapboxgl.Map({
+  /* global maplibregl */
+  map = new maplibregl.Map({
     container: 'map',
     style: STYLES[theme] ?? STYLES.dark,
     projection: currentProjection,
