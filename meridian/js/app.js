@@ -1,6 +1,8 @@
-import { initMap, getMap, setProjection, updateMapTheme } from './map.js';
+import { initMap, getMap, setProjection, getProjection, updateMapTheme } from './map.js';
 import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
-import { initMarkers, setMarkersTheme } from './markers.js';
+import { initMarkers, setMarkersTheme, getLocations } from './markers.js';
+import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
+import { initMapQR } from './qr.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
@@ -20,13 +22,16 @@ function init() {
 
   // ── Projection toggle ──────────────────────────────────────────────
   const projectionBtns = document.querySelectorAll('.projection-btn');
+
+  function applyProjection(projection) {
+    setProjection(projection);
+    projectionBtns.forEach(btn =>
+      btn.classList.toggle('active', btn.dataset.projection === projection)
+    );
+  }
+
   projectionBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      setProjection(btn.dataset.projection);
-      projectionBtns.forEach(b =>
-        b.classList.toggle('active', b === btn)
-      );
-    });
+    btn.addEventListener('click', () => applyProjection(btn.dataset.projection));
   });
 
   // ── Zoom controls ──────────────────────────────────────────────────
@@ -52,8 +57,59 @@ function init() {
     coordDisplay.textContent = `${latStr}, ${lngStr}`;
   });
 
+  // ── URL state & QR ─────────────────────────────────────────────────
+  const updateMapQR = initMapQR(window.location.href);
+
+  // Debounced moveend: update URL hash + QR after pan/zoom settles.
+  let _moveendTimer = null;
+  map.on('moveend', () => {
+    clearTimeout(_moveendTimer);
+    _moveendTimer = setTimeout(() => {
+      pushState(serialiseMapState(map, getProjection()));
+      updateMapQR(window.location.href);
+    }, 300);
+  });
+
+  // Parse the initial URL hash and restore viewport / selection.
+  const initialState = parseHash(window.location.hash);
+  if (initialState?.type === 'map') {
+    map.jumpTo({ center: [initialState.lng, initialState.lat], zoom: initialState.zoom });
+    applyProjection(initialState.projection);
+  }
+
+  // Respond to browser back/forward navigation.
+  onHashChange(() => {
+    const state = parseHash(window.location.hash);
+    if (!state) return;
+    if (state.type === 'map') {
+      map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom });
+      applyProjection(state.projection);
+    } else if (state.type === 'station') {
+      _restoreStation(state.id);
+    }
+    updateMapQR(window.location.href);
+  });
+
   // ── Markers ────────────────────────────────────────────────────────
-  initMarkers(getTheme()).catch(err => console.error('Markers load failed:', err));
+  initMarkers(getTheme()).then(() => {
+    // If the page loaded with a station hash, restore it now that the index
+    // is available (coordinates required to fly the map there).
+    if (initialState?.type === 'station') {
+      _restoreStation(initialState.id);
+    }
+  }).catch(err => console.error('Markers load failed:', err));
+
+  // Fly the map to a station and dispatch location:select so Phase 4's detail
+  // panel can open. Defined as a hoisted function declaration so it can be
+  // referenced in the .then() callback above before its textual position.
+  function _restoreStation(id) {
+    const locations = getLocations();
+    const loc = locations.find(l => l.id === id);
+    if (loc) {
+      map.flyTo({ center: [loc.lng, loc.lat], zoom: 8 });
+    }
+    document.dispatchEvent(new CustomEvent('location:select', { detail: { id } }));
+  }
 }
 
 if (document.readyState === 'loading') {

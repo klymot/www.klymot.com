@@ -15,6 +15,9 @@
   <link href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css" rel="stylesheet">
   <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
+  <!-- QR code generator (tiny, zero-dependency) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -42,6 +45,11 @@
 
   <main class="map-wrapper">
     <div id="map" class="map-container" aria-label="Interactive world map"></div>
+
+    <div class="qr-container" id="map-qr-container" aria-label="Share this view">
+      <div class="qr-code"></div>
+      <span class="qr-label">Share view</span>
+    </div>
 
     <div class="zoom-controls" aria-label="Zoom controls">
       <button class="btn-zoom" id="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>

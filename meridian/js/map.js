@@ -27,7 +27,13 @@ const LAYER_COLORS = {
 let map = null;
 let currentProjection = 'mercator';
 
+// Tracks the active theme so the persistent style.load listener always applies
+// the correct colours regardless of what triggered the style reload.
+let _activeTheme = 'dark';
+
 export function initMap(theme) {
+  _activeTheme = theme;
+
   /* global maplibregl */
   map = new maplibregl.Map({
     container: 'map',
@@ -41,9 +47,11 @@ export function initMap(theme) {
     attributionControl: false,
   });
 
-  map.on('load', () => {
-    applyMapColors(theme);
-    map.setProjection(currentProjection);
+  // Persistent listener: re-applies the active theme's colour overrides on
+  // every style.load event — covers the initial load, theme switches, and any
+  // internal style refresh MapLibre v4 may trigger (e.g. on setProjection).
+  map.on('style.load', () => {
+    applyMapColors(_activeTheme);
   });
 
   return map;
@@ -65,9 +73,12 @@ export function getProjection() {
 
 export function updateMapTheme(theme) {
   if (!map) return;
+  // Update _activeTheme BEFORE setStyle so the persistent style.load listener
+  // picks up the new theme when the reload fires.
+  _activeTheme = theme;
   map.setStyle(STYLES[theme] ?? STYLES.dark);
+  // Restore the active projection after the style reload; setStyle resets it.
   map.once('style.load', () => {
-    applyMapColors(theme);
     map.setProjection(currentProjection);
   });
 }
