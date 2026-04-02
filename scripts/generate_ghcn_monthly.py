@@ -7,6 +7,7 @@ import json
 import tarfile
 import urllib.error
 import urllib.request
+from collections import defaultdict
 from pathlib import Path
 from typing import TextIO
 import sys
@@ -41,6 +42,38 @@ MONTH_FIELD_WIDTH = 8
 MONTH_VALUE = slice(0, 5)
 MONTH_QCFLAG = slice(6, 7)
 MISSING_VALUE = -9999
+
+
+def count_valid_months(line: str) -> int:
+    valid_months = 0
+    for month_index in range(12):
+        start = MONTH_FIELD_START + (month_index * MONTH_FIELD_WIDTH)
+        chunk = line[start:start + MONTH_FIELD_WIDTH]
+        value = int(chunk[MONTH_VALUE])
+        qcflag = chunk[MONTH_QCFLAG]
+        if value != MISSING_VALUE and not qcflag.strip():
+            valid_months += 1
+    return valid_months
+
+
+def annual_mean_c(line: str) -> tuple[int, float] | None:
+    total = 0
+    count = 0
+
+    for month_index in range(12):
+        start = MONTH_FIELD_START + (month_index * MONTH_FIELD_WIDTH)
+        chunk = line[start:start + MONTH_FIELD_WIDTH]
+        value = int(chunk[MONTH_VALUE])
+        qcflag = chunk[MONTH_QCFLAG]
+        if value == MISSING_VALUE or qcflag.strip():
+            continue
+        total += value
+        count += 1
+
+    if count == 0:
+        return None
+
+    return count, (total / count) / 100.0
 
 
 def conditional_download(url: str, cache_dir: Path) -> Path:
@@ -164,10 +197,16 @@ def ensure_empty_station_files(station_ids: list[str], output_dir: Path) -> None
         (output_dir / f'{station_id}.csv').write_text('')
 
 
-def write_station_csvs(archive_path: Path, output_dir: Path, station_ids: set[str]) -> int:
+def write_station_csvs(
+    archive_path: Path,
+    output_dir: Path,
+    station_ids: set[str],
+) -> tuple[int, dict[str, dict[int, int]], dict[str, dict[int, float]]]:
     rows_written = 0
     current_station_id: str | None = None
     current_handle: TextIO | None = None
+    coverage_by_station: dict[str, dict[int, int]] = defaultdict(dict)
+    annual_means_by_station: dict[str, dict[int, float]] = defaultdict(dict)
 
     with tarfile.open(archive_path, 'r:gz') as archive:
         dat_path = find_member_path(archive, '.dat')
@@ -179,12 +218,21 @@ def write_station_csvs(archive_path: Path, output_dir: Path, station_ids: set[st
             line = raw_line.decode('utf-8').rstrip('\r\n')
             if line[DATA_ELEMENT] != 'TAVG':
                 continue
-            if not should_write_row(line):
+            valid_months = count_valid_months(line)
+            if valid_months == 0:
                 continue
 
             station_id = line[DATA_ID].strip()
             if station_id not in station_ids:
                 continue
+
+            year = int(line[DATA_YEAR])
+            coverage_by_station[station_id][year] = valid_months
+            annual_mean = annual_mean_c(line)
+            if annual_mean is not None:
+                month_count, mean_c = annual_mean
+                if month_count >= 9:
+                    annual_means_by_station[station_id][year] = mean_c
 
             if station_id != current_station_id:
                 if current_handle is not None:
@@ -198,7 +246,7 @@ def write_station_csvs(archive_path: Path, output_dir: Path, station_ids: set[st
     if current_handle is not None:
         current_handle.close()
 
-    return rows_written
+    return rows_written, coverage_by_station, annual_means_by_station
 
 
 def render_csv_row(line: str) -> str:
@@ -218,15 +266,100 @@ def render_csv_row(line: str) -> str:
     return ','.join(cells) + '\n'
 
 
-def should_write_row(line: str) -> bool:
-    for month_index in range(12):
-        start = MONTH_FIELD_START + (month_index * MONTH_FIELD_WIDTH)
-        chunk = line[start:start + MONTH_FIELD_WIDTH]
-        value = int(chunk[MONTH_VALUE])
-        qcflag = chunk[MONTH_QCFLAG]
-        if value != MISSING_VALUE and not qcflag.strip():
-            return True
-    return False
+def merge_station_coverage(
+    coverage_sets: list[dict[str, dict[int, int]]]
+) -> dict[str, dict[int, int]]:
+    merged: dict[str, dict[int, int]] = defaultdict(dict)
+
+    for coverage_by_station in coverage_sets:
+        for station_id, years in coverage_by_station.items():
+            station_years = merged[station_id]
+            for year, valid_months in years.items():
+                station_years[year] = max(station_years.get(year, 0), valid_months)
+
+    return {station_id: dict(years) for station_id, years in merged.items()}
+
+
+def longest_run_with_min_months(years: dict[int, int], *, min_months: int) -> int:
+    longest = 0
+    current = 0
+    previous_year: int | None = None
+
+    for year in sorted(years):
+        if years[year] < min_months:
+            current = 0
+            previous_year = None
+            continue
+
+        if previous_year is not None and year == previous_year + 1:
+            current += 1
+        else:
+            current = 1
+
+        longest = max(longest, current)
+        previous_year = year
+
+    return longest
+
+
+def linear_slope_per_100_years(years: dict[int, float]) -> float | None:
+    if len(years) < 2:
+        return None
+
+    xs = sorted(years)
+    ys = [years[year] for year in xs]
+
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(ys) / len(ys)
+
+    sxx = sum((x - x_mean) ** 2 for x in xs)
+    if sxx == 0:
+        return None
+
+    sxy = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys, strict=True))
+    return (sxy / sxx) * 100.0
+
+
+def update_index_coverage(
+    index_path: Path,
+    coverage_by_station: dict[str, dict[int, int]],
+    qcu_annual_means: dict[str, dict[int, float]],
+    qcf_annual_means: dict[str, dict[int, float]],
+) -> None:
+    with index_path.open() as handle:
+        index = json.load(handle)
+
+    for location in index['locations']:
+        station_id = location.get('id')
+        if not station_id:
+            continue
+
+        years = coverage_by_station.get(station_id)
+        if not years:
+            location.pop('ghcn_first_year', None)
+            location.pop('ghcn_last_year', None)
+            location.pop('ghcn_longest_run_9_months', None)
+        else:
+            sorted_years = sorted(years)
+            location['ghcn_first_year'] = sorted_years[0]
+            location['ghcn_last_year'] = sorted_years[-1]
+            location['ghcn_longest_run_9_months'] = longest_run_with_min_months(
+                years,
+                min_months=9,
+            )
+
+        qcu_slope = linear_slope_per_100_years(qcu_annual_means.get(station_id, {}))
+        qcf_slope = linear_slope_per_100_years(qcf_annual_means.get(station_id, {}))
+        if qcu_slope is None:
+            location.pop('ghcn_qcu_slope_c_per_100yr', None)
+        else:
+            location['ghcn_qcu_slope_c_per_100yr'] = round(qcu_slope, 4)
+        if qcf_slope is None:
+            location.pop('ghcn_qcf_slope_c_per_100yr', None)
+        else:
+            location['ghcn_qcf_slope_c_per_100yr'] = round(qcf_slope, 4)
+
+    write_sorted_json(index_path, index)
 
 
 def main() -> None:
@@ -261,12 +394,16 @@ def main() -> None:
     ensure_empty_station_files(station_ids, qcu_dir)
 
     print(f'Writing QCF station CSVs from {qcf_archive.name}...')
-    qcf_rows = write_station_csvs(qcf_archive, qcf_dir, station_id_set)
+    qcf_rows, qcf_coverage, qcf_annual_means = write_station_csvs(qcf_archive, qcf_dir, station_id_set)
     print(f'Wrote {qcf_rows} QCF rows.')
 
     print(f'Writing QCU station CSVs from {qcu_archive.name}...')
-    qcu_rows = write_station_csvs(qcu_archive, qcu_dir, station_id_set)
+    qcu_rows, qcu_coverage, qcu_annual_means = write_station_csvs(qcu_archive, qcu_dir, station_id_set)
     print(f'Wrote {qcu_rows} QCU rows.')
+
+    print(f'Updating coverage fields in {index_path}...')
+    merged_coverage = merge_station_coverage([qcf_coverage, qcu_coverage])
+    update_index_coverage(index_path, merged_coverage, qcu_annual_means, qcf_annual_means)
 
 
 if __name__ == '__main__':
