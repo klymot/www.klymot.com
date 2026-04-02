@@ -5,3 +5,4 @@ playwright-report/
 .cache/
 .venv/
 .DS_Store
+scripts/__pycache__/
