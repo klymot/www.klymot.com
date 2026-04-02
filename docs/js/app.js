@@ -191,15 +191,17 @@ function init() {
   }).catch(err => console.error('Markers load failed:', err));
 
   function _restoreStation(id) {
-    const locations = getLocations();
-    const loc = locations.find(l => l.id === id);
+    const loc = getLocations().find(l => l.id === id);
     if (loc) {
-      // Fly first; the moveend handler will open the detail panel once the
-      // camera has settled. We fire location:select after a short delay so
-      // the panel waits for the animation (same pattern as _selectStationOnMap).
+      // Queue the station exactly like the header search does: let flyTo
+      // settle first, then the moveend handler opens the panel and pushes
+      // #station=… as the final URL (preventing the map hash from clobbering
+      // the station hash on a subsequent reload).
+      _pendingStation = id;
       map.flyTo({ center: [loc.lng, loc.lat], zoom: 8 });
+    } else {
+      document.dispatchEvent(new CustomEvent('location:select', { detail: { id } }));
     }
-    document.dispatchEvent(new CustomEvent('location:select', { detail: { id } }));
   }
 }
 

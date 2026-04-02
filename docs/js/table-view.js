@@ -76,9 +76,9 @@ export function initTableView(locations) {
   _scroller?.addEventListener('scroll', _renderWindow, { passive: true });
 }
 
-export function showTable({ sortColumn = 'name', sortDirection = 'asc', syncUrl = true } = {}) {
-  _sortCol = sortColumn;
-  _sortDir = sortDirection;
+export function showTable({ sortColumn, sortDirection, syncUrl = true } = {}) {
+  if (sortColumn  !== undefined) _sortCol = sortColumn;
+  if (sortDirection !== undefined) _sortDir = sortDirection;
   _visible = true;
 
   document.getElementById('map')?.style.setProperty('display', 'none');

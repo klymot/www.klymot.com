@@ -117,6 +117,9 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
   // Push station state to URL immediately.
   pushState(serialiseStationState(locationId));
 
+  // Hide the map QR while the detail panel is open.
+  document.getElementById('map-qr-container')?.style.setProperty('display', 'none');
+
   // Show overlay with loading shimmer.
   _overlay.hidden = false;
   _panel.innerHTML = _renderShimmer();
@@ -164,6 +167,11 @@ export function closeDetail() {
   _returnMode    = 'map';
   _getReturnHash = _getMapHash;
 
+  // Restore map QR only when returning to the map view.
+  if (returnTo === 'map') {
+    document.getElementById('map-qr-container')?.style.removeProperty('display');
+  }
+
   // Restore focus to the element that was active before the panel opened.
   _lastFocused?.focus();
   _lastFocused = null;
@@ -178,9 +186,25 @@ function _attachHandlers() {
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
 
+  // Section-level tab switching
+  _panel.querySelectorAll('.section-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchSectionTab(tab.dataset.section));
+  });
+
   // BU tab switching
   _panel.querySelectorAll('.bu-tab').forEach(tab => {
     tab.addEventListener('click', () => _switchBuTab(tab.dataset.tab));
+  });
+}
+
+function _switchSectionTab(sectionName) {
+  _panel.querySelectorAll('.section-tab').forEach(t => {
+    const active = t.dataset.section === sectionName;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
+  _panel.querySelectorAll('.section-panel').forEach(p => {
+    p.hidden = p.dataset.section !== sectionName;
   });
 }
 
@@ -228,11 +252,15 @@ function _buTileStyle(indexEntry, spriteDesc, idxKey, spriteFile) {
     + `background-repeat:no-repeat;`;
 }
 
-/** Wrap a .detail-bu-map div with a 1-px CSS crosshair overlay. */
+/** Wrap a .detail-bu-map div with crosshair and 5 km scale bar overlays. */
 function _buMapWrap(mapDiv, ariaLabel) {
   return `<div class="detail-bu-wrap">
     ${mapDiv}
     <div class="detail-bu-crosshair" aria-hidden="true"></div>
+    <div class="detail-bu-scale" aria-hidden="true">
+      <div class="scale-bar"></div>
+      <div class="scale-label">5 km</div>
+    </div>
   </div>`;
 }
 
@@ -302,12 +330,17 @@ function _renderBuSection(indexEntry, buSprites) {
     </div>` : '';
 
   return `
-    <div class="detail-divider"></div>
-    <div class="detail-bu">
-      <div class="detail-bu-label">Built-up surface — 20 km context</div>
-      ${tabs}
-      <div class="bu-tab-panels">
-        ${panel2020}${panel1975}${panelChange}
+    <div class="detail-sections">
+      <div class="section-tabs" role="tablist" aria-label="Detail sections">
+        <button class="section-tab active" role="tab" data-section="bu-surface" aria-selected="true">Built-Up Surface</button>
+      </div>
+      <div class="section-panel" data-section="bu-surface">
+        <div class="detail-bu">
+          ${tabs}
+          <div class="bu-tab-panels">
+            ${panel2020}${panel1975}${panelChange}
+          </div>
+        </div>
       </div>
     </div>`;
 }
@@ -427,39 +460,43 @@ function _renderDetail(locationId, data, indexEntry, buSprites) {
     ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—');
 
   return `
-    <div class="detail-header">
-      <div class="detail-header-text">
-        <div class="detail-category">${_esc(data.type ?? '')}</div>
-        <h2 class="detail-name">${_esc(data.name ?? locationId)}</h2>
+    <div class="detail-top">
+      <div class="detail-top-main">
+        <div class="detail-header-text">
+          <div class="detail-category">${_esc(data.type ?? '')}</div>
+          <h2 class="detail-name">${_esc(data.name ?? locationId)}</h2>
+        </div>
+        <div class="detail-meta">
+          <div class="meta-item">
+            <span class="meta-label">Country</span>
+            <span class="meta-value">${_esc(data.country ?? '—')}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Elevation</span>
+            <span class="meta-value">${_esc(elevStr)}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Established</span>
+            <span class="meta-value">${_esc(data.established ?? '—')}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Network</span>
+            <span class="meta-value">${_esc(data.network ?? '—')}</span>
+          </div>
+        </div>
+      </div>
+      <div class="detail-top-aside">
+        <div class="detail-qr">
+          <div class="qr-code"></div>
+          <span class="qr-label">Share this station</span>
+        </div>
       </div>
       <button class="detail-close" aria-label="Close panel" title="Close">×</button>
-    </div>
-    <div class="detail-meta">
-      <div class="meta-item">
-        <span class="meta-label">Country</span>
-        <span class="meta-value">${_esc(data.country ?? '—')}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Elevation</span>
-        <span class="meta-value">${_esc(elevStr)}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Established</span>
-        <span class="meta-value">${_esc(data.established ?? '—')}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Network</span>
-        <span class="meta-value">${_esc(data.network ?? '—')}</span>
-      </div>
     </div>
     <div class="detail-divider"></div>
     <div class="detail-description">${_esc(data.description ?? '')}</div>
     ${vars ? `<div class="detail-variables">${vars}</div>` : ''}
     ${_renderBuSection(indexEntry, buSprites)}
-    <div class="detail-qr">
-      <div class="qr-code"></div>
-      <span class="qr-label">Share this station</span>
-    </div>
   `;
 }
 
@@ -474,36 +511,40 @@ function _renderIndexDetail(locationId, indexEntry, buSprites) {
   const catStr  = indexEntry?.category ?? '';
 
   return `
-    <div class="detail-header">
-      <div class="detail-header-text">
-        <div class="detail-category">${_esc(catStr)}</div>
-        <h2 class="detail-name">${_esc(name)}</h2>
+    <div class="detail-top">
+      <div class="detail-top-main">
+        <div class="detail-header-text">
+          <div class="detail-category">${_esc(catStr)}</div>
+          <h2 class="detail-name">${_esc(name)}</h2>
+        </div>
+        <div class="detail-meta">
+          <div class="meta-item">
+            <span class="meta-label">Station ID</span>
+            <span class="meta-value">${_esc(locationId)}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Elevation</span>
+            <span class="meta-value">${_esc(elevStr)}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Latitude</span>
+            <span class="meta-value">${_esc(latStr)}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Longitude</span>
+            <span class="meta-value">${_esc(lngStr)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="detail-top-aside">
+        <div class="detail-qr">
+          <div class="qr-code"></div>
+          <span class="qr-label">Share this station</span>
+        </div>
       </div>
       <button class="detail-close" aria-label="Close panel" title="Close">×</button>
     </div>
-    <div class="detail-meta">
-      <div class="meta-item">
-        <span class="meta-label">Station ID</span>
-        <span class="meta-value">${_esc(locationId)}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Elevation</span>
-        <span class="meta-value">${_esc(elevStr)}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Latitude</span>
-        <span class="meta-value">${_esc(latStr)}</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">Longitude</span>
-        <span class="meta-value">${_esc(lngStr)}</span>
-      </div>
-    </div>
     ${_renderBuSection(indexEntry, buSprites)}
-    <div class="detail-qr">
-      <div class="qr-code"></div>
-      <span class="qr-label">Share this station</span>
-    </div>
   `;
 }
 
