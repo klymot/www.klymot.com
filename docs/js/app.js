@@ -7,6 +7,7 @@ import { initDetailPanel, openDetail, setReturnMode } from './detail-panel.js';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
 import { initSourcesPanel, toggleSources } from './sources-panel.js';
 import { initConsent } from './consent.js';
+import { trackEvent } from './analytics.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
@@ -58,6 +59,14 @@ function init() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
+      const currentView = isTableVisible() ? 'table' : getProjection();
+      if (view && view !== currentView) {
+        trackEvent('view_mode_change', {
+          from_view: currentView,
+          to_view: view,
+        });
+      }
+
       if (view === 'table') {
         showTable();
       } else {
@@ -214,6 +223,9 @@ function _initStationSearch(locations, map, queueStation) {
   const dropdown = document.getElementById('station-dropdown');
   if (!input || !dropdown) return;
 
+  let searchEventTimer = null;
+  let lastTrackedSearch = '';
+
   function _esc(v) {
     return String(v ?? '')
       .replace(/&/g, '&amp;')
@@ -223,21 +235,59 @@ function _initStationSearch(locations, map, queueStation) {
   }
 
   input.addEventListener('input', () => {
-    const q = input.value.trim().toLowerCase();
+    const rawQuery = input.value.trim();
+    const q = rawQuery.toLowerCase();
+
+    clearTimeout(searchEventTimer);
 
     // In table view, always forward typing to the table filter (no dropdown needed).
     if (isTableVisible()) {
-      setTableFilter(input.value.trim());
+      setTableFilter(rawQuery);
+      if (rawQuery) {
+        const resultsCount = locations.filter(loc =>
+          (loc.name    ?? '').toLowerCase().includes(q) ||
+          (loc.country ?? '').toLowerCase().includes(q) ||
+          (loc.network ?? '').toLowerCase().includes(q)
+        ).length;
+        searchEventTimer = setTimeout(() => {
+          const searchKey = `table:${q}`;
+          if (lastTrackedSearch === searchKey) return;
+          lastTrackedSearch = searchKey;
+          trackEvent('station_search', {
+            search_context: 'table',
+            query_length: rawQuery.length,
+            results_count: resultsCount,
+          });
+        }, 400);
+      } else {
+        lastTrackedSearch = '';
+      }
       dropdown.hidden = true;
       return;
     }
 
-    if (!q) { dropdown.hidden = true; return; }
+    if (!q) {
+      dropdown.hidden = true;
+      lastTrackedSearch = '';
+      return;
+    }
 
-    const matches = locations.filter(loc =>
+    const allMatches = locations.filter(loc =>
       (loc.id   ?? '').toLowerCase().includes(q) ||
       (loc.name ?? '').toLowerCase().includes(q)
-    ).slice(0, 8);
+    );
+    const matches = allMatches.slice(0, 8);
+
+    searchEventTimer = setTimeout(() => {
+      const searchKey = `map:${q}`;
+      if (lastTrackedSearch === searchKey) return;
+      lastTrackedSearch = searchKey;
+      trackEvent('station_search', {
+        search_context: 'map',
+        query_length: rawQuery.length,
+        results_count: allMatches.length,
+      });
+    }, 400);
 
     if (!matches.length) { dropdown.hidden = true; return; }
 

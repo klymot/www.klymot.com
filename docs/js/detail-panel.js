@@ -11,6 +11,7 @@
 
 import { renderQR } from './qr.js';
 import { serialiseStationState, pushState } from './url-state.js';
+import { trackEvent } from './analytics.js';
 
 /** Injected by initDetailPanel; returns the current map-state hash string (no leading #). */
 let _getMapHash    = null;
@@ -27,6 +28,7 @@ let _lastFocused = null;
 /** Current index entry and sprite descriptors, used by the change-canvas renderer. */
 let _currentIndexEntry = null;
 let _currentBuSprites  = null;
+let _currentLocationId = null;
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -108,6 +110,7 @@ export function initDetailPanel(getMapHash) {
 export function openDetail(locationId, indexEntry = null, buSprites = null) {
   if (!_overlay || !_panel) return;
 
+  _currentLocationId = locationId;
   _currentIndexEntry = indexEntry;
   _currentBuSprites  = buSprites;
 
@@ -116,6 +119,7 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
 
   // Push station state to URL immediately.
   pushState(serialiseStationState(locationId));
+  trackEvent('detail_open', { station_id: locationId });
 
   // Hide the map QR while the detail panel is open.
   document.getElementById('map-qr-container')?.style.setProperty('display', 'none');
@@ -175,6 +179,7 @@ export function closeDetail() {
   // Restore focus to the element that was active before the panel opened.
   _lastFocused?.focus();
   _lastFocused = null;
+  _currentLocationId = null;
 
   document.dispatchEvent(new CustomEvent('detail:closed', { detail: { returnTo } }));
 }
@@ -203,6 +208,9 @@ function _attachHandlers() {
 }
 
 function _switchSectionTab(sectionName) {
+  const currentSection = _panel.querySelector('.section-tab.active')?.dataset.section;
+  if (currentSection === sectionName) return;
+
   _panel.querySelectorAll('.section-tab').forEach(t => {
     const active = t.dataset.section === sectionName;
     t.classList.toggle('active', active);
@@ -210,6 +218,12 @@ function _switchSectionTab(sectionName) {
   });
   _panel.querySelectorAll('.section-panel').forEach(p => {
     p.hidden = p.dataset.section !== sectionName;
+  });
+
+  trackEvent('detail_tab_change', {
+    station_id: _currentLocationId,
+    from_tab: currentSection,
+    to_tab: sectionName,
   });
 }
 

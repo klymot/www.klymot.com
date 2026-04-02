@@ -6,6 +6,8 @@
  *   toggleSources()     — open or close the panel
  */
 
+import { trackEvent } from './analytics.js';
+
 let _panel = null;
 let _btn   = null;
 
@@ -47,6 +49,7 @@ export function toggleSources() {
 function _open() {
   _panel.hidden = false;
   _btn?.setAttribute('aria-expanded', 'true');
+  trackEvent('sources_open');
 }
 
 function _close() {
