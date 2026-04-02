@@ -809,6 +809,131 @@ body {
   }
 }
 
+/* ── Sources & References Panel ──────────────────────────────────── */
+
+.sources-btn {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
+}
+
+.sources-panel {
+  position: fixed;
+  bottom: 2.5rem; /* sits above the footer */
+  right: 1.25rem;
+  width: 420px;
+  max-width: calc(100vw - 2rem);
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.4), 0 0 1px var(--border-strong);
+  z-index: 40;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.sources-panel[hidden] {
+  display: none;
+}
+
+.sources-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  gap: 1rem;
+}
+
+.sources-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sources-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.sources-close:hover {
+  color: var(--text-primary);
+  background: var(--btn-hover);
+}
+
+.sources-body {
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sources-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sources-section-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  margin-bottom: 0.25rem;
+}
+
+.sources-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.sources-item {
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  transition: background 0.2s;
+}
+
+.sources-item-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sources-cite {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  color: var(--text-secondary);
+}
+
+.sources-item-desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 /* ── Mapbox GL overrides ─────────────────────────────────────────── */
 
 .mapboxgl-ctrl-logo,

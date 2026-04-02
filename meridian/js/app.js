@@ -5,6 +5,7 @@ import { serialiseMapState, parseHash, pushState, onHashChange } from './url-sta
 import { initMapQR } from './qr.js';
 import { initDetailPanel, openDetail, setReturnMode } from './detail-panel.js';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
+import { initSourcesPanel, toggleSources } from './sources-panel.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
@@ -94,6 +95,11 @@ function init() {
     const lngStr = `${Math.abs(lng).toFixed(2)}°${lng >= 0 ? 'E' : 'W'}`;
     coordDisplay.textContent = `${latStr}, ${lngStr}`;
   });
+
+  // ── Sources panel ─────────────────────────────────────────────────
+  initSourcesPanel();
+  document.getElementById('sources-btn')
+    ?.addEventListener('click', toggleSources);
 
   // ── Detail panel ───────────────────────────────────────────────────
   initDetailPanel(() => serialiseMapState(map, getProjection()));

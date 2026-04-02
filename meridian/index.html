@@ -92,7 +92,13 @@
     <span class="footer-stat" id="station-count">— stations</span>
     <span class="footer-sep" aria-hidden="true">·</span>
     <span class="footer-coord" id="coord-display">0.00°N, 0.00°E</span>
+    <button class="btn-control sources-btn" id="sources-btn"
+            aria-expanded="false" aria-haspopup="true"
+            title="Data sources and references">Data Sources &amp; References</button>
   </footer>
+
+  <!-- Sources & References Panel (hidden by default) -->
+  <div class="sources-panel" id="sources-panel" hidden></div>
 
   <!-- Detail Panel Overlay (hidden by default) -->
   <div class="overlay-backdrop" id="detail-overlay" role="dialog" aria-modal="true" aria-label="Station detail" hidden>
