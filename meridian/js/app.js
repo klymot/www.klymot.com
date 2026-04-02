@@ -13,11 +13,18 @@ function init() {
 
   const map = initMap(getTheme());
 
+  // ── Loading overlay & Table button: disabled until data is ready ───
+  const _loadingOverlay = document.getElementById('loading-overlay');
+  const _tableBtn       = document.querySelector('.view-btn[data-view="table"]');
+  if (_tableBtn) _tableBtn.disabled = true;
+
   // ── Theme toggle ───────────────────────────────────────────────────
   document.getElementById('theme-toggle')
     ?.addEventListener('click', toggleTheme);
 
+  const _themeAnnouncement = document.getElementById('theme-announcement');
   onThemeChange((newTheme) => {
+    if (_themeAnnouncement) _themeAnnouncement.textContent = `Theme switched to ${newTheme} mode`;
     setMarkersTheme(newTheme);
     updateMapTheme(newTheme);
   });
@@ -164,6 +171,10 @@ function init() {
 
   // ── Markers ────────────────────────────────────────────────────────
   initMarkers(getTheme()).then(() => {
+    // Data is ready: hide loading overlay and re-enable Table button.
+    if (_loadingOverlay) _loadingOverlay.classList.add('ready');
+    if (_tableBtn)       _tableBtn.disabled = false;
+
     initTableView(getLocations());
     _initStationSearch(getLocations(), map, (id) => { _pendingStation = id; });
 

@@ -17,8 +17,12 @@ let _getReturnHash = null;
 /** Which view to return to: 'map' | 'table'. */
 let _returnMode    = 'map';
 
-let _overlay = null;
-let _panel   = null;
+let _overlay    = null;
+let _panel      = null;
+/** Element focused before the panel opened — restored on close. */
+let _lastFocused = null;
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Initialise the detail panel.
@@ -48,10 +52,35 @@ export function initDetailPanel(getMapHash) {
     if (e.target === _overlay) closeDetail();
   });
 
-  // Escape key closes the panel.
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && _overlay && !_overlay.hidden) {
+  // Keyboard handling: Escape to close; Tab to trap focus within the dialog.
+  _overlay.addEventListener('keydown', (e) => {
+    if (_overlay.hidden) return;
+
+    if (e.key === 'Escape') {
       closeDetail();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const focusable = [..._panel.querySelectorAll(FOCUSABLE)].filter(
+        el => !el.closest('[hidden]') && el.offsetParent !== null
+      );
+      if (!focusable.length) { e.preventDefault(); return; }
+
+      const first = focusable[0];
+      const last  = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !_panel.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !_panel.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
   });
 }
@@ -63,6 +92,9 @@ export function initDetailPanel(getMapHash) {
  */
 export function openDetail(locationId) {
   if (!_overlay || !_panel) return;
+
+  // Save the element that triggered the open so we can restore focus on close.
+  _lastFocused = document.activeElement;
 
   // Push station state to URL immediately.
   pushState(serialiseStationState(locationId));
@@ -78,8 +110,10 @@ export function openDetail(locationId) {
     })
     .then(data => {
       _panel.innerHTML = _renderDetail(locationId, data);
-      _panel.querySelector('.detail-close')
-        ?.addEventListener('click', closeDetail);
+      const closeBtn = _panel.querySelector('.detail-close');
+      closeBtn?.addEventListener('click', closeDetail);
+      // Move focus into the dialog once content is ready.
+      closeBtn?.focus();
 
       // Render station QR code.
       const qrContainer = _panel.querySelector('.detail-qr .qr-code');
@@ -89,8 +123,9 @@ export function openDetail(locationId) {
     })
     .catch(() => {
       _panel.innerHTML = _renderNoData();
-      _panel.querySelector('.detail-close')
-        ?.addEventListener('click', closeDetail);
+      const closeBtn = _panel.querySelector('.detail-close');
+      closeBtn?.addEventListener('click', closeDetail);
+      closeBtn?.focus();
     });
 }
 
@@ -109,6 +144,10 @@ export function closeDetail() {
   // Reset to map defaults so the next open starts clean.
   _returnMode    = 'map';
   _getReturnHash = _getMapHash;
+
+  // Restore focus to the element that was active before the panel opened.
+  _lastFocused?.focus();
+  _lastFocused = null;
 
   document.dispatchEvent(new CustomEvent('detail:closed', { detail: { returnTo } }));
 }

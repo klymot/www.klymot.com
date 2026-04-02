@@ -11,6 +11,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Source+Sans+3:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
+  <!-- CDN preconnects -->
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+
   <!-- MapLibre GL JS -->
   <link href="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css" rel="stylesheet">
   <script src="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.js"></script>
@@ -47,6 +51,9 @@
     </nav>
   </header>
 
+  <!-- Screen-reader-only live region for theme change announcements -->
+  <span id="theme-announcement" class="sr-only" aria-live="polite" aria-atomic="true"></span>
+
   <main class="map-wrapper">
     <div id="map" class="map-container" aria-label="Interactive world map"></div>
 
@@ -79,6 +86,12 @@
           <tbody id="table-tbody"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- Loading overlay: shown while index.json is being fetched, hidden once ready -->
+    <div id="loading-overlay" class="loading-overlay" role="status" aria-label="Loading station data">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <span class="loading-text">Loading stations…</span>
     </div>
 
     <div class="zoom-controls" aria-label="Zoom controls">

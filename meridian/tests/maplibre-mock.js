@@ -176,6 +176,9 @@ window.maplibregl = (() => {
       return this;
     }
 
+    // ── Resize ───────────────────────────────────────────────────────
+    resize() { /* no-op in mock */ }
+
     // ── Canvas ───────────────────────────────────────────────────────
     getCanvas() { return this._canvas; }
 

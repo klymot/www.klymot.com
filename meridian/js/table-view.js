@@ -174,9 +174,11 @@ function _updateHeaderArrows() {
     if (th.dataset.col === _sortCol) {
       th.textContent = `${label} ${_sortDir === 'asc' ? '▲' : '▼'}`;
       th.classList.add('col-sorted');
+      th.setAttribute('aria-sort', _sortDir === 'asc' ? 'ascending' : 'descending');
     } else {
       th.textContent = label;
       th.classList.remove('col-sorted');
+      th.setAttribute('aria-sort', 'none');
     }
   });
 }
@@ -208,6 +210,12 @@ function _renderWindow() {
       if (e.target.closest('.show-on-map-btn')) return;
       document.dispatchEvent(new CustomEvent('location:select', { detail: { id: row.dataset.id } }));
     });
+    row.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.show-on-map-btn')) {
+        e.preventDefault();
+        document.dispatchEvent(new CustomEvent('location:select', { detail: { id: row.dataset.id } }));
+      }
+    });
     row.querySelector('.show-on-map-btn')?.addEventListener('click', (e) => {
       e.stopPropagation();
       document.dispatchEvent(new CustomEvent('table:show-on-map', {
@@ -227,7 +235,7 @@ function _renderRow(loc) {
   const elevStr = loc.elevation_m != null ? `${Number(loc.elevation_m).toLocaleString()}m` : '—';
   const cat     = _esc(loc.category ?? '');
 
-  return `<tr data-id="${_esc(loc.id)}" data-lat="${_esc(String(loc.lat ?? ''))}" data-lng="${_esc(String(loc.lng ?? ''))}" class="station-row">
+  return `<tr data-id="${_esc(loc.id)}" data-lat="${_esc(String(loc.lat ?? ''))}" data-lng="${_esc(String(loc.lng ?? ''))}" class="station-row" tabindex="0">
     <td class="col-id">${_esc(loc.id ?? '')}</td>
     <td>${_esc(loc.name ?? '')}</td>
     <td><span class="category-badge cat-${cat}">${cat}</span></td>
