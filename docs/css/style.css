@@ -839,6 +839,91 @@ body {
   color: var(--text-muted);
 }
 
+/* ── Temperature chart section ────────────────────────────────────── */
+
+.temp-chart-section {
+  padding: 1rem 1.75rem 1.125rem;
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.625rem;
+}
+
+.chart-mode-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.chart-mode-btn {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.chart-mode-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.chart-mode-btn.active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-text);
+  border-color: var(--btn-active-bg);
+}
+
+/* Fixed-height canvas container; chart fills it completely. */
+.chart-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+}
+
+.temp-chart-canvas {
+  display: block;
+  /* width/height set via JS */
+}
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: background 0.25s, border-color 0.25s, color 0.25s;
+}
+
+.chart-tooltip[hidden] {
+  display: none;
+}
+
+.chart-hint {
+  margin-top: 0.375rem;
+  text-align: center;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 /* ── Table BU columns ─────────────────────────────────────────────── */
 
 .col-bu {

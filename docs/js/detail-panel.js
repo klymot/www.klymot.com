@@ -12,6 +12,7 @@
 import { renderQR } from './qr.js';
 import { serialiseStationState, pushState } from './url-state.js';
 import { trackEvent } from './analytics.js';
+import { TempChart } from './temp-chart.js';
 
 /** Injected by initDetailPanel; returns the current map-state hash string (no leading #). */
 let _getMapHash    = null;
@@ -29,6 +30,9 @@ let _lastFocused = null;
 let _currentIndexEntry = null;
 let _currentBuSprites  = null;
 let _currentLocationId = null;
+
+/** Active TempChart instances keyed by section name. Destroyed on panel close. */
+let _charts = {};
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -121,6 +125,9 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
   pushState(serialiseStationState(locationId));
   trackEvent('detail_open', { station_id: locationId });
 
+  // Destroy any charts from a previous panel before replacing innerHTML.
+  _destroyCharts();
+
   // Hide the map QR while the detail panel is open.
   document.getElementById('map-qr-container')?.style.setProperty('display', 'none');
 
@@ -161,6 +168,7 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
  */
 export function closeDetail() {
   if (!_overlay) return;
+  _destroyCharts();
   _overlay.hidden = true;
   _panel.innerHTML = '';
 
@@ -186,6 +194,43 @@ export function closeDetail() {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
+function _destroyCharts() {
+  for (const chart of Object.values(_charts)) chart?.destroy();
+  _charts = {};
+}
+
+function _initCharts() {
+  const locationId = _currentLocationId;
+  if (!locationId) return;
+
+  const SECTIONS = ['temp-qcu', 'temp-qcf'];
+  const PATHS    = ['qcu', 'qcf'];
+
+  SECTIONS.forEach((section, i) => {
+    const wrap = _panel.querySelector(`[data-section="${section}"] .chart-canvas-wrap`);
+    if (!wrap) return;
+
+    const chart = new TempChart(wrap);
+    _charts[section] = chart;
+
+    fetch(`data/${PATHS[i]}/${encodeURIComponent(locationId)}.csv`)
+      .then(r => r.ok ? r.text() : '')
+      .catch(() => '')
+      .then(text => chart.load(text));
+
+    // Mode toggle buttons within this section panel
+    _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(b => {
+          b.classList.toggle('active', b === btn);
+          b.setAttribute('aria-pressed', String(b === btn));
+        });
+        chart.setMode(btn.dataset.mode);
+      });
+    });
+  });
+}
+
 function _attachHandlers() {
   const closeBtn = _panel.querySelector('.detail-close');
   closeBtn?.addEventListener('click', closeDetail);
@@ -205,6 +250,9 @@ function _attachHandlers() {
   _panel.querySelectorAll('.pop-tab').forEach(tab => {
     tab.addEventListener('click', () => _switchPopTab(tab.dataset.tab));
   });
+
+  // Initialize temperature charts
+  _initCharts();
 }
 
 function _switchSectionTab(sectionName) {
@@ -219,6 +267,9 @@ function _switchSectionTab(sectionName) {
   _panel.querySelectorAll('.section-panel').forEach(p => {
     p.hidden = p.dataset.section !== sectionName;
   });
+
+  // Trigger chart resize — the panel had display:none so clientWidth was 0.
+  _charts[sectionName]?.resize();
 
   trackEvent('detail_tab_change', {
     station_id: _currentLocationId,
@@ -302,29 +353,52 @@ function _buMapWrap(mapDiv, ariaLabel) {
 }
 
 /**
- * Build the combined detail-sections block (Built-Up Surface + Population).
- * Either section is omitted when no sprites are available.
+ * Build the combined detail-sections block (temperature charts + Built-Up Surface + Population).
+ * Temperature sections are always rendered. BU/Pop are omitted when no sprites are available.
  */
 function _renderDataSections(indexEntry, sprites) {
   const buContent  = _buSectionContent(indexEntry, sprites);
   const popContent = _popSectionContent(indexEntry, sprites);
 
-  if (!buContent && !popContent) return '';
+  const tabs   = [];
+  const panels = [];
 
-  const buFirst = !!buContent;
+  // Temperature charts — always shown (chart handles no-data state internally)
+  tabs.push(`<button class="section-tab active" role="tab" data-section="temp-qcu" aria-selected="true">Unadjusted</button>`);
+  tabs.push(`<button class="section-tab" role="tab" data-section="temp-qcf" aria-selected="false">Adjusted</button>`);
+  panels.push(`<div class="section-panel" data-section="temp-qcu">${_tempChartPanel()}</div>`);
+  panels.push(`<div class="section-panel" data-section="temp-qcf" hidden>${_tempChartPanel()}</div>`);
 
-  const buTab  = buContent  ? `<button class="section-tab${buFirst ? ' active' : ''}" role="tab" data-section="bu-surface" aria-selected="${buFirst}">Built-Up Surface</button>` : '';
-  const popTab = popContent ? `<button class="section-tab${!buFirst ? ' active' : ''}" role="tab" data-section="population" aria-selected="${!buFirst}">Population</button>` : '';
-
-  const buPanel  = buContent  ? `<div class="section-panel" data-section="bu-surface"${buFirst ? '' : ' hidden'}>${buContent}</div>` : '';
-  const popPanel = popContent ? `<div class="section-panel" data-section="population"${buFirst ? ' hidden' : ''}>${popContent}</div>` : '';
+  if (buContent) {
+    tabs.push(`<button class="section-tab" role="tab" data-section="bu-surface" aria-selected="false">Built-Up Surface</button>`);
+    panels.push(`<div class="section-panel" data-section="bu-surface" hidden>${buContent}</div>`);
+  }
+  if (popContent) {
+    tabs.push(`<button class="section-tab" role="tab" data-section="population" aria-selected="false">Population</button>`);
+    panels.push(`<div class="section-panel" data-section="population" hidden>${popContent}</div>`);
+  }
 
   return `
     <div class="detail-sections">
       <div class="section-tabs" role="tablist" aria-label="Detail sections">
-        ${buTab}${popTab}
+        ${tabs.join('')}
       </div>
-      ${buPanel}${popPanel}
+      ${panels.join('')}
+    </div>`;
+}
+
+/** HTML scaffold for a temperature chart panel (chart is initialised in _initCharts). */
+function _tempChartPanel() {
+  return `
+    <div class="temp-chart-section">
+      <div class="chart-controls">
+        <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
+          <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
+          <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap"></div>
+      <p class="chart-hint">Scroll to zoom · Hover for temperature</p>
     </div>`;
 }
 
