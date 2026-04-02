@@ -2,6 +2,7 @@ import { getMap } from './map.js';
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _locations       = [];
+let _buSprite        = null;   // { cell, cols, rows } or null if not generated yet
 let _featureCollection = null;
 let _currentTheme    = 'dark';
 let _syncRetryTimer  = null;
@@ -37,6 +38,11 @@ export function getLocations() {
   return _locations;
 }
 
+/** Return the BU sprite descriptor { cell, cols, rows } or null if not yet generated. */
+export function getBuSprite() {
+  return _buSprite;
+}
+
 /**
  * Fetch index.json, add clustered GeoJSON source + 4 layers, wire click events.
  * Must be called after initMap().
@@ -55,8 +61,9 @@ export async function initMarkers(theme) {
   }
 
   const resp = await fetch('data/index.json');
-  const { locations } = await resp.json();
+  const { locations, bu_sprite } = await resp.json();
   _locations = locations;
+  _buSprite  = bu_sprite ?? null;
   _featureCollection = _toGeoJSON(locations);
   _updateStationCount();
 

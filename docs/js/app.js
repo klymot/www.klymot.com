@@ -1,6 +1,6 @@
 import { initMap, getMap, setProjection, getProjection, updateMapTheme, supportsProjection } from './map.js';
 import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
-import { initMarkers, setMarkersTheme, getLocations } from './markers.js';
+import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js';
 import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
 import { initMapQR } from './qr.js';
 import { initDetailPanel, openDetail, setReturnMode } from './detail-panel.js';
@@ -117,7 +117,8 @@ function init() {
       ? getCurrentTableHash
       : () => serialiseMapState(map, getProjection());
     setReturnMode(mode, getHash);
-    openDetail(e.detail.id);
+    const entry = getLocations().find(l => l.id === e.detail.id) ?? null;
+    openDetail(e.detail.id, entry, getBuSprite());
   });
 
   document.addEventListener('detail:closed', (e) => {

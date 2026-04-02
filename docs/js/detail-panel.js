@@ -2,9 +2,9 @@
  * Phase 4 — Detail Panel Overlay
  *
  * Public API:
- *   initDetailPanel(getMapHash)  — wire DOM + set map-hash callback; call once on startup
- *   openDetail(locationId)       — fetch + render station detail, update URL hash
- *   closeDetail()                — hide overlay, restore map URL hash
+ *   initDetailPanel(getMapHash)              — wire DOM + set map-hash callback; call once on startup
+ *   openDetail(locationId, entry, buSprite)  — fetch + render station detail, update URL hash
+ *   closeDetail()                            — hide overlay, restore map URL hash
  */
 
 import { renderQR } from './qr.js';
@@ -88,9 +88,14 @@ export function initDetailPanel(getMapHash) {
 /**
  * Open the detail panel for a location.
  * Shows loading shimmer immediately, then fetches and renders data.
- * @param {string} locationId
+ * Falls back to index entry data (with BU tile if available) when no detail
+ * JSON file exists.
+ *
+ * @param {string}      locationId
+ * @param {object|null} indexEntry  — station record from index.json (may be null)
+ * @param {object|null} buSprite    — { cell, cols, rows } sprite descriptor (may be null)
  */
-export function openDetail(locationId) {
+export function openDetail(locationId, indexEntry = null, buSprite = null) {
   if (!_overlay || !_panel) return;
 
   // Save the element that triggered the open so we can restore focus on close.
@@ -109,12 +114,8 @@ export function openDetail(locationId) {
       return r.json();
     })
     .then(data => {
-      _panel.innerHTML = _renderDetail(locationId, data);
-      const closeBtn = _panel.querySelector('.detail-close');
-      closeBtn?.addEventListener('click', closeDetail);
-      // Move focus into the dialog once content is ready.
-      closeBtn?.focus();
-
+      _panel.innerHTML = _renderDetail(locationId, data, indexEntry, buSprite);
+      _attachClose();
       // Render station QR code.
       const qrContainer = _panel.querySelector('.detail-qr .qr-code');
       const stationUrl =
@@ -122,10 +123,15 @@ export function openDetail(locationId) {
       renderQR(stationUrl, qrContainer, 120);
     })
     .catch(() => {
-      _panel.innerHTML = _renderNoData();
-      const closeBtn = _panel.querySelector('.detail-close');
-      closeBtn?.addEventListener('click', closeDetail);
-      closeBtn?.focus();
+      // No detail JSON — show what we know from the index entry.
+      _panel.innerHTML = _renderIndexDetail(locationId, indexEntry, buSprite);
+      _attachClose();
+      const qrContainer = _panel.querySelector('.detail-qr .qr-code');
+      if (qrContainer) {
+        const stationUrl =
+          `${window.location.origin}${window.location.pathname}#station=${encodeURIComponent(locationId)}`;
+        renderQR(stationUrl, qrContainer, 120);
+      }
     });
 }
 
@@ -152,6 +158,54 @@ export function closeDetail() {
   document.dispatchEvent(new CustomEvent('detail:closed', { detail: { returnTo } }));
 }
 
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+function _attachClose() {
+  const closeBtn = _panel.querySelector('.detail-close');
+  closeBtn?.addEventListener('click', closeDetail);
+  closeBtn?.focus();
+}
+
+/**
+ * Build a CSS background-position string for a BU sprite tile.
+ * Returns null if the entry or sprite descriptor is missing.
+ */
+const BU_ZOOM = 6;
+
+function _buTileStyle(indexEntry, buSprite) {
+  if (!buSprite || indexEntry?.bu_idx == null) return null;
+  const { cell, cols } = buSprite;
+  const col     = indexEntry.bu_idx % cols;
+  const row     = Math.floor(indexEntry.bu_idx / cols);
+  const display = cell * BU_ZOOM;
+  const bx      = -(col * display);
+  const by      = -(row * display);
+  const sw      = cols * display;
+  const sh      = buSprite.rows * display;
+  return `width:${display}px;height:${display}px;`
+    + `background-image:url('assets/bu-sprite.png');`
+    + `background-size:${sw}px ${sh}px;`
+    + `background-position:${bx}px ${by}px;`
+    + `background-repeat:no-repeat;`;
+}
+
+function _renderBuSection(indexEntry, buSprite) {
+  const style = _buTileStyle(indexEntry, buSprite);
+  if (!style) return '';
+  const pct5  = indexEntry.bu_5km  != null ? `${indexEntry.bu_5km.toFixed(1)}%` : '—';
+  const pct20 = indexEntry.bu_20km != null ? `${indexEntry.bu_20km.toFixed(1)}%` : '—';
+  return `
+    <div class="detail-divider"></div>
+    <div class="detail-bu">
+      <div class="detail-bu-label">Built-up surface — 20 km context</div>
+      <div class="detail-bu-map" style="${_esc(style)}" aria-label="Built-up surface map (20 km box)"></div>
+      <div class="detail-bu-scores">
+        <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(pct5)}</span></span>
+        <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(pct20)}</span></span>
+      </div>
+    </div>`;
+}
+
 // ── Private renderers ─────────────────────────────────────────────────────────
 
 function _renderShimmer() {
@@ -169,10 +223,14 @@ function _renderShimmer() {
   `;
 }
 
-function _renderDetail(locationId, data) {
+function _renderDetail(locationId, data, indexEntry, buSprite) {
   const vars = (data.variables ?? [])
     .map(v => `<span class="variable-tag">${_esc(v)}</span>`)
     .join('');
+
+  // Merge index entry for elevation/coords if detail JSON lacks them
+  const elevStr = data.elevation
+    ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—');
 
   return `
     <div class="detail-header">
@@ -189,7 +247,7 @@ function _renderDetail(locationId, data) {
       </div>
       <div class="meta-item">
         <span class="meta-label">Elevation</span>
-        <span class="meta-value">${_esc(data.elevation ?? '—')}</span>
+        <span class="meta-value">${_esc(elevStr)}</span>
       </div>
       <div class="meta-item">
         <span class="meta-label">Established</span>
@@ -203,6 +261,7 @@ function _renderDetail(locationId, data) {
     <div class="detail-divider"></div>
     <div class="detail-description">${_esc(data.description ?? '')}</div>
     ${vars ? `<div class="detail-variables">${vars}</div>` : ''}
+    ${_renderBuSection(indexEntry, buSprite)}
     <div class="detail-qr">
       <div class="qr-code"></div>
       <span class="qr-label">Share this station</span>
@@ -210,15 +269,48 @@ function _renderDetail(locationId, data) {
   `;
 }
 
-function _renderNoData() {
+/**
+ * Render a panel from index-only data (no detail JSON available).
+ * Shows all fields we have from the index: name, lat/lng, elevation, BU scores.
+ */
+function _renderIndexDetail(locationId, indexEntry, buSprite) {
+  const name    = indexEntry?.name ?? locationId;
+  const elevStr = indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—';
+  const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : '—';
+  const lngStr  = indexEntry?.lng  != null ? indexEntry.lng.toFixed(4)  : '—';
+  const catStr  = indexEntry?.category ?? '';
+
   return `
     <div class="detail-header">
       <div class="detail-header-text">
-        <div class="detail-name">No data available</div>
+        <div class="detail-category">${_esc(catStr)}</div>
+        <h2 class="detail-name">${_esc(name)}</h2>
       </div>
       <button class="detail-close" aria-label="Close panel" title="Close">×</button>
     </div>
-    <div class="detail-description">No detailed information is available for this location.</div>
+    <div class="detail-meta">
+      <div class="meta-item">
+        <span class="meta-label">Station ID</span>
+        <span class="meta-value">${_esc(locationId)}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Elevation</span>
+        <span class="meta-value">${_esc(elevStr)}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Latitude</span>
+        <span class="meta-value">${_esc(latStr)}</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Longitude</span>
+        <span class="meta-value">${_esc(lngStr)}</span>
+      </div>
+    </div>
+    ${_renderBuSection(indexEntry, buSprite)}
+    <div class="detail-qr">
+      <div class="qr-code"></div>
+      <span class="qr-label">Share this station</span>
+    </div>
   `;
 }
 

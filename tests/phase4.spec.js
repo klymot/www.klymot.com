@@ -238,8 +238,8 @@ test('AC2 – shimmer is replaced by content after the fetch resolves', async ({
 
 // ── AC3: Graceful fallback for missing detail file ────────────────────────────
 
-test('AC3 – overlay shows a fallback message when the detail file returns 404', async ({ page }) => {
-  // 'ghost-station' has no detail file.
+test('AC3 – overlay shows index data when the detail file returns 404', async ({ page }) => {
+  // 'ghost-station' has no detail file — panel should fall back to index entry data.
   await loadPage(page, { detailRoutes: { 'ghost-station': null } });
   await waitForMarkers(page);
 
@@ -248,7 +248,8 @@ test('AC3 – overlay shows a fallback message when the detail file returns 404'
 
   await page.waitForSelector('.detail-name', { timeout: 2000 });
   const name = await page.locator('.detail-name').textContent();
-  expect(name?.toLowerCase()).toContain('no data');
+  expect(name?.toLowerCase()).not.toContain('no data');
+  expect(name?.trim().length).toBeGreaterThan(0);
 });
 
 test('AC3 – fallback panel still shows a close button', async ({ page }) => {

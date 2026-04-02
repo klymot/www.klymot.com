@@ -13,7 +13,7 @@ import { serialiseTableState, pushState } from './url-state.js';
 
 const ROW_HEIGHT  = 44;
 const BUFFER_ROWS = 10;
-const COL_COUNT   = 10; // 9 data columns + 1 action column
+const COL_COUNT   = 12; // 11 data columns + 1 action column
 
 const COLUMNS = [
   { key: 'id',          label: 'ID',        defaultDir: 'asc',  numeric: false },
@@ -25,6 +25,8 @@ const COLUMNS = [
   { key: 'elevation_m', label: 'Elevation', defaultDir: 'desc', numeric: true  },
   { key: 'established', label: 'Est.',      defaultDir: 'asc',  numeric: true  },
   { key: 'network',     label: 'Network',   defaultDir: 'asc',  numeric: false },
+  { key: 'bu_5km',      label: 'BU 5 km',  defaultDir: 'desc', numeric: true  },
+  { key: 'bu_20km',     label: 'BU 20 km', defaultDir: 'desc', numeric: true  },
 ];
 
 let _allLocations = [];
@@ -245,6 +247,8 @@ function _renderRow(loc) {
     <td class="col-numeric">${elevStr}</td>
     <td class="col-numeric">${_esc(String(loc.established ?? '—'))}</td>
     <td class="col-network">${_esc(loc.network ?? '—')}</td>
+    <td class="col-numeric col-bu">${loc.bu_5km  != null ? `${loc.bu_5km.toFixed(1)}%`  : '—'}</td>
+    <td class="col-numeric col-bu">${loc.bu_20km != null ? `${loc.bu_20km.toFixed(1)}%` : '—'}</td>
     <td class="col-action"><button class="show-on-map-btn" title="Show on map" aria-label="Show on map">⊕</button></td>
   </tr>`;
 }
