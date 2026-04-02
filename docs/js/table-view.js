@@ -13,20 +13,22 @@ import { serialiseTableState, pushState } from './url-state.js';
 
 const ROW_HEIGHT  = 44;
 const BUFFER_ROWS = 10;
-const COL_COUNT   = 12; // 11 data columns + 1 action column
+const COL_COUNT   = 14; // 13 data columns + 1 action column
 
 const COLUMNS = [
-  { key: 'id',          label: 'ID',        defaultDir: 'asc',  numeric: false },
-  { key: 'name',        label: 'Name',      defaultDir: 'asc',  numeric: false },
-  { key: 'category',    label: 'Category',  defaultDir: 'asc',  numeric: false },
-  { key: 'country',     label: 'Country',   defaultDir: 'asc',  numeric: false },
-  { key: 'lat',         label: 'Latitude',  defaultDir: 'desc', numeric: true  },
-  { key: 'lng',         label: 'Longitude', defaultDir: 'asc',  numeric: true  },
-  { key: 'elevation_m', label: 'Elevation', defaultDir: 'desc', numeric: true  },
-  { key: 'established', label: 'Est.',      defaultDir: 'asc',  numeric: true  },
-  { key: 'network',     label: 'Network',   defaultDir: 'asc',  numeric: false },
-  { key: 'bu_5km',      label: 'BU 5 km',  defaultDir: 'desc', numeric: true  },
-  { key: 'bu_20km',     label: 'BU 20 km', defaultDir: 'desc', numeric: true  },
+  { key: 'id',           label: 'ID',        defaultDir: 'asc',  numeric: false },
+  { key: 'name',         label: 'Name',      defaultDir: 'asc',  numeric: false },
+  { key: 'category',     label: 'Category',  defaultDir: 'asc',  numeric: false },
+  { key: 'country',      label: 'Country',   defaultDir: 'asc',  numeric: false },
+  { key: 'lat',          label: 'Latitude',  defaultDir: 'desc', numeric: true  },
+  { key: 'lng',          label: 'Longitude', defaultDir: 'asc',  numeric: true  },
+  { key: 'elevation_m',  label: 'Elevation', defaultDir: 'desc', numeric: true  },
+  { key: 'established',  label: 'Est.',      defaultDir: 'asc',  numeric: true  },
+  { key: 'network',      label: 'Network',   defaultDir: 'asc',  numeric: false },
+  { key: 'bu_2020_1km',  label: 'BU 1 km',  defaultDir: 'desc', numeric: true  },
+  { key: 'bu_2020_5km',  label: 'BU 5 km',  defaultDir: 'desc', numeric: true  },
+  { key: 'bu_2020_20km', label: 'BU 20 km', defaultDir: 'desc', numeric: true  },
+  { key: 'bu_change',    label: 'BU Δ',      defaultDir: 'desc', numeric: true  },
 ];
 
 let _allLocations = [];
@@ -247,8 +249,10 @@ function _renderRow(loc) {
     <td class="col-numeric">${elevStr}</td>
     <td class="col-numeric">${_esc(String(loc.established ?? '—'))}</td>
     <td class="col-network">${_esc(loc.network ?? '—')}</td>
-    <td class="col-numeric col-bu">${loc.bu_5km  != null ? `${loc.bu_5km.toFixed(1)}%`  : '—'}</td>
-    <td class="col-numeric col-bu">${loc.bu_20km != null ? `${loc.bu_20km.toFixed(1)}%` : '—'}</td>
+    <td class="col-numeric col-bu">${loc.bu_2020_1km  != null ? `${loc.bu_2020_1km.toFixed(1)}%`  : '—'}</td>
+    <td class="col-numeric col-bu">${loc.bu_2020_5km  != null ? `${loc.bu_2020_5km.toFixed(1)}%`  : '—'}</td>
+    <td class="col-numeric col-bu">${loc.bu_2020_20km != null ? `${loc.bu_2020_20km.toFixed(1)}%` : '—'}</td>
+    <td class="col-numeric col-bu col-bu-change">${loc.bu_change != null ? `${loc.bu_change >= 0 ? '+' : ''}${loc.bu_change.toFixed(1)}%` : '—'}</td>
     <td class="col-action"><button class="show-on-map-btn" title="Show on map" aria-label="Show on map">⊕</button></td>
   </tr>`;
 }

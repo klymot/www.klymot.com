@@ -3,8 +3,10 @@
  *
  * Public API:
  *   initDetailPanel(getMapHash)              — wire DOM + set map-hash callback; call once on startup
- *   openDetail(locationId, entry, buSprite)  — fetch + render station detail, update URL hash
+ *   openDetail(locationId, entry, buSprites) — fetch + render station detail, update URL hash
  *   closeDetail()                            — hide overlay, restore map URL hash
+ *
+ * buSprites: { bu2020: { cell, cols, rows } | null, bu1975: { cell, cols, rows } | null }
  */
 
 import { renderQR } from './qr.js';
@@ -22,12 +24,20 @@ let _panel      = null;
 /** Element focused before the panel opened — restored on close. */
 let _lastFocused = null;
 
+/** Current index entry and sprite descriptors, used by the change-canvas renderer. */
+let _currentIndexEntry = null;
+let _currentBuSprites  = null;
+
+/** Cache of loaded sprite Image objects keyed by src URL. */
+const _imgCache = {};
+
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * Initialise the detail panel.
- * @param {function(): string} getMapHash  — returns serialiseMapState(…) for the active map
- */
+// Display zoom: 32 px × 5 = 160 px. Odd total makes 1-px CSS crosshair centre at 80 px.
+const BU_ZOOM = 5;
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /**
  * Tell the panel which view to return to when it closes.
  * @param {'map'|'table'} mode
@@ -93,10 +103,13 @@ export function initDetailPanel(getMapHash) {
  *
  * @param {string}      locationId
  * @param {object|null} indexEntry  — station record from index.json (may be null)
- * @param {object|null} buSprite    — { cell, cols, rows } sprite descriptor (may be null)
+ * @param {object|null} buSprites   — { bu2020, bu1975 } sprite descriptors (may be null)
  */
-export function openDetail(locationId, indexEntry = null, buSprite = null) {
+export function openDetail(locationId, indexEntry = null, buSprites = null) {
   if (!_overlay || !_panel) return;
+
+  _currentIndexEntry = indexEntry;
+  _currentBuSprites  = buSprites;
 
   // Save the element that triggered the open so we can restore focus on close.
   _lastFocused = document.activeElement;
@@ -114,8 +127,8 @@ export function openDetail(locationId, indexEntry = null, buSprite = null) {
       return r.json();
     })
     .then(data => {
-      _panel.innerHTML = _renderDetail(locationId, data, indexEntry, buSprite);
-      _attachClose();
+      _panel.innerHTML = _renderDetail(locationId, data, indexEntry, buSprites);
+      _attachHandlers();
       // Render station QR code.
       const qrContainer = _panel.querySelector('.detail-qr .qr-code');
       const stationUrl =
@@ -124,8 +137,8 @@ export function openDetail(locationId, indexEntry = null, buSprite = null) {
     })
     .catch(() => {
       // No detail JSON — show what we know from the index entry.
-      _panel.innerHTML = _renderIndexDetail(locationId, indexEntry, buSprite);
-      _attachClose();
+      _panel.innerHTML = _renderIndexDetail(locationId, indexEntry, buSprites);
+      _attachHandlers();
       const qrContainer = _panel.querySelector('.detail-qr .qr-code');
       if (qrContainer) {
         const stationUrl =
@@ -160,50 +173,231 @@ export function closeDetail() {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-function _attachClose() {
+function _attachHandlers() {
   const closeBtn = _panel.querySelector('.detail-close');
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
+
+  // BU tab switching
+  _panel.querySelectorAll('.bu-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchBuTab(tab.dataset.tab));
+  });
 }
 
-/**
- * Build a CSS background-position string for a BU sprite tile.
- * Returns null if the entry or sprite descriptor is missing.
- */
-const BU_ZOOM = 6;
+function _switchBuTab(tabName) {
+  _panel.querySelectorAll('.bu-tab').forEach(t => {
+    const active = t.dataset.tab === tabName;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
+  _panel.querySelectorAll('.bu-tab-panel').forEach(panel => {
+    panel.hidden = panel.dataset.panel !== tabName;
+    if (panel.dataset.panel === tabName && tabName === 'change') {
+      const canvas = panel.querySelector('canvas');
+      if (canvas && !canvas._rendered) {
+        canvas._rendered = true;
+        _renderChangeCanvas(canvas);
+      }
+    }
+  });
+}
 
-function _buTileStyle(indexEntry, buSprite) {
-  if (!buSprite || indexEntry?.bu_idx == null) return null;
-  const { cell, cols } = buSprite;
-  const col     = indexEntry.bu_idx % cols;
-  const row     = Math.floor(indexEntry.bu_idx / cols);
+// ── BU sprite tile helpers ────────────────────────────────────────────────────
+
+/**
+ * Build inline CSS for a sprite tile.
+ * @param {object} indexEntry   — location record from index.json
+ * @param {object} spriteDesc   — { cell, cols, rows }
+ * @param {string} idxKey       — e.g. 'bu_2020_idx'
+ * @param {string} spriteFile   — e.g. 'bu_2020_sprite.png'
+ */
+function _buTileStyle(indexEntry, spriteDesc, idxKey, spriteFile) {
+  if (!spriteDesc || indexEntry?.[idxKey] == null) return null;
+  const { cell, cols } = spriteDesc;
+  const col     = indexEntry[idxKey] % cols;
+  const row     = Math.floor(indexEntry[idxKey] / cols);
   const display = cell * BU_ZOOM;
   const bx      = -(col * display);
   const by      = -(row * display);
   const sw      = cols * display;
-  const sh      = buSprite.rows * display;
+  const sh      = spriteDesc.rows * display;
   return `width:${display}px;height:${display}px;`
-    + `background-image:url('assets/bu-sprite.png');`
+    + `background-image:url('assets/${spriteFile}');`
     + `background-size:${sw}px ${sh}px;`
     + `background-position:${bx}px ${by}px;`
     + `background-repeat:no-repeat;`;
 }
 
-function _renderBuSection(indexEntry, buSprite) {
-  const style = _buTileStyle(indexEntry, buSprite);
-  if (!style) return '';
-  const pct5  = indexEntry.bu_5km  != null ? `${indexEntry.bu_5km.toFixed(1)}%` : '—';
-  const pct20 = indexEntry.bu_20km != null ? `${indexEntry.bu_20km.toFixed(1)}%` : '—';
+/** Wrap a .detail-bu-map div with a 1-px CSS crosshair overlay. */
+function _buMapWrap(mapDiv, ariaLabel) {
+  return `<div class="detail-bu-wrap">
+    ${mapDiv}
+    <div class="detail-bu-crosshair" aria-hidden="true"></div>
+  </div>`;
+}
+
+function _renderBuSection(indexEntry, buSprites) {
+  const bu2020 = buSprites?.bu2020;
+  const bu1975 = buSprites?.bu1975;
+
+  const style2020 = _buTileStyle(indexEntry, bu2020, 'bu_2020_idx', 'bu_2020_sprite.png');
+  const style1975 = _buTileStyle(indexEntry, bu1975, 'bu_1975_idx', 'bu_1975_sprite.png');
+
+  if (!style2020 && !style1975) return '';
+
+  const display = (bu2020?.cell ?? bu1975?.cell ?? 32) * BU_ZOOM;
+
+  const has1975   = !!style1975;
+  // Show Change tab whenever both sprites are present — canvas diff is client-side
+  const hasChange = has1975 && !!style2020;
+
+  // ── Per-year score helpers ────────────────────────────────────────────────
+  function scorePct(val) { return val != null ? `${val.toFixed(1)}%` : '—'; }
+
+  function scoreRow(prefix) {
+    const s1km  = scorePct(indexEntry?.[`bu_${prefix}_1km`]);
+    const s5km  = scorePct(indexEntry?.[`bu_${prefix}_5km`]);
+    const s20km = scorePct(indexEntry?.[`bu_${prefix}_20km`]);
+    return `
+      <div class="detail-bu-scores">
+        <span class="bu-score"><span class="bu-score-label">1 km</span><span class="bu-score-value">${_esc(s1km)}</span></span>
+        <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(s5km)}</span></span>
+        <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(s20km)}</span></span>
+      </div>`;
+  }
+
+  function changeScoreRow() {
+    const raw = indexEntry?.bu_change;
+    const txt = raw != null ? `${raw >= 0 ? '+' : ''}${raw.toFixed(1)}%` : '—';
+    const cls = raw != null ? (raw > 0 ? ' bu-score-up' : raw < 0 ? ' bu-score-down' : '') : '';
+    return `
+      <div class="detail-bu-scores">
+        <span class="bu-score"><span class="bu-score-label">Δ 5 km</span><span class="bu-score-value${cls}">${_esc(txt)}</span></span>
+      </div>`;
+  }
+
+  const tabs = `
+    <div class="bu-tabs" role="tablist" aria-label="BU year">
+      <button class="bu-tab active" role="tab" data-tab="2020" aria-selected="true">2020</button>
+      ${has1975 ? `<button class="bu-tab" role="tab" data-tab="1975" aria-selected="false">1975</button>` : ''}
+      ${hasChange ? `<button class="bu-tab" role="tab" data-tab="change" aria-selected="false">Change</button>` : ''}
+    </div>`;
+
+  const panel2020 = style2020 ? `
+    <div class="bu-tab-panel" data-panel="2020">
+      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style2020)}" aria-label="Built-up surface 2020 (20 km box)"></div>`)}
+      ${scoreRow('2020')}
+    </div>` : '';
+
+  const panel1975 = has1975 ? `
+    <div class="bu-tab-panel" data-panel="1975" hidden>
+      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style1975)}" aria-label="Built-up surface 1975 (20 km box)"></div>`)}
+      ${scoreRow('1975')}
+    </div>` : '';
+
+  const panelChange = hasChange ? `
+    <div class="bu-tab-panel" data-panel="change" hidden>
+      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${display}" height="${display}" aria-label="Built-up surface change 1975–2020"></canvas>`)}
+      ${changeScoreRow()}
+    </div>` : '';
+
   return `
     <div class="detail-divider"></div>
     <div class="detail-bu">
       <div class="detail-bu-label">Built-up surface — 20 km context</div>
-      <div class="detail-bu-map" style="${_esc(style)}" aria-label="Built-up surface map (20 km box)"></div>
-      <div class="detail-bu-scores">
-        <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(pct5)}</span></span>
-        <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(pct20)}</span></span>
+      ${tabs}
+      <div class="bu-tab-panels">
+        ${panel2020}${panel1975}${panelChange}
       </div>
     </div>`;
+}
+
+// ── Change canvas ─────────────────────────────────────────────────────────────
+
+function _loadImg(src) {
+  if (!_imgCache[src]) {
+    _imgCache[src] = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload  = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+  return _imgCache[src];
+}
+
+async function _renderChangeCanvas(canvas) {
+  if (!canvas || !_currentIndexEntry || !_currentBuSprites) return;
+  const { bu2020, bu1975 } = _currentBuSprites;
+  if (!bu2020 || !bu1975) return;
+
+  const idx2020 = _currentIndexEntry.bu_2020_idx;
+  const idx1975 = _currentIndexEntry.bu_1975_idx;
+  if (idx2020 == null || idx1975 == null) return;
+
+  const cell    = bu2020.cell;
+  const display = cell * BU_ZOOM;
+
+  try {
+    const [img2020, img1975] = await Promise.all([
+      _loadImg('assets/bu_2020_sprite.png'),
+      _loadImg('assets/bu_1975_sprite.png'),
+    ]);
+
+    // Draw each sprite tile to an offscreen canvas
+    const draw = (img, spriteDesc, idx) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = display;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const col = idx % spriteDesc.cols;
+      const row = Math.floor(idx / spriteDesc.cols);
+      ctx.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, display, display);
+      return ctx.getImageData(0, 0, display, display).data;
+    };
+
+    const d2020 = draw(img2020, bu2020, idx2020);
+    const d1975 = draw(img1975, bu1975, idx1975);
+
+    canvas.width  = display;
+    canvas.height = display;
+    const ctx     = canvas.getContext('2d');
+    const imgData = ctx.createImageData(display, display);
+    const out     = imgData.data;
+
+    for (let i = 0; i < d2020.length; i += 4) {
+      // Use (R − B) as a monotone built-up proxy.
+      // Palette: 0% → (8,48,107) R-B = -99; 50%+ → (157,2,8) R-B = +149.
+      const v2 = d2020[i] - d2020[i + 2];
+      const v7 = d1975[i] - d1975[i + 2];
+      const diff = v2 - v7;
+
+      // Dead zone ±4 to avoid noise
+      if (diff > 4) {
+        const mag = Math.min(255, diff * 2);
+        out[i] = mag; out[i + 1] = 0; out[i + 2] = 0;
+      } else if (diff < -4) {
+        const mag = Math.min(255, -diff * 2);
+        out[i] = 0; out[i + 1] = 0; out[i + 2] = mag;
+      } else {
+        out[i] = 18; out[i + 1] = 18; out[i + 2] = 18;
+      }
+      out[i + 3] = 255;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  } catch (err) {
+    // If images fail to load (e.g. 1975 sprite not yet generated), show a message
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, display, display);
+    ctx.fillStyle = '#5a6880';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('1975 sprite not yet', display / 2, display / 2 - 8);
+    ctx.fillText('generated — run:', display / 2, display / 2 + 8);
+    ctx.fillText('generate_bu_tiles.py --year 1975', display / 2, display / 2 + 24);
+  }
 }
 
 // ── Private renderers ─────────────────────────────────────────────────────────
@@ -223,7 +417,7 @@ function _renderShimmer() {
   `;
 }
 
-function _renderDetail(locationId, data, indexEntry, buSprite) {
+function _renderDetail(locationId, data, indexEntry, buSprites) {
   const vars = (data.variables ?? [])
     .map(v => `<span class="variable-tag">${_esc(v)}</span>`)
     .join('');
@@ -261,7 +455,7 @@ function _renderDetail(locationId, data, indexEntry, buSprite) {
     <div class="detail-divider"></div>
     <div class="detail-description">${_esc(data.description ?? '')}</div>
     ${vars ? `<div class="detail-variables">${vars}</div>` : ''}
-    ${_renderBuSection(indexEntry, buSprite)}
+    ${_renderBuSection(indexEntry, buSprites)}
     <div class="detail-qr">
       <div class="qr-code"></div>
       <span class="qr-label">Share this station</span>
@@ -271,9 +465,8 @@ function _renderDetail(locationId, data, indexEntry, buSprite) {
 
 /**
  * Render a panel from index-only data (no detail JSON available).
- * Shows all fields we have from the index: name, lat/lng, elevation, BU scores.
  */
-function _renderIndexDetail(locationId, indexEntry, buSprite) {
+function _renderIndexDetail(locationId, indexEntry, buSprites) {
   const name    = indexEntry?.name ?? locationId;
   const elevStr = indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—';
   const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : '—';
@@ -306,7 +499,7 @@ function _renderIndexDetail(locationId, indexEntry, buSprite) {
         <span class="meta-value">${_esc(lngStr)}</span>
       </div>
     </div>
-    ${_renderBuSection(indexEntry, buSprite)}
+    ${_renderBuSection(indexEntry, buSprites)}
     <div class="detail-qr">
       <div class="qr-code"></div>
       <span class="qr-label">Share this station</span>
