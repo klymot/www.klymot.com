@@ -195,19 +195,20 @@ test('AC2 – station names appear in the Name column', async ({ page }) => {
   await switchToTable(page);
   await waitForRows(page);
 
-  const names = await page.locator('tr.station-row td:nth-child(2)').allTextContents();
-  expect(names).toContain('Mauna Loa');
-  expect(names).toContain('Reykjavík');
+  const names = await page.locator('tr.station-row .col-name-text').allTextContents();
+  expect(names.map(n => n.trim())).toContain('Mauna Loa');
+  expect(names.map(n => n.trim())).toContain('Reykjavík');
 });
 
-test('AC2 – category column renders a badge element', async ({ page }) => {
+test('AC2 – "show on map" button is inside the name column cell', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
   await switchToTable(page);
   await waitForRows(page);
 
-  const badgeCount = await page.locator('tr.station-row .category-badge').count();
-  expect(badgeCount).toBeGreaterThan(0);
+  // The map button must be a descendant of the second <td> (name cell).
+  const btnInNameCell = await page.locator('tr.station-row td:nth-child(2) .show-on-map-btn').count();
+  expect(btnInNameCell).toBeGreaterThan(0);
 });
 
 test('AC2 – latitude is formatted with N/S suffix', async ({ page }) => {
@@ -293,33 +294,37 @@ test('AC4 – typing in header search filters table by name', async ({ page }) =
   expect(rows).toBe(1);
 });
 
-test('AC4 – filter matches on country field', async ({ page }) => {
+test('AC4 – filter matches on station ID', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
   await switchToTable(page);
   await waitForRows(page);
 
-  await page.fill('#station-search-input', 'Iceland');
+  await page.fill('#station-search-input', 'reykjavik');
   await page.waitForTimeout(200);
 
   const rows = await page.locator('tr.station-row').count();
   expect(rows).toBe(1);
-  const name = await page.locator('tr.station-row td:nth-child(2)').textContent();
-  expect(name).toContain('Reykjavík');
+  const name = await page.locator('tr.station-row .col-name-text').textContent();
+  expect(name.trim()).toContain('Reykjavík');
 });
 
-test('AC4 – filter matches on network field', async ({ page }) => {
+test('AC4 – filter matches on station name prefix', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
   await switchToTable(page);
   await waitForRows(page);
 
-  await page.fill('#station-search-input', 'NOAA GML');
+  // 'Cape' matches only Cape Grim; 'South' matches only South Pole
+  await page.fill('#station-search-input', 'Cape');
   await page.waitForTimeout(200);
-
-  // mauna-loa and south-pole both have 'NOAA GML' in network
   const rows = await page.locator('tr.station-row').count();
-  expect(rows).toBeGreaterThanOrEqual(2);
+  expect(rows).toBe(1);
+
+  await page.fill('#station-search-input', 'South');
+  await page.waitForTimeout(200);
+  const rows2 = await page.locator('tr.station-row').count();
+  expect(rows2).toBeGreaterThanOrEqual(1);
 });
 
 test('AC4 – result count shows "X of Y stations" when filtered', async ({ page }) => {

@@ -291,9 +291,9 @@ test('AC2 – unsorted columns have aria-sort="none"', async ({ page }) => {
   await page.click('[data-view="table"]');
   await page.waitForSelector('#table-container:not([hidden])');
 
-  // Country is not the default sort column.
+  // Lng is not the default sort column.
   const ariaSort = await page.evaluate(() =>
-    document.querySelector('th[data-col="country"]')?.getAttribute('aria-sort')
+    document.querySelector('th[data-col="lng"]')?.getAttribute('aria-sort')
   );
   expect(ariaSort).toBe('none');
 });
