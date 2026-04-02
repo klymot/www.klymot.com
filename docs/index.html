@@ -71,20 +71,24 @@
         <table class="stations-table">
           <thead id="table-head">
             <tr>
-              <th data-col="id"          data-default-dir="asc"  data-label="ID"        class="col-id">ID</th>
-              <th data-col="name"        data-default-dir="asc"  data-label="Name">Name</th>
-              <th data-col="category"    data-default-dir="asc"  data-label="Category">Category</th>
-              <th data-col="country"     data-default-dir="asc"  data-label="Country">Country</th>
-              <th data-col="lat"         data-default-dir="desc" data-label="Latitude"  class="col-numeric">Latitude</th>
-              <th data-col="lng"         data-default-dir="asc"  data-label="Longitude" class="col-numeric col-lng">Longitude</th>
-              <th data-col="elevation_m" data-default-dir="desc" data-label="Elevation" class="col-numeric">Elevation</th>
-              <th data-col="established" data-default-dir="asc"  data-label="Est."      class="col-numeric">Est.</th>
-              <th data-col="network"     data-default-dir="asc"  data-label="Network"   class="col-network">Network</th>
-              <th data-col="bu_2020_1km"  data-default-dir="desc" data-label="BU 1 km"   class="col-numeric col-bu">BU 1 km</th>
-              <th data-col="bu_2020_5km"  data-default-dir="desc" data-label="BU 5 km"   class="col-numeric col-bu">BU 5 km</th>
-              <th data-col="bu_2020_20km" data-default-dir="desc" data-label="BU 20 km"  class="col-numeric col-bu">BU 20 km</th>
-              <th data-col="bu_change"    data-default-dir="desc" data-label="BU Δ"  class="col-numeric col-bu col-bu-change">BU Δ</th>
-              <th class="col-action" aria-label="Actions"></th>
+              <th data-col="id"                          data-default-dir="asc"  data-label="ID"           class="col-id">ID</th>
+              <th data-col="name"                        data-default-dir="asc"  data-label="Name"         class="col-name">Name</th>
+              <th data-col="lat"                         data-default-dir="desc" data-label="Lat"          class="col-numeric">Lat</th>
+              <th data-col="lng"                         data-default-dir="asc"  data-label="Lng"          class="col-numeric col-lng">Lng</th>
+              <th data-col="elevation_m"                 data-default-dir="desc" data-label="Elev."        class="col-numeric">Elev.</th>
+              <th data-col="bu_2020_1km"                 data-default-dir="desc" data-label="BU 1km"       class="col-numeric col-bu">BU 1km</th>
+              <th data-col="bu_2020_5km"                 data-default-dir="desc" data-label="BU 5km"       class="col-numeric col-bu">BU 5km</th>
+              <th data-col="bu_2020_20km"               data-default-dir="desc" data-label="BU 20km"      class="col-numeric col-bu">BU 20km</th>
+              <th data-col="bu_change"                   data-default-dir="desc" data-label="BU Δ"         class="col-numeric col-bu col-bu-change">BU Δ</th>
+              <th data-col="pop_2020_1km"               data-default-dir="desc" data-label="Pop 1km"      class="col-numeric col-pop">Pop 1km</th>
+              <th data-col="pop_2020_5km"               data-default-dir="desc" data-label="Pop 5km"      class="col-numeric col-pop">Pop 5km</th>
+              <th data-col="pop_2020_20km"              data-default-dir="desc" data-label="Pop 20km"     class="col-numeric col-pop">Pop 20km</th>
+              <th data-col="pop_change"                  data-default-dir="desc" data-label="Pop Δ"        class="col-numeric col-pop col-pop-change">Pop Δ</th>
+              <th data-col="ghcn_first_year"            data-default-dir="asc"  data-label="Start"        class="col-numeric col-year">Start</th>
+              <th data-col="ghcn_last_year"             data-default-dir="desc" data-label="End"           class="col-numeric col-year">End</th>
+              <th data-col="ghcn_longest_run_9_months"  data-default-dir="desc" data-label="Longest run"  class="col-numeric col-run">Longest run</th>
+              <th data-col="ghcn_qcu_slope_c_per_100yr" data-default-dir="desc" data-label="Unadj. trend" class="col-numeric col-trend">Unadj. trend</th>
+              <th data-col="ghcn_qcf_slope_c_per_100yr" data-default-dir="desc" data-label="Adj. trend"   class="col-numeric col-trend">Adj. trend</th>
             </tr>
           </thead>
           <tbody id="table-tbody"></tbody>

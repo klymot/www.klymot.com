@@ -13,23 +13,29 @@ import { serialiseTableState, pushState } from './url-state.js';
 
 const ROW_HEIGHT  = 44;
 const BUFFER_ROWS = 10;
-const COL_COUNT   = 14; // 13 data columns + 1 action column
 
 const COLUMNS = [
-  { key: 'id',           label: 'ID',        defaultDir: 'asc',  numeric: false },
-  { key: 'name',         label: 'Name',      defaultDir: 'asc',  numeric: false },
-  { key: 'category',     label: 'Category',  defaultDir: 'asc',  numeric: false },
-  { key: 'country',      label: 'Country',   defaultDir: 'asc',  numeric: false },
-  { key: 'lat',          label: 'Latitude',  defaultDir: 'desc', numeric: true  },
-  { key: 'lng',          label: 'Longitude', defaultDir: 'asc',  numeric: true  },
-  { key: 'elevation_m',  label: 'Elevation', defaultDir: 'desc', numeric: true  },
-  { key: 'established',  label: 'Est.',      defaultDir: 'asc',  numeric: true  },
-  { key: 'network',      label: 'Network',   defaultDir: 'asc',  numeric: false },
-  { key: 'bu_2020_1km',  label: 'BU 1 km',  defaultDir: 'desc', numeric: true  },
-  { key: 'bu_2020_5km',  label: 'BU 5 km',  defaultDir: 'desc', numeric: true  },
-  { key: 'bu_2020_20km', label: 'BU 20 km', defaultDir: 'desc', numeric: true  },
-  { key: 'bu_change',    label: 'BU Δ',      defaultDir: 'desc', numeric: true  },
+  { key: 'id',                          label: 'ID',           defaultDir: 'asc',  numeric: false },
+  { key: 'name',                        label: 'Name',         defaultDir: 'asc',  numeric: false },
+  { key: 'lat',                         label: 'Lat',          defaultDir: 'desc', numeric: true  },
+  { key: 'lng',                         label: 'Lng',          defaultDir: 'asc',  numeric: true  },
+  { key: 'elevation_m',                 label: 'Elev.',        defaultDir: 'desc', numeric: true  },
+  { key: 'bu_2020_1km',                 label: 'BU 1km',       defaultDir: 'desc', numeric: true  },
+  { key: 'bu_2020_5km',                 label: 'BU 5km',       defaultDir: 'desc', numeric: true  },
+  { key: 'bu_2020_20km',               label: 'BU 20km',      defaultDir: 'desc', numeric: true  },
+  { key: 'bu_change',                   label: 'BU Δ',         defaultDir: 'desc', numeric: true  },
+  { key: 'pop_2020_1km',               label: 'Pop 1km',      defaultDir: 'desc', numeric: true  },
+  { key: 'pop_2020_5km',               label: 'Pop 5km',      defaultDir: 'desc', numeric: true  },
+  { key: 'pop_2020_20km',              label: 'Pop 20km',     defaultDir: 'desc', numeric: true  },
+  { key: 'pop_change',                  label: 'Pop Δ',        defaultDir: 'desc', numeric: true  },
+  { key: 'ghcn_first_year',            label: 'Start',        defaultDir: 'asc',  numeric: true  },
+  { key: 'ghcn_last_year',             label: 'End',          defaultDir: 'desc', numeric: true  },
+  { key: 'ghcn_longest_run_9_months',  label: 'Longest run',  defaultDir: 'desc', numeric: true  },
+  { key: 'ghcn_qcu_slope_c_per_100yr', label: 'Unadj. trend', defaultDir: 'desc', numeric: true  },
+  { key: 'ghcn_qcf_slope_c_per_100yr', label: 'Adj. trend',   defaultDir: 'desc', numeric: true  },
 ];
+
+const COL_COUNT = COLUMNS.length; // all data columns; no separate action column
 
 let _allLocations = [];
 let _filtered     = [];
@@ -77,7 +83,7 @@ export function initTableView(locations) {
 }
 
 export function showTable({ sortColumn, sortDirection, syncUrl = true } = {}) {
-  if (sortColumn  !== undefined) _sortCol = sortColumn;
+  if (sortColumn    !== undefined) _sortCol = sortColumn;
   if (sortDirection !== undefined) _sortDir = sortDirection;
   _visible = true;
 
@@ -87,7 +93,6 @@ export function showTable({ sortColumn, sortDirection, syncUrl = true } = {}) {
 
   if (_container) _container.hidden = false;
 
-  // Mark Table button active; clear Mercator/Globe active states.
   document.querySelectorAll('.view-btn').forEach(btn =>
     btn.classList.toggle('active', btn.dataset.view === 'table')
   );
@@ -109,7 +114,6 @@ export function hideTable() {
 
   if (_container) _container.hidden = true;
 
-  // Remove active from Table button; app.js will set the correct projection button.
   document.querySelector('.view-btn[data-view="table"]')?.classList.remove('active');
 
   document.dispatchEvent(new CustomEvent('table:hidden'));
@@ -143,9 +147,8 @@ function _applyFilterAndSort() {
   const q = _filterText.toLowerCase();
   _filtered = q
     ? _allLocations.filter(loc =>
-        (loc.name    ?? '').toLowerCase().includes(q) ||
-        (loc.country ?? '').toLowerCase().includes(q) ||
-        (loc.network ?? '').toLowerCase().includes(q)
+        (loc.id   ?? '').toLowerCase().includes(q) ||
+        (loc.name ?? '').toLowerCase().includes(q)
       )
     : _allLocations.slice();
 
@@ -233,27 +236,53 @@ function _renderWindow() {
   });
 }
 
+// ── Formatters ─────────────────────────────────────────────────────────────────
+
+function _fmtBu(v)  { return v  != null ? `${v.toFixed(1)}%`  : '—'; }
+function _fmtBuD(v) { return v  != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—'; }
+function _fmtPop(v) { return v  != null ? v.toLocaleString()  : '—'; }
+function _fmtPopD(v){ return v  != null ? `${v >= 0 ? '+' : ''}${v.toLocaleString()}` : '—'; }
+function _fmtTrend(v) {
+  if (v == null) return '—';
+  const s = v >= 0 ? '+' : '−';
+  return `${s}${Math.abs(v).toFixed(2)}°`;
+}
+
 function _renderRow(loc) {
   const latStr  = loc.lat  != null ? `${Math.abs(loc.lat).toFixed(2)}°${loc.lat  >= 0 ? 'N' : 'S'}` : '—';
   const lngStr  = loc.lng  != null ? `${Math.abs(loc.lng).toFixed(2)}°${loc.lng  >= 0 ? 'E' : 'W'}` : '—';
   const elevStr = loc.elevation_m != null ? `${Number(loc.elevation_m).toLocaleString()}m` : '—';
-  const cat     = _esc(loc.category ?? '');
+
+  // Trend sign colours applied via class
+  const quClass = loc.ghcn_qcu_slope_c_per_100yr != null
+    ? (loc.ghcn_qcu_slope_c_per_100yr > 0 ? ' trend-up' : loc.ghcn_qcu_slope_c_per_100yr < 0 ? ' trend-down' : '')
+    : '';
+  const qfClass = loc.ghcn_qcf_slope_c_per_100yr != null
+    ? (loc.ghcn_qcf_slope_c_per_100yr > 0 ? ' trend-up' : loc.ghcn_qcf_slope_c_per_100yr < 0 ? ' trend-down' : '')
+    : '';
 
   return `<tr data-id="${_esc(loc.id)}" data-lat="${_esc(String(loc.lat ?? ''))}" data-lng="${_esc(String(loc.lng ?? ''))}" class="station-row" tabindex="0">
     <td class="col-id">${_esc(loc.id ?? '')}</td>
-    <td>${_esc(loc.name ?? '')}</td>
-    <td><span class="category-badge cat-${cat}">${cat}</span></td>
-    <td>${_esc(loc.country ?? '—')}</td>
+    <td class="col-name-cell">
+      <span class="col-name-text">${_esc(loc.name ?? '')}</span>
+      <button class="show-on-map-btn" title="Show on map" aria-label="Show ${_esc(loc.name ?? loc.id ?? '')} on map">⊕</button>
+    </td>
     <td class="col-numeric">${latStr}</td>
     <td class="col-numeric col-lng">${lngStr}</td>
     <td class="col-numeric">${elevStr}</td>
-    <td class="col-numeric">${_esc(String(loc.established ?? '—'))}</td>
-    <td class="col-network">${_esc(loc.network ?? '—')}</td>
-    <td class="col-numeric col-bu">${loc.bu_2020_1km  != null ? `${loc.bu_2020_1km.toFixed(1)}%`  : '—'}</td>
-    <td class="col-numeric col-bu">${loc.bu_2020_5km  != null ? `${loc.bu_2020_5km.toFixed(1)}%`  : '—'}</td>
-    <td class="col-numeric col-bu">${loc.bu_2020_20km != null ? `${loc.bu_2020_20km.toFixed(1)}%` : '—'}</td>
-    <td class="col-numeric col-bu col-bu-change">${loc.bu_change != null ? `${loc.bu_change >= 0 ? '+' : ''}${loc.bu_change.toFixed(1)}%` : '—'}</td>
-    <td class="col-action"><button class="show-on-map-btn" title="Show on map" aria-label="Show on map">⊕</button></td>
+    <td class="col-numeric col-bu">${_fmtBu(loc.bu_2020_1km)}</td>
+    <td class="col-numeric col-bu">${_fmtBu(loc.bu_2020_5km)}</td>
+    <td class="col-numeric col-bu">${_fmtBu(loc.bu_2020_20km)}</td>
+    <td class="col-numeric col-bu col-bu-change">${_fmtBuD(loc.bu_change)}</td>
+    <td class="col-numeric col-pop">${_fmtPop(loc.pop_2020_1km)}</td>
+    <td class="col-numeric col-pop">${_fmtPop(loc.pop_2020_5km)}</td>
+    <td class="col-numeric col-pop">${_fmtPop(loc.pop_2020_20km)}</td>
+    <td class="col-numeric col-pop col-pop-change">${_fmtPopD(loc.pop_change)}</td>
+    <td class="col-numeric col-year">${loc.ghcn_first_year ?? '—'}</td>
+    <td class="col-numeric col-year">${loc.ghcn_last_year  ?? '—'}</td>
+    <td class="col-numeric col-run">${loc.ghcn_longest_run_9_months ?? '—'}</td>
+    <td class="col-numeric col-trend${quClass}">${_fmtTrend(loc.ghcn_qcu_slope_c_per_100yr)}</td>
+    <td class="col-numeric col-trend${qfClass}">${_fmtTrend(loc.ghcn_qcf_slope_c_per_100yr)}</td>
   </tr>`;
 }
 

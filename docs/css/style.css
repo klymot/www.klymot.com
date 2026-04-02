@@ -973,16 +973,7 @@ body {
   );
 }
 
-/* ── Table BU columns ─────────────────────────────────────────────── */
-
-.col-bu {
-  width: 5.5rem;
-}
-
-.col-bu-change {
-  width: 5rem;
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
-}
+/* (BU column widths defined with table column styles below) */
 
 /* ── Loading shimmer ──────────────────────────────────────────────── */
 
@@ -1261,58 +1252,65 @@ body {
   white-space: nowrap;
 }
 
-.col-action {
-  width: 2.5rem;
-  text-align: center;
-  padding: 0 0.25rem;
+/* Name column: text + inline map button side by side */
+.col-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 16rem;
+}
+
+.col-name-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .show-on-map-btn {
+  flex-shrink: 0;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
-  padding: 0.25rem;
+  font-size: 0.9rem;
+  padding: 0.1875rem 0.25rem;
   border-radius: 0.25rem;
   transition: color 0.15s, background 0.15s;
   line-height: 1;
+  opacity: 0.5;
 }
 
-.show-on-map-btn:hover {
+.station-row:hover .show-on-map-btn,
+.show-on-map-btn:focus {
+  opacity: 1;
   color: var(--accent-primary);
   background: rgba(212, 168, 85, 0.12);
 }
 
-.category-badge {
-  display: inline-block;
-  padding: 0.125rem 0.5rem;
-  border-radius: 1rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: capitalize;
-}
+/* ── Table BU columns ─────────────────────────────────────────────── */
 
-.cat-observatory {
-  background: rgba(92, 168, 196, 0.15);
-  color: #5ca8c4;
-}
+.col-bu       { width: 4.5rem; }
+.col-bu-change { width: 4rem; }
 
-[data-theme="light"] .cat-observatory {
-  background: rgba(30, 110, 144, 0.12);
-  color: #1e6e90;
-}
+/* ── Table population columns ─────────────────────────────────────── */
 
-.cat-station {
-  background: rgba(212, 168, 85, 0.15);
-  color: var(--accent-primary);
-}
+.col-pop        { width: 5rem; }
+.col-pop-change { width: 4.5rem; }
+
+/* ── GHCN coverage / trend columns ────────────────────────────────── */
+
+.col-year  { width: 3.5rem; }
+.col-run   { width: 6rem; }
+.col-trend { width: 6.5rem; }
+
+.trend-up   { color: #e05050; }
+.trend-down { color: #5090e0; }
 
 /* Responsive: hide less important columns on narrow screens */
 @media (max-width: 767px) {
-  .col-lng,
-  .col-network {
+  .col-lng {
     display: none;
   }
 }
