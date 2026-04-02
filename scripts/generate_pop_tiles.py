@@ -55,6 +55,12 @@ from rasterio.enums import Resampling
 from rasterio.windows import from_bounds
 from pyproj import Transformer
 
+if __package__ in (None, ''):
+    sys.path.append(str(Path(__file__).resolve().parent))
+    from json_utils import write_sorted_json
+else:
+    from .json_utils import write_sorted_json
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 REPO_ROOT  = Path(__file__).resolve().parent.parent
@@ -413,8 +419,7 @@ def main() -> None:
         print(f'Computed pop_change for {n_change} stations (pop_2020_5km − pop_1975_5km)')
 
     print(f'Updating  → {INDEX_PATH}')
-    with open(INDEX_PATH, 'w') as fh:
-        json.dump(index, fh, indent=2)
+    write_sorted_json(INDEX_PATH, index)
 
     print('\nDone.')
 
