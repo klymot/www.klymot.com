@@ -890,6 +890,11 @@ body {
   overflow: hidden;
 }
 
+/* Heatmap needs more vertical space for 12 month rows. */
+.chart-canvas-wrap.heatmap {
+  height: 272px;
+}
+
 .temp-chart-canvas {
   display: block;
   /* width/height set via JS */
@@ -922,6 +927,55 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+}
+
+/* ── Heatmap colour-scale legend ──────────────────────────────────── */
+
+.chart-heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
+.chart-heat-legend[hidden] {
+  display: none;
+}
+
+.heat-label {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 3.5rem;
+}
+
+.heat-cold-label { text-align: right; }
+.heat-hot-label  { text-align: left;  }
+
+/*
+ * Gradient: cold blue → near-black (dark mode) / near-white (light mode) → hot red.
+ * Mirrors the _heatColor() function in temp-chart.js exactly.
+ */
+.heat-legend-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 3px;
+  /* Dark mode default */
+  background: linear-gradient(to right,
+    rgb(10,  50, 220),   /* cold  */
+    rgb(10,  16,  24),   /* mid — near-black (panel bg dark) */
+    rgb(220, 25,  10)    /* hot   */
+  );
+  border: 1px solid var(--border-color);
+}
+
+[data-theme="light"] .heat-legend-bar {
+  background: linear-gradient(to right,
+    rgb(10,  50, 220),    /* cold  */
+    rgb(244, 240, 232),   /* mid — near-white (panel bg light) */
+    rgb(220, 25,  10)     /* hot   */
+  );
 }
 
 /* ── Table BU columns ─────────────────────────────────────────────── */

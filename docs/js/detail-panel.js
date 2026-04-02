@@ -395,9 +395,15 @@ function _tempChartPanel() {
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
           <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
+          <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
         </div>
       </div>
       <div class="chart-canvas-wrap"></div>
+      <div class="chart-heat-legend" hidden aria-label="Temperature colour scale">
+        <span class="heat-cold-label heat-label">—</span>
+        <div class="heat-legend-bar" aria-hidden="true"></div>
+        <span class="heat-hot-label heat-label">—</span>
+      </div>
       <p class="chart-hint">Scroll to zoom · Hover for temperature</p>
     </div>`;
 }
