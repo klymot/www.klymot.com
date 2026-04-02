@@ -1396,6 +1396,47 @@ body {
   text-decoration: underline;
 }
 
+/* ── Cookie Consent Banner ───────────────────────────────────────── */
+
+.cookie-banner {
+  position: fixed;
+  bottom: 1.875rem; /* sits above the footer */
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+  animation: slideUpBanner 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.cookie-banner[hidden] {
+  display: none;
+}
+
+@keyframes slideUpBanner {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.cookie-banner-text {
+  flex: 1;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.cookie-banner-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 /* ── Mapbox GL overrides ─────────────────────────────────────────── */
 
 .mapboxgl-ctrl-logo,

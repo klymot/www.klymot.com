@@ -6,10 +6,12 @@ import { initMapQR } from './qr.js';
 import { initDetailPanel, openDetail, setReturnMode } from './detail-panel.js';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
 import { initSourcesPanel, toggleSources } from './sources-panel.js';
+import { initConsent } from './consent.js';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
   initTheme();
+  initConsent();
 
   const map = initMap(getTheme());
 
