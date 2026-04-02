@@ -20,6 +20,6 @@ export default defineConfig({
     command: 'python3 -m http.server 8787',
     url: 'http://localhost:8787',
     reuseExistingServer: true,
-    cwd: '.',
+    cwd: './content',
   },
 });
