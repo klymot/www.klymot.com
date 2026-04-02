@@ -264,8 +264,10 @@ function _renderRow(loc) {
   return `<tr data-id="${_esc(loc.id)}" data-lat="${_esc(String(loc.lat ?? ''))}" data-lng="${_esc(String(loc.lng ?? ''))}" class="station-row" tabindex="0">
     <td class="col-id">${_esc(loc.id ?? '')}</td>
     <td class="col-name-cell">
-      <span class="col-name-text">${_esc(loc.name ?? '')}</span>
-      <button class="show-on-map-btn" title="Show on map" aria-label="Show ${_esc(loc.name ?? loc.id ?? '')} on map">⊕</button>
+      <div class="col-name-flex">
+        <span class="col-name-text">${_esc(loc.name ?? '')}</span>
+        <button class="show-on-map-btn" title="Show on map" aria-label="Show ${_esc(loc.name ?? loc.id ?? '')} on map">⊕</button>
+      </div>
     </td>
     <td class="col-numeric">${latStr}</td>
     <td class="col-numeric col-lng">${lngStr}</td>

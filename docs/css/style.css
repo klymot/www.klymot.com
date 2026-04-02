@@ -1254,11 +1254,14 @@ body {
 
 /* Name column: text + inline map button side by side */
 .col-name-cell {
+  max-width: 16rem;
+}
+
+.col-name-flex {
   display: flex;
   align-items: center;
   gap: 0.375rem;
   min-width: 0;
-  max-width: 16rem;
 }
 
 .col-name-text {
