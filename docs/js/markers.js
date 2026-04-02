@@ -2,7 +2,7 @@ import { getMap } from './map.js';
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _locations       = [];
-let _buSprites       = { bu2020: null, bu1975: null };  // sprite descriptors by year
+let _buSprites       = { bu2020: null, bu1975: null, pop2020: null, pop1975: null };  // sprite descriptors by year
 let _featureCollection = null;
 let _currentTheme    = 'dark';
 let _syncRetryTimer  = null;
@@ -38,7 +38,7 @@ export function getLocations() {
   return _locations;
 }
 
-/** Return BU sprite descriptors { bu2020, bu1975 } (either may be null if not generated). */
+/** Return sprite descriptors { bu2020, bu1975, pop2020, pop1975 } (any may be null if not generated). */
 export function getBuSprite() {
   return _buSprites;
 }
@@ -61,9 +61,14 @@ export async function initMarkers(theme) {
   }
 
   const resp = await fetch('data/index.json');
-  const { locations, bu_2020_sprite, bu_1975_sprite } = await resp.json();
+  const { locations, bu_2020_sprite, bu_1975_sprite, pop_2020_sprite, pop_1975_sprite } = await resp.json();
   _locations = locations;
-  _buSprites = { bu2020: bu_2020_sprite ?? null, bu1975: bu_1975_sprite ?? null };
+  _buSprites = {
+    bu2020:  bu_2020_sprite  ?? null,
+    bu1975:  bu_1975_sprite  ?? null,
+    pop2020: pop_2020_sprite ?? null,
+    pop1975: pop_1975_sprite ?? null,
+  };
   _featureCollection = _toGeoJSON(locations);
   _updateStationCount();
 

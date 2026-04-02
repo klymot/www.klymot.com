@@ -710,6 +710,135 @@ body {
 .bu-score-up   { color: #e05050; }
 .bu-score-down { color: #5090e0; }
 
+/* ── Population year tabs (share visual style with .bu-tab) ───────── */
+
+.pop-tab {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.pop-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.pop-tab.active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-text);
+  border-color: var(--btn-active-bg);
+}
+
+.pop-tab-panel {
+  display: flex;
+  flex-direction: row;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.pop-tab-panel[hidden] {
+  display: none;
+}
+
+/* ── Population score right column (legend + density scores) ───────── */
+
+.pop-score-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: flex-start;
+}
+
+/* ── Population density colour gradient legend ─────────────────────── */
+/*
+ * Gradient stops match generate_pop_tiles.py PALETTE, placed on a
+ * log₁₀ scale (0–10 000 people/km²):
+ *   0  →  0%       1  →  1%      10  →  26%
+ *  50  → 42%     200  → 56%     500  → 65%
+ * 2000 → 77%    5000  → 86%   10000  → 100%
+ */
+.pop-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Change canvas legend: blue (decrease) → dark-grey (no change) → red (increase).
+ * Saturation represents ~10 pp built-up change or ~1 000 people/km² respectively. */
+.change-legend-bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right,
+    rgb(0, 0, 255)    0%,
+    rgb(18, 18, 18)  50%,
+    rgb(255, 0, 0)  100%
+  );
+}
+
+/*
+ * BU gradient stops match generate_bu_tiles.py PALETTE on a log scale
+ * (log base using log(x+0.1) to handle x=0, range 0–50% built-up):
+ *   0%   →  0%     0.3% → 22%     1% → 39%     2% → 49%
+ *   3%   → 55%     6%   → 66%    12% → 77%    50% → 100%
+ */
+.bu-legend-bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right,
+    rgb(8,48,107)    0%,
+    rgb(29,78,137)   22%,
+    rgb(33,113,181)  39%,
+    rgb(86,177,247)  49%,
+    rgb(247,209,61)  55%,
+    rgb(248,150,30)  66%,
+    rgb(220,47,2)    77%,
+    rgb(157,2,8)     100%
+  );
+}
+
+.pop-legend-bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right,
+    rgb(15,15,25)    0%,
+    rgb(25,40,100)   1%,
+    rgb(45,85,175)   26%,
+    rgb(55,150,175)  42%,
+    rgb(80,190,110)  56%,
+    rgb(195,205,60)  65%,
+    rgb(240,130,30)  77%,
+    rgb(220,20,10)   86%,
+    rgb(180,0,8)     100%
+  );
+}
+
+.pop-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 160px;
+  font-size: 0.625rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  color: var(--text-muted);
+}
+
+.pop-legend-caption {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 /* ── Table BU columns ─────────────────────────────────────────────── */
 
 .col-bu {
@@ -1255,6 +1384,16 @@ body {
   font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.45;
+}
+
+.sources-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sources-link:hover {
+  text-decoration: underline;
 }
 
 /* ── Mapbox GL overrides ─────────────────────────────────────────── */

@@ -3,10 +3,10 @@
  *
  * Public API:
  *   initDetailPanel(getMapHash)              — wire DOM + set map-hash callback; call once on startup
- *   openDetail(locationId, entry, buSprites) — fetch + render station detail, update URL hash
+ *   openDetail(locationId, entry, sprites)   — fetch + render station detail, update URL hash
  *   closeDetail()                            — hide overlay, restore map URL hash
  *
- * buSprites: { bu2020: { cell, cols, rows } | null, bu1975: { cell, cols, rows } | null }
+ * sprites: { bu2020, bu1975, pop2020, pop1975 } — any may be null if not yet generated
  */
 
 import { renderQR } from './qr.js';
@@ -191,9 +191,14 @@ function _attachHandlers() {
     tab.addEventListener('click', () => _switchSectionTab(tab.dataset.section));
   });
 
-  // BU tab switching
+  // BU year tab switching
   _panel.querySelectorAll('.bu-tab').forEach(tab => {
     tab.addEventListener('click', () => _switchBuTab(tab.dataset.tab));
+  });
+
+  // Population year tab switching
+  _panel.querySelectorAll('.pop-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchPopTab(tab.dataset.tab));
   });
 }
 
@@ -221,6 +226,24 @@ function _switchBuTab(tabName) {
       if (canvas && !canvas._rendered) {
         canvas._rendered = true;
         _renderChangeCanvas(canvas);
+      }
+    }
+  });
+}
+
+function _switchPopTab(tabName) {
+  _panel.querySelectorAll('.pop-tab').forEach(t => {
+    const active = t.dataset.tab === tabName;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+  });
+  _panel.querySelectorAll('.pop-tab-panel').forEach(panel => {
+    panel.hidden = panel.dataset.panel !== tabName;
+    if (panel.dataset.panel === tabName && tabName === 'change') {
+      const canvas = panel.querySelector('canvas');
+      if (canvas && !canvas._rendered) {
+        canvas._rendered = true;
+        _renderPopChangeCanvas(canvas);
       }
     }
   });
@@ -264,9 +287,36 @@ function _buMapWrap(mapDiv, ariaLabel) {
   </div>`;
 }
 
-function _renderBuSection(indexEntry, buSprites) {
-  const bu2020 = buSprites?.bu2020;
-  const bu1975 = buSprites?.bu1975;
+/**
+ * Build the combined detail-sections block (Built-Up Surface + Population).
+ * Either section is omitted when no sprites are available.
+ */
+function _renderDataSections(indexEntry, sprites) {
+  const buContent  = _buSectionContent(indexEntry, sprites);
+  const popContent = _popSectionContent(indexEntry, sprites);
+
+  if (!buContent && !popContent) return '';
+
+  const buFirst = !!buContent;
+
+  const buTab  = buContent  ? `<button class="section-tab${buFirst ? ' active' : ''}" role="tab" data-section="bu-surface" aria-selected="${buFirst}">Built-Up Surface</button>` : '';
+  const popTab = popContent ? `<button class="section-tab${!buFirst ? ' active' : ''}" role="tab" data-section="population" aria-selected="${!buFirst}">Population</button>` : '';
+
+  const buPanel  = buContent  ? `<div class="section-panel" data-section="bu-surface"${buFirst ? '' : ' hidden'}>${buContent}</div>` : '';
+  const popPanel = popContent ? `<div class="section-panel" data-section="population"${buFirst ? ' hidden' : ''}>${popContent}</div>` : '';
+
+  return `
+    <div class="detail-sections">
+      <div class="section-tabs" role="tablist" aria-label="Detail sections">
+        ${buTab}${popTab}
+      </div>
+      ${buPanel}${popPanel}
+    </div>`;
+}
+
+function _buSectionContent(indexEntry, sprites) {
+  const bu2020 = sprites?.bu2020;
+  const bu1975 = sprites?.bu1975;
 
   const style2020 = _buTileStyle(indexEntry, bu2020, 'bu_2020_idx', 'bu_2020_sprite.png');
   const style1975 = _buTileStyle(indexEntry, bu1975, 'bu_1975_idx', 'bu_1975_sprite.png');
@@ -274,33 +324,68 @@ function _renderBuSection(indexEntry, buSprites) {
   if (!style2020 && !style1975) return '';
 
   const display = (bu2020?.cell ?? bu1975?.cell ?? 32) * BU_ZOOM;
-
   const has1975   = !!style1975;
-  // Show Change tab whenever both sprites are present — canvas diff is client-side
   const hasChange = has1975 && !!style2020;
 
-  // ── Per-year score helpers ────────────────────────────────────────────────
   function scorePct(val) { return val != null ? `${val.toFixed(1)}%` : '—'; }
+
+  // Gradient legend matching generate_bu_tiles.py PALETTE, stops on log scale
+  const buLegend = `
+    <div class="pop-legend">
+      <div class="bu-legend-bar" aria-hidden="true"></div>
+      <div class="pop-legend-labels" aria-hidden="true">
+        <span>0</span><span>1%</span><span>6%</span><span>50%+</span>
+      </div>
+      <div class="pop-legend-caption">% built-up</div>
+    </div>`;
 
   function scoreRow(prefix) {
     const s1km  = scorePct(indexEntry?.[`bu_${prefix}_1km`]);
     const s5km  = scorePct(indexEntry?.[`bu_${prefix}_5km`]);
     const s20km = scorePct(indexEntry?.[`bu_${prefix}_20km`]);
     return `
-      <div class="detail-bu-scores">
-        <span class="bu-score"><span class="bu-score-label">1 km</span><span class="bu-score-value">${_esc(s1km)}</span></span>
-        <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(s5km)}</span></span>
-        <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(s20km)}</span></span>
+      <div class="pop-score-col">
+        ${buLegend}
+        <div class="detail-bu-scores">
+          <span class="bu-score"><span class="bu-score-label">1 km</span><span class="bu-score-value">${_esc(s1km)}</span></span>
+          <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(s5km)}</span></span>
+          <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(s20km)}</span></span>
+        </div>
       </div>`;
   }
 
+  const changeLegend = `
+    <div class="pop-legend">
+      <div class="change-legend-bar" aria-hidden="true"></div>
+      <div class="pop-legend-labels" aria-hidden="true">
+        <span class="change-label-low">−</span><span>0</span><span class="change-label-high">+</span>
+      </div>
+      <div class="pop-legend-caption">change in % built-up</div>
+    </div>`;
+
   function changeScoreRow() {
-    const raw = indexEntry?.bu_change;
-    const txt = raw != null ? `${raw >= 0 ? '+' : ''}${raw.toFixed(1)}%` : '—';
-    const cls = raw != null ? (raw > 0 ? ' bu-score-up' : raw < 0 ? ' bu-score-down' : '') : '';
+    function delta(suffix) {
+      const v2020 = indexEntry?.[`bu_2020_${suffix}`];
+      const v1975 = indexEntry?.[`bu_1975_${suffix}`];
+      if (v2020 == null || v1975 == null) return null;
+      return v2020 - v1975;
+    }
+    function fmt(d) {
+      if (d == null) return '—';
+      return `${d >= 0 ? '+' : ''}${d.toFixed(1)}%`;
+    }
+    function cls(d) {
+      return d == null ? '' : d > 0 ? ' bu-score-up' : d < 0 ? ' bu-score-down' : '';
+    }
+    const d1km = delta('1km'), d5km = delta('5km'), d20km = delta('20km');
     return `
-      <div class="detail-bu-scores">
-        <span class="bu-score"><span class="bu-score-label">Δ 5 km</span><span class="bu-score-value${cls}">${_esc(txt)}</span></span>
+      <div class="pop-score-col">
+        ${changeLegend}
+        <div class="detail-bu-scores">
+          <span class="bu-score"><span class="bu-score-label">Δ 1 km</span><span class="bu-score-value${cls(d1km)}">${_esc(fmt(d1km))}</span></span>
+          <span class="bu-score"><span class="bu-score-label">Δ 5 km</span><span class="bu-score-value${cls(d5km)}">${_esc(fmt(d5km))}</span></span>
+          <span class="bu-score"><span class="bu-score-label">Δ 20 km</span><span class="bu-score-value${cls(d20km)}">${_esc(fmt(d20km))}</span></span>
+        </div>
       </div>`;
   }
 
@@ -325,24 +410,205 @@ function _renderBuSection(indexEntry, buSprites) {
 
   const panelChange = hasChange ? `
     <div class="bu-tab-panel" data-panel="change" hidden>
-      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${display}" height="${display}" aria-label="Built-up surface change 1975–2020"></canvas>`)}
+      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${display}" height="${display}" style="width:${display}px;height:${display}px" aria-label="Built-up surface change 1975–2020"></canvas>`)}
       ${changeScoreRow()}
     </div>` : '';
 
   return `
-    <div class="detail-sections">
-      <div class="section-tabs" role="tablist" aria-label="Detail sections">
-        <button class="section-tab active" role="tab" data-section="bu-surface" aria-selected="true">Built-Up Surface</button>
-      </div>
-      <div class="section-panel" data-section="bu-surface">
-        <div class="detail-bu">
-          ${tabs}
-          <div class="bu-tab-panels">
-            ${panel2020}${panel1975}${panelChange}
-          </div>
-        </div>
+    <div class="detail-bu">
+      ${tabs}
+      <div class="bu-tab-panels">
+        ${panel2020}${panel1975}${panelChange}
       </div>
     </div>`;
+}
+
+function _popSectionContent(indexEntry, sprites) {
+  const pop2020 = sprites?.pop2020;
+  const pop1975 = sprites?.pop1975;
+
+  const style2020 = _buTileStyle(indexEntry, pop2020, 'pop_2020_idx', 'pop_2020_sprite.png');
+  const style1975 = _buTileStyle(indexEntry, pop1975, 'pop_1975_idx', 'pop_1975_sprite.png');
+
+  if (!style2020 && !style1975) return '';
+
+  const has1975   = !!style1975;
+  const hasChange = has1975 && !!style2020;
+
+  // Format population density as "1,234 /km²"
+  function fmtDensity(val) {
+    if (val == null) return '—';
+    return val.toLocaleString() + '\u202f/km²';
+  }
+
+  // Gradient legend: colours match generate_pop_tiles.py PALETTE, stops on log scale
+  const legend = `
+    <div class="pop-legend">
+      <div class="pop-legend-bar" aria-hidden="true"></div>
+      <div class="pop-legend-labels" aria-hidden="true">
+        <span>0</span><span>10</span><span>100</span><span>1k</span><span>10k+</span>
+      </div>
+      <div class="pop-legend-caption">people / km²</div>
+    </div>`;
+
+  function scoreRow(prefix) {
+    const s1km  = fmtDensity(indexEntry?.[`pop_${prefix}_1km`]);
+    const s5km  = fmtDensity(indexEntry?.[`pop_${prefix}_5km`]);
+    const s20km = fmtDensity(indexEntry?.[`pop_${prefix}_20km`]);
+    return `
+      <div class="detail-bu-scores">
+        <span class="bu-score"><span class="bu-score-label">1 km</span><span class="bu-score-value">${_esc(s1km)}</span></span>
+        <span class="bu-score"><span class="bu-score-label">5 km</span><span class="bu-score-value">${_esc(s5km)}</span></span>
+        <span class="bu-score"><span class="bu-score-label">20 km</span><span class="bu-score-value">${_esc(s20km)}</span></span>
+      </div>`;
+  }
+
+  const popChangeLegend = `
+    <div class="pop-legend">
+      <div class="change-legend-bar" aria-hidden="true"></div>
+      <div class="pop-legend-labels" aria-hidden="true">
+        <span class="change-label-low">−</span><span>0</span><span class="change-label-high">+</span>
+      </div>
+      <div class="pop-legend-caption">change in people / km²</div>
+    </div>`;
+
+  function changeScoreRow() {
+    function delta(suffix) {
+      const v2020 = indexEntry?.[`pop_2020_${suffix}`];
+      const v1975 = indexEntry?.[`pop_1975_${suffix}`];
+      if (v2020 == null || v1975 == null) return null;
+      return v2020 - v1975;
+    }
+    function fmt(d) {
+      if (d == null) return '—';
+      return `${d >= 0 ? '+' : ''}${Math.round(d).toLocaleString()}\u202f/km²`;
+    }
+    function cls(d) {
+      return d == null ? '' : d > 0 ? ' bu-score-up' : d < 0 ? ' bu-score-down' : '';
+    }
+    const d1km = delta('1km'), d5km = delta('5km'), d20km = delta('20km');
+    return `
+      <div class="pop-score-col">
+        ${popChangeLegend}
+        <div class="detail-bu-scores">
+          <span class="bu-score"><span class="bu-score-label">Δ 1 km</span><span class="bu-score-value${cls(d1km)}">${_esc(fmt(d1km))}</span></span>
+          <span class="bu-score"><span class="bu-score-label">Δ 5 km</span><span class="bu-score-value${cls(d5km)}">${_esc(fmt(d5km))}</span></span>
+          <span class="bu-score"><span class="bu-score-label">Δ 20 km</span><span class="bu-score-value${cls(d20km)}">${_esc(fmt(d20km))}</span></span>
+        </div>
+      </div>`;
+  }
+
+  function scoreRightCol(prefix) {
+    return `
+      <div class="pop-score-col">
+        ${legend}
+        ${scoreRow(prefix)}
+      </div>`;
+  }
+
+  const tabs = `
+    <div class="bu-tabs" role="tablist" aria-label="Population year">
+      <button class="pop-tab active" role="tab" data-tab="2020" aria-selected="true">2020</button>
+      ${has1975 ? `<button class="pop-tab" role="tab" data-tab="1975" aria-selected="false">1975</button>` : ''}
+      ${hasChange ? `<button class="pop-tab" role="tab" data-tab="change" aria-selected="false">Change</button>` : ''}
+    </div>`;
+
+  const panel2020 = style2020 ? `
+    <div class="pop-tab-panel" data-panel="2020">
+      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style2020)}" aria-label="Population density 2020 (20 km box)"></div>`)}
+      ${scoreRightCol('2020')}
+    </div>` : '';
+
+  const panel1975 = has1975 ? `
+    <div class="pop-tab-panel" data-panel="1975" hidden>
+      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style1975)}" aria-label="Population density 1975 (20 km box)"></div>`)}
+      ${scoreRightCol('1975')}
+    </div>` : '';
+
+  const popDisplay = (pop2020?.cell ?? pop1975?.cell ?? 32) * BU_ZOOM;
+  const panelChange = hasChange ? `
+    <div class="pop-tab-panel" data-panel="change" hidden>
+      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${popDisplay}" height="${popDisplay}" style="width:${popDisplay}px;height:${popDisplay}px" aria-label="Population density change 1975–2020"></canvas>`)}
+      ${changeScoreRow()}
+    </div>` : '';
+
+  return `
+    <div class="detail-bu">
+      ${tabs}
+      <div class="bu-tab-panels">
+        ${panel2020}${panel1975}${panelChange}
+      </div>
+    </div>`;
+}
+
+// ── BU palette inversion ──────────────────────────────────────────────────────
+//
+// Palette stops [built_up_fraction, R, G, B] — mirrors generate_bu_tiles.py.
+// Each pixel's RGB is mapped back to a built-up fraction by finding the two
+// nearest stops in RGB-space and applying inverse-distance weighting.
+// This is necessary because no single channel is monotonic across the full
+// palette: R−B, for instance, is inverted in the blue (0–2%) region.
+
+const _BU_PALETTE = [
+  [0.000,  8,  48, 107],
+  [0.003, 29,  78, 137],
+  [0.010, 33, 113, 181],
+  [0.020, 86, 177, 247],
+  [0.030, 247, 209,  61],
+  [0.060, 248, 150,  30],
+  [0.120, 220,  47,   2],
+  [0.500, 157,   2,   8],
+];
+
+/**
+ * Recover the approximate built-up fraction (0–0.5) for a sprite pixel by
+ * finding the two closest palette stops in RGB-space and interpolating.
+ */
+function _buPixelValue(r, g, b) {
+  let d0 = Infinity, d1 = Infinity, i0 = 0, i1 = 1;
+  for (let i = 0; i < _BU_PALETTE.length; i++) {
+    const dr = r - _BU_PALETTE[i][1];
+    const dg = g - _BU_PALETTE[i][2];
+    const db = b - _BU_PALETTE[i][3];
+    const d  = dr * dr + dg * dg + db * db;
+    if (d < d0) { d1 = d0; i1 = i0; d0 = d; i0 = i; }
+    else if (d < d1) { d1 = d; i1 = i; }
+  }
+  const w0 = 1 / (Math.sqrt(d0) + 1e-6);
+  const w1 = 1 / (Math.sqrt(d1) + 1e-6);
+  return (_BU_PALETTE[i0][0] * w0 + _BU_PALETTE[i1][0] * w1) / (w0 + w1);
+}
+
+// ── Pop palette inversion ─────────────────────────────────────────────────────
+//
+// Palette stops [density_fraction, R, G, B] — mirrors generate_pop_tiles.py.
+// density_fraction = density_people_per_km2 / MAX_POP_DENSITY (10 000).
+
+const _POP_PALETTE = [
+  [0.0000,  15,  15,  25],
+  [0.0001,  25,  40, 100],
+  [0.0010,  45,  85, 175],
+  [0.0050,  55, 150, 175],
+  [0.0200,  80, 190, 110],
+  [0.0500, 195, 205,  60],
+  [0.2000, 240, 130,  30],
+  [0.5000, 220,  20,  10],
+  [1.0000, 180,   0,   8],
+];
+
+function _popPixelValue(r, g, b) {
+  let d0 = Infinity, d1 = Infinity, i0 = 0, i1 = 1;
+  for (let i = 0; i < _POP_PALETTE.length; i++) {
+    const dr = r - _POP_PALETTE[i][1];
+    const dg = g - _POP_PALETTE[i][2];
+    const db = b - _POP_PALETTE[i][3];
+    const d  = dr * dr + dg * dg + db * db;
+    if (d < d0) { d1 = d0; i1 = i0; d0 = d; i0 = i; }
+    else if (d < d1) { d1 = d; i1 = i; }
+  }
+  const w0 = 1 / (Math.sqrt(d0) + 1e-6);
+  const w1 = 1 / (Math.sqrt(d1) + 1e-6);
+  return (_POP_PALETTE[i0][0] * w0 + _POP_PALETTE[i1][0] * w1) / (w0 + w1);
 }
 
 // ── Change canvas ─────────────────────────────────────────────────────────────
@@ -398,19 +664,37 @@ async function _renderChangeCanvas(canvas) {
     const imgData = ctx.createImageData(display, display);
     const out     = imgData.data;
 
-    for (let i = 0; i < d2020.length; i += 4) {
-      // Use (R − B) as a monotone built-up proxy.
-      // Palette: 0% → (8,48,107) R-B = -99; 50%+ → (157,2,8) R-B = +149.
-      const v2 = d2020[i] - d2020[i + 2];
-      const v7 = d1975[i] - d1975[i + 2];
-      const diff = v2 - v7;
+    // Pass 1: compute diffs and find the 95th-percentile absolute diff for
+    // adaptive scaling — at most ~5% of pixels will be fully saturated.
+    const n     = d2020.length / 4;
+    const diffs = new Float32Array(n);
+    for (let j = 0; j < n; j++) {
+      const i = j * 4;
+      diffs[j] = _buPixelValue(d2020[i], d2020[i + 1], d2020[i + 2])
+               - _buPixelValue(d1975[i], d1975[i + 1], d1975[i + 2]);
+    }
+    const absSorted = Float32Array.from(diffs, Math.abs).sort();
+    const scaleMax  = Math.max(0.005, absSorted[Math.floor(0.95 * n)]);
+    const SCALE     = 255 / scaleMax;
+    const DEAD_ZONE = scaleMax * 0.02;
 
-      // Dead zone ±4 to avoid noise
-      if (diff > 4) {
-        const mag = Math.min(255, diff * 2);
+    // Update legend labels with the actual scale value.
+    const buPanel = canvas.closest('.bu-tab-panel');
+    const pctStr  = `${(scaleMax * 100).toFixed(1)}%`;
+    if (buPanel) {
+      buPanel.querySelector('.change-label-low').textContent  = `−${pctStr}`;
+      buPanel.querySelector('.change-label-high').textContent = `+${pctStr}`;
+    }
+
+    // Pass 2: render.
+    for (let j = 0; j < n; j++) {
+      const i    = j * 4;
+      const diff = diffs[j];
+      if (diff > DEAD_ZONE) {
+        const mag = Math.min(255, diff * SCALE);
         out[i] = mag; out[i + 1] = 0; out[i + 2] = 0;
-      } else if (diff < -4) {
-        const mag = Math.min(255, -diff * 2);
+      } else if (diff < -DEAD_ZONE) {
+        const mag = Math.min(255, -diff * SCALE);
         out[i] = 0; out[i + 1] = 0; out[i + 2] = mag;
       } else {
         out[i] = 18; out[i + 1] = 18; out[i + 2] = 18;
@@ -430,6 +714,96 @@ async function _renderChangeCanvas(canvas) {
     ctx.fillText('1975 sprite not yet', display / 2, display / 2 - 8);
     ctx.fillText('generated — run:', display / 2, display / 2 + 8);
     ctx.fillText('generate_bu_tiles.py --year 1975', display / 2, display / 2 + 24);
+  }
+}
+
+async function _renderPopChangeCanvas(canvas) {
+  if (!canvas || !_currentIndexEntry || !_currentBuSprites) return;
+  const { pop2020, pop1975 } = _currentBuSprites;
+  if (!pop2020 || !pop1975) return;
+
+  const idx2020 = _currentIndexEntry.pop_2020_idx;
+  const idx1975 = _currentIndexEntry.pop_1975_idx;
+  if (idx2020 == null || idx1975 == null) return;
+
+  const cell    = pop2020.cell;
+  const display = cell * BU_ZOOM;
+
+  try {
+    const [img2020, img1975] = await Promise.all([
+      _loadImg('assets/pop_2020_sprite.png'),
+      _loadImg('assets/pop_1975_sprite.png'),
+    ]);
+
+    const draw = (img, spriteDesc, idx) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = display;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const col = idx % spriteDesc.cols;
+      const row = Math.floor(idx / spriteDesc.cols);
+      ctx.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, display, display);
+      return ctx.getImageData(0, 0, display, display).data;
+    };
+
+    const d2020 = draw(img2020, pop2020, idx2020);
+    const d1975 = draw(img1975, pop1975, idx1975);
+
+    canvas.width  = display;
+    canvas.height = display;
+    const ctx     = canvas.getContext('2d');
+    const imgData = ctx.createImageData(display, display);
+    const out     = imgData.data;
+
+    // Pass 1: compute diffs and find the 95th-percentile absolute diff for
+    // adaptive scaling — at most ~5% of pixels will be fully saturated.
+    const n     = d2020.length / 4;
+    const diffs = new Float32Array(n);
+    for (let j = 0; j < n; j++) {
+      const i = j * 4;
+      diffs[j] = _popPixelValue(d2020[i], d2020[i + 1], d2020[i + 2])
+               - _popPixelValue(d1975[i], d1975[i + 1], d1975[i + 2]);
+    }
+    const absSorted = Float32Array.from(diffs, Math.abs).sort();
+    const scaleMax  = Math.max(0.005, absSorted[Math.floor(0.95 * n)]);
+    const SCALE     = 255 / scaleMax;
+    const DEAD_ZONE = scaleMax * 0.02;
+
+    // Update legend labels with the actual scale value (convert fraction → people/km²).
+    const popPanel  = canvas.closest('.pop-tab-panel');
+    const densityStr = Math.round(scaleMax * 10_000).toLocaleString();
+    if (popPanel) {
+      popPanel.querySelector('.change-label-low').textContent  = `−${densityStr}/km²`;
+      popPanel.querySelector('.change-label-high').textContent = `+${densityStr}/km²`;
+    }
+
+    // Pass 2: render.
+    for (let j = 0; j < n; j++) {
+      const i    = j * 4;
+      const diff = diffs[j];
+      if (diff > DEAD_ZONE) {
+        const mag = Math.min(255, diff * SCALE);
+        out[i] = mag; out[i + 1] = 0; out[i + 2] = 0;
+      } else if (diff < -DEAD_ZONE) {
+        const mag = Math.min(255, -diff * SCALE);
+        out[i] = 0; out[i + 1] = 0; out[i + 2] = mag;
+      } else {
+        out[i] = 18; out[i + 1] = 18; out[i + 2] = 18;
+      }
+      out[i + 3] = 255;
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  } catch (err) {
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, display, display);
+    ctx.fillStyle = '#5a6880';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('1975 sprite not yet', display / 2, display / 2 - 8);
+    ctx.fillText('generated — run:', display / 2, display / 2 + 8);
+    ctx.fillText('generate_pop_tiles.py --year 1975', display / 2, display / 2 + 24);
   }
 }
 
@@ -496,7 +870,7 @@ function _renderDetail(locationId, data, indexEntry, buSprites) {
     <div class="detail-divider"></div>
     <div class="detail-description">${_esc(data.description ?? '')}</div>
     ${vars ? `<div class="detail-variables">${vars}</div>` : ''}
-    ${_renderBuSection(indexEntry, buSprites)}
+    ${_renderDataSections(indexEntry, buSprites)}
   `;
 }
 
@@ -544,7 +918,7 @@ function _renderIndexDetail(locationId, indexEntry, buSprites) {
       </div>
       <button class="detail-close" aria-label="Close panel" title="Close">×</button>
     </div>
-    ${_renderBuSection(indexEntry, buSprites)}
+    ${_renderDataSections(indexEntry, buSprites)}
   `;
 }
 

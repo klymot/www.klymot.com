@@ -92,6 +92,19 @@ function _renderContent() {
         </ul>
       </section>
       <section class="sources-section">
+        <h3 class="sources-section-title">Land Use &amp; Population</h3>
+        <ul class="sources-list">
+          <li class="sources-item">
+            <div class="sources-item-name">GHS-BUILT-S R2023A <span class="sources-cite">Pesaresi &amp; Politis, JRC 2023</span></div>
+            <div class="sources-item-desc">Global Human Settlement Layer built-up surface grid — 100 m resolution, multitemporal 1975–2030, derived from Sentinel-2 and Landsat composites. Used to compute the Built-Up Surface tiles and scores shown in the station detail panel. <a class="sources-link" href="https://human-settlement.emergency.copernicus.eu/ghs_buS2023.php" target="_blank" rel="noopener">Dataset page</a> · <a class="sources-link" href="https://data.jrc.ec.europa.eu/dataset/9f06f36f-4b11-47ec-abb0-4f8b7b1d72ea" target="_blank" rel="noopener">JRC catalogue</a></div>
+          </li>
+          <li class="sources-item">
+            <div class="sources-item-name">GHS-POP R2023A <span class="sources-cite">Schiavina et al., JRC 2023</span></div>
+            <div class="sources-item-desc">Global Human Settlement Layer population grid — 100 m resolution, multitemporal 1975–2030, disaggregated from census data using built-up surface as a dasymetric layer. Used to compute the Population density tiles and scores shown in the station detail panel. <a class="sources-link" href="https://human-settlement.emergency.copernicus.eu/ghs_pop2023.php" target="_blank" rel="noopener">Dataset page</a> · <a class="sources-link" href="https://data.jrc.ec.europa.eu/dataset/2ff68a52-5b5b-4a22-8f40-c41da8332cfe" target="_blank" rel="noopener">JRC catalogue</a></div>
+          </li>
+        </ul>
+      </section>
+      <section class="sources-section">
         <h3 class="sources-section-title">Algorithms &amp; Methodology</h3>
         <ul class="sources-list">
           <li class="sources-item">
