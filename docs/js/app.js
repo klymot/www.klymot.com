@@ -96,6 +96,37 @@ function init() {
     ?.addEventListener('click', () => map.zoomIn());
   document.getElementById('zoom-out')
     ?.addEventListener('click', () => map.zoomOut());
+  const locationBtn = document.getElementById('zoom-current-location');
+  locationBtn?.addEventListener('click', () => {
+    const geolocation = navigator.geolocation;
+    if (!geolocation) return;
+
+    locationBtn.disabled = true;
+    const previousTitle = locationBtn.title;
+    locationBtn.title = 'Locating on this device only…';
+
+    geolocation.getCurrentPosition(
+      ({ coords }) => {
+        if (isTableVisible()) hideTable();
+        map.flyTo({
+          center: [coords.longitude, coords.latitude],
+          zoom: 12,
+          essential: true,
+        });
+        locationBtn.disabled = false;
+        locationBtn.title = previousTitle;
+      },
+      () => {
+        locationBtn.disabled = false;
+        locationBtn.title = previousTitle;
+      },
+      {
+        enableHighAccuracy: false,
+        maximumAge: 300000,
+        timeout: 8000,
+      }
+    );
+  });
 
   const zoomDisplay = document.getElementById('zoom-level');
   function updateZoom() {

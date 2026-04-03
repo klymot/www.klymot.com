@@ -25,6 +25,7 @@ window.maplibregl = (() => {
       this._sources    = {};
       this._canvas     = { style: { cursor: '' } };
       this._styleLoaded = false;
+      this._lastFlyTo  = null;
       this.dragRotate = { disable() {} };
       this.touchZoomRotate = { disableRotation() {} };
       this.touchPitch = { disable() {} };
@@ -162,7 +163,10 @@ window.maplibregl = (() => {
     getCenter()  { return { lat: this._center[1], lng: this._center[0] }; }
     jumpTo(opts) {
       if (opts.center !== undefined) this._center = opts.center;
-      if (opts.zoom   !== undefined) this._zoom   = opts.zoom;
+      if (opts.zoom   !== undefined) {
+        this._zoom = opts.zoom;
+        this._emit('zoom', {});
+      }
       return this;
     }
     easeTo(opts) {
@@ -171,6 +175,7 @@ window.maplibregl = (() => {
       return this;
     }
     flyTo(opts) {
+      this._lastFlyTo = opts;
       this.jumpTo(opts);
       setTimeout(() => this._emit('moveend', {}), 20);
       return this;

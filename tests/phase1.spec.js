@@ -127,7 +127,49 @@ test('AC3 – zoom-in and zoom-out buttons are visible', async ({ page }) => {
   await loadPage(page);
   await expect(page.locator('#zoom-in')).toBeVisible();
   await expect(page.locator('#zoom-out')).toBeVisible();
+  await expect(page.locator('#zoom-current-location')).toBeVisible();
   await expect(page.locator('#zoom-level')).toBeVisible();
+});
+
+test('AC3 – current-location button requests coarse geolocation and flies to zoom 12', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition(success, _error, options) {
+          window.__geoOptions = options;
+          success({
+            coords: {
+              latitude: 53.3498,
+              longitude: -6.2603,
+            },
+          });
+        },
+      },
+    });
+  });
+
+  await loadPage(page);
+  await page.click('#zoom-current-location');
+  await page.waitForTimeout(100);
+
+  const result = await page.evaluate(() => ({
+    geoOptions: window.__geoOptions,
+    flyTo: window.__mapInstance?._lastFlyTo,
+    zoomDisplay: document.getElementById('zoom-level')?.textContent,
+  }));
+
+  expect(result.geoOptions).toEqual({
+    enableHighAccuracy: false,
+    maximumAge: 300000,
+    timeout: 8000,
+  });
+  expect(result.flyTo).toMatchObject({
+    center: [-6.2603, 53.3498],
+    zoom: 12,
+    essential: true,
+  });
+  expect(result.zoomDisplay).toBe('12.0×');
 });
 
 test('AC3 – zoom level display updates after zoom-in', async ({ page }) => {
