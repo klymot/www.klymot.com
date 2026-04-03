@@ -895,27 +895,34 @@ export class TempChart {
       return;
     }
 
-    // Y-axis range from visible complete-year points and partial estimate centres.
+    // Y-axis range is anchored to visible complete-year points. Partial-year
+    // estimate centres may expand that raw range by at most 10%; CI bars are
+    // clipped to the final domain and do not influence it.
     let yMin = Infinity, yMax = -Infinity;
-    for (const p of visible)         { if (p.y < yMin) yMin = p.y; if (p.y > yMax) yMax = p.y; }
-    for (const pe of visiblePartials) { if (pe.estimate < yMin) yMin = pe.estimate; if (pe.estimate > yMax) yMax = pe.estimate; }
+    for (const p of visible) { if (p.y < yMin) yMin = p.y; if (p.y > yMax) yMax = p.y; }
+
+    if (!isFinite(yMin)) {
+      for (const pe of visiblePartials) {
+        if (pe.estimate < yMin) yMin = pe.estimate;
+        if (pe.estimate > yMax) yMax = pe.estimate;
+      }
+    } else if (!isAnomaly && visiblePartials.length > 0) {
+      const baseMin = yMin;
+      const baseMax = yMax;
+      const baseSpan = Math.max(baseMax - baseMin, 1);
+      const estExt = baseSpan * 0.1;
+      const estMin = Math.min(...visiblePartials.map(pe => pe.estimate));
+      const estMax = Math.max(...visiblePartials.map(pe => pe.estimate));
+      yMin = Math.max(baseMin - estExt, Math.min(baseMin, estMin));
+      yMax = Math.min(baseMax + estExt, Math.max(baseMax, estMax));
+    }
+
     if (!isFinite(yMin)) { yMin = -1; yMax = 1; }
     if (yMin === yMax)   { yMin -= 0.5; yMax += 0.5; }
 
     const dataSpan = yMax - yMin;
     const yPad     = dataSpan * 0.1;
     yMin -= yPad; yMax += yPad;
-
-    // Allow CI bands to extend y range by at most 10% of the data span.
-    if (!isAnomaly && this._showCI && this._showEst && visiblePartials.length > 0) {
-      const ciExt     = dataSpan * 0.1;
-      const yMinLimit = yMin - ciExt;
-      const yMaxLimit = yMax + ciExt;
-      for (const pe of visiblePartials) {
-        if (pe.ciLow  < yMin) yMin = Math.max(yMinLimit, pe.ciLow);
-        if (pe.ciHigh > yMax) yMax = Math.min(yMaxLimit, pe.ciHigh);
-      }
-    }
 
     const toX = x => ml + (x - xMin) / (xMax - xMin) * cw;
     const toY = y => mt + (yMax - y) / (yMax - yMin) * ch;
