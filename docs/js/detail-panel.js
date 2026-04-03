@@ -29,6 +29,15 @@ export function setRestoreState(state) {
   _restoreState = state;
 }
 
+export function preloadDetailSprites(sprites = null) {
+  const sources = [];
+  if (sprites?.bu2020) sources.push('assets/bu_2020_sprite.png');
+  if (sprites?.bu1975) sources.push('assets/bu_1975_sprite.png');
+  if (sprites?.pop2020) sources.push('assets/pop_2020_sprite.png');
+  if (sprites?.pop1975) sources.push('assets/pop_1975_sprite.png');
+  sources.forEach(src => { _loadImg(src).catch(() => {}); });
+}
+
 /** Injected by initDetailPanel; returns the current map-state hash string (no leading #). */
 let _getMapHash    = null;
 /** Set by setReturnMode; returns the hash to restore when the panel closes. */
@@ -365,6 +374,8 @@ function _attachHandlers() {
     _switchYearTab(_restoreState.mode);
   }
 
+  _initDetailMapMedia();
+
   // Initialize temperature charts (must be after DOM is ready).
   _initCharts();
 }
@@ -416,7 +427,7 @@ function _switchYearTab(tabName) {
         const canvas = panel.querySelector('canvas');
         if (canvas && !canvas._rendered) {
           canvas._rendered = true;
-          renderChangeFn(canvas);
+          _renderDetailMapCanvas(canvas, renderChangeFn);
         }
       }
     });
@@ -489,6 +500,9 @@ function _buTileStyle(indexEntry, spriteDesc, idxKey, spriteFile) {
 /** Wrap a .detail-bu-map div with crosshair and 5 km scale bar overlays. */
 function _buMapWrap(mapDiv, ariaLabel) {
   return `<div class="detail-bu-wrap">
+    <div class="detail-map-loading" aria-hidden="true">
+      <div class="detail-map-spinner"></div>
+    </div>
     ${mapDiv}
     <div class="detail-bu-crosshair" aria-hidden="true"></div>
     <div class="detail-bu-scale" aria-hidden="true">
@@ -643,19 +657,19 @@ function _buSectionContent(indexEntry, sprites) {
 
   const panel2020 = style2020 ? `
     <div class="bu-tab-panel" data-panel="2020">
-      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style2020)}" aria-label="Built-up surface 2020 (20 km box)"></div>`)}
+      ${_buMapWrap(`<div class="detail-bu-map detail-map-media is-loading" data-sprite-src="assets/bu_2020_sprite.png" style="${_esc(style2020)}" aria-label="Built-up surface 2020 (20 km box)"></div>`)}
       ${scoreRow('2020')}
     </div>` : '';
 
   const panel1975 = has1975 ? `
     <div class="bu-tab-panel" data-panel="1975" hidden>
-      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style1975)}" aria-label="Built-up surface 1975 (20 km box)"></div>`)}
+      ${_buMapWrap(`<div class="detail-bu-map detail-map-media is-loading" data-sprite-src="assets/bu_1975_sprite.png" style="${_esc(style1975)}" aria-label="Built-up surface 1975 (20 km box)"></div>`)}
       ${scoreRow('1975')}
     </div>` : '';
 
   const panelChange = hasChange ? `
     <div class="bu-tab-panel" data-panel="change" hidden>
-      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${display}" height="${display}" style="width:${display}px;height:${display}px" aria-label="Built-up surface change 1975–2020"></canvas>`)}
+      ${_buMapWrap(`<canvas class="detail-bu-change-canvas detail-map-media is-loading" data-renderer="bu-change" width="${display}" height="${display}" style="width:${display}px;height:${display}px" aria-label="Built-up surface change 1975–2020"></canvas>`)}
       ${changeScoreRow()}
     </div>` : '';
 
@@ -760,20 +774,20 @@ function _popSectionContent(indexEntry, sprites) {
 
   const panel2020 = style2020 ? `
     <div class="pop-tab-panel" data-panel="2020">
-      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style2020)}" aria-label="Population density 2020 (20 km box)"></div>`)}
+      ${_buMapWrap(`<div class="detail-bu-map detail-map-media is-loading" data-sprite-src="assets/pop_2020_sprite.png" style="${_esc(style2020)}" aria-label="Population density 2020 (20 km box)"></div>`)}
       ${scoreRightCol('2020')}
     </div>` : '';
 
   const panel1975 = has1975 ? `
     <div class="pop-tab-panel" data-panel="1975" hidden>
-      ${_buMapWrap(`<div class="detail-bu-map" style="${_esc(style1975)}" aria-label="Population density 1975 (20 km box)"></div>`)}
+      ${_buMapWrap(`<div class="detail-bu-map detail-map-media is-loading" data-sprite-src="assets/pop_1975_sprite.png" style="${_esc(style1975)}" aria-label="Population density 1975 (20 km box)"></div>`)}
       ${scoreRightCol('1975')}
     </div>` : '';
 
   const popDisplay = (pop2020?.cell ?? pop1975?.cell ?? 32) * BU_ZOOM;
   const panelChange = hasChange ? `
     <div class="pop-tab-panel" data-panel="change" hidden>
-      ${_buMapWrap(`<canvas class="detail-bu-change-canvas" width="${popDisplay}" height="${popDisplay}" style="width:${popDisplay}px;height:${popDisplay}px" aria-label="Population density change 1975–2020"></canvas>`)}
+      ${_buMapWrap(`<canvas class="detail-bu-change-canvas detail-map-media is-loading" data-renderer="pop-change" width="${popDisplay}" height="${popDisplay}" style="width:${popDisplay}px;height:${popDisplay}px" aria-label="Population density change 1975–2020"></canvas>`)}
       ${changeScoreRow()}
     </div>` : '';
 
@@ -868,6 +882,43 @@ function _loadImg(src) {
     });
   }
   return _imgCache[src];
+}
+
+function _setDetailMapLoading(el, isLoading) {
+  if (!el) return;
+  el.classList.toggle('is-loading', isLoading);
+  el.closest('.detail-bu-wrap')?.classList.toggle('is-loading', isLoading);
+}
+
+function _initDetailMapMedia() {
+  _panel?.querySelectorAll('.detail-map-media[data-sprite-src]').forEach(el => {
+    const src = el.dataset.spriteSrc;
+    if (!src) return;
+    _setDetailMapLoading(el, true);
+    _loadImg(src)
+      .then(() => _setDetailMapLoading(el, false))
+      .catch(() => _setDetailMapLoading(el, false));
+  });
+
+  _panel?.querySelectorAll('canvas.detail-map-media[data-renderer]').forEach(canvas => {
+    if (!canvas.closest('[hidden]')) {
+      const renderFn = canvas.dataset.renderer === 'pop-change'
+        ? _renderPopChangeCanvas
+        : _renderChangeCanvas;
+      _renderDetailMapCanvas(canvas, renderFn);
+    }
+  });
+}
+
+function _renderDetailMapCanvas(canvas, renderFn) {
+  if (!canvas || canvas._renderPromise) return canvas?._renderPromise;
+  _setDetailMapLoading(canvas, true);
+  canvas._renderPromise = Promise.resolve(renderFn(canvas))
+    .catch(() => {})
+    .finally(() => {
+      _setDetailMapLoading(canvas, false);
+    });
+  return canvas._renderPromise;
 }
 
 async function _renderChangeCanvas(canvas) {

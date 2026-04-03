@@ -637,6 +637,36 @@ body {
   line-height: 0;
 }
 
+.detail-map-loading {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--bg-overlay) 72%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.detail-map-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.detail-bu-wrap.is-loading .detail-bu-crosshair,
+.detail-bu-wrap.is-loading .detail-bu-scale {
+  opacity: 0.45;
+}
+
+.detail-bu-wrap.is-loading .detail-map-loading {
+  display: flex;
+}
+
 .detail-bu-map {
   display: block;
   border-radius: 0.375rem;

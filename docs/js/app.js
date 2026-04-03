@@ -3,7 +3,7 @@ import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
 import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js';
 import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
 import { initMapQR } from './qr.js';
-import { initDetailPanel, openDetail, setReturnMode, setRestoreState } from './detail-panel.js';
+import { initDetailPanel, openDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
 import { initSourcesPanel, toggleSources } from './sources-panel.js';
 import { initConsent } from './consent.js';
@@ -306,6 +306,11 @@ function init() {
     // Data is ready: hide loading overlay and re-enable Table button.
     if (_loadingOverlay) _loadingOverlay.classList.add('ready');
     if (_tableBtn)       _tableBtn.disabled = false;
+
+    const scheduleSpritePreload = window.requestIdleCallback
+      ? (fn) => window.requestIdleCallback(fn, { timeout: 1500 })
+      : (fn) => window.setTimeout(fn, 300);
+    scheduleSpritePreload(() => preloadDetailSprites(getBuSprite()));
 
     initTableView(getLocations());
     _initStationSearch(getLocations(), map, (id) => { _pendingStation = id; });
