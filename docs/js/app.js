@@ -3,7 +3,7 @@ import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
 import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js';
 import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
 import { initMapQR } from './qr.js';
-import { initDetailPanel, openDetail, setReturnMode } from './detail-panel.js';
+import { initDetailPanel, openDetail, setReturnMode, setRestoreState } from './detail-panel.js';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
 import { initSourcesPanel, toggleSources } from './sources-panel.js';
 import { initConsent } from './consent.js';
@@ -174,7 +174,7 @@ function init() {
       map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom });
       applyProjection(state.projection, { syncUrl: false });
     } else if (state.type === 'station') {
-      _restoreStation(state.id);
+      _restoreStation(state.id, state);
     } else if (state.type === 'table') {
       showTable({ sortColumn: state.sortColumn, sortDirection: state.sortDirection, syncUrl: false });
     }
@@ -191,7 +191,7 @@ function init() {
     _initStationSearch(getLocations(), map, (id) => { _pendingStation = id; });
 
     if (initialState?.type === 'station') {
-      _restoreStation(initialState.id);
+      _restoreStation(initialState.id, initialState);
     } else if (initialState?.type === 'table') {
       showTable({
         sortColumn:    initialState.sortColumn,
@@ -201,7 +201,9 @@ function init() {
     }
   }).catch(err => console.error('Markers load failed:', err));
 
-  function _restoreStation(id) {
+  function _restoreStation(id, state = null) {
+    // Store detail panel state so it can be applied when the panel opens.
+    setRestoreState(state);
     const loc = getLocations().find(l => l.id === id);
     if (loc) {
       // Queue the station exactly like the header search does: let flyTo

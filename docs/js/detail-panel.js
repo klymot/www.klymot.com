@@ -14,6 +14,21 @@ import { serialiseStationState, pushState } from './url-state.js';
 import { trackEvent } from './analytics.js';
 import { TempChart } from './temp-chart.js';
 
+/**
+ * State to restore when the next detail panel opens (set by setRestoreState).
+ * Contains the parsed URL station state: section, mode, zoomMin, zoomMax, inspector.
+ */
+let _restoreState = null;
+
+/**
+ * Called by app.js before openDetail() when navigating to a station URL that
+ * contains detail panel state (tab, mode, zoom, inspector).
+ * @param {object|null} state
+ */
+export function setRestoreState(state) {
+  _restoreState = state;
+}
+
 /** Injected by initDetailPanel; returns the current map-state hash string (no leading #). */
 let _getMapHash    = null;
 /** Set by setReturnMode; returns the hash to restore when the panel closes. */
@@ -33,6 +48,9 @@ let _currentLocationId = null;
 
 /** Active TempChart instances keyed by section name. Destroyed on panel close. */
 let _charts = {};
+
+/** Shared chart mode across both temp sections (kept in sync). */
+let _sharedChartMode = 'monthly';
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -206,6 +224,58 @@ function _initCharts() {
   const SECTIONS = ['temp-qcu', 'temp-qcf'];
   const PATHS    = ['qcu', 'qcf'];
 
+  // Snapshot and consume the restore state so subsequent openDetail() calls
+  // (e.g. from map-marker clicks) don't accidentally inherit it.
+  const restore = _restoreState;
+  _restoreState = null;
+
+  // Determine shared mode from restore state or current shared mode.
+  const restoreSection = restore?.section;
+  if (restore?.mode &&
+      (restoreSection === 'temp-qcu' || restoreSection === 'temp-qcf')) {
+    _sharedChartMode = restore.mode;
+  }
+
+  // Track data-load completion so we can compute the cross-chart union range.
+  let loadsRemaining = SECTIONS.length;
+  function _onChartDataLoaded() {
+    loadsRemaining--;
+    if (loadsRemaining > 0) return;
+
+    // Both charts have loaded — compute the union of their data extents.
+    let globalMin = Infinity, globalMax = -Infinity;
+    for (const s of SECTIONS) {
+      const range = _charts[s]?.getDataRange();
+      if (!range) continue;
+      if (range.min < globalMin) globalMin = range.min;
+      if (range.max > globalMax) globalMax = range.max;
+    }
+
+    if (!isFinite(globalMin)) return;
+
+    // Apply the union range to all charts (resets zoom to the global domain).
+    // Then layer any URL-restored zoom/inspector on top.
+    for (const s of SECTIONS) {
+      const c = _charts[s];
+      if (!c) continue;
+      c.setGlobalRange(globalMin, globalMax);
+      if (restore?.zoomMin != null && restore.zoomMax != null) {
+        c.setZoom(restore.zoomMin, restore.zoomMax);
+      }
+    }
+
+    // Apply inspector only to the section that was active when the URL was shared.
+    const activeChart = _charts[restore?.section];
+    if (activeChart && restore?.inspector) {
+      const insp = restore.inspector;
+      if (insp.type === 'line')  activeChart.setInspector(insp.x);
+      if (insp.type === 'heat')  activeChart.setInspectorCell(insp.year, insp.month);
+    }
+
+    // Re-serialise URL and refresh QR now that the final zoom/inspector are set.
+    _updateStationUrl();
+  }
+
   SECTIONS.forEach((section, i) => {
     const wrap = _panel.querySelector(`[data-section="${section}"] .chart-canvas-wrap`);
     if (!wrap) return;
@@ -213,21 +283,60 @@ function _initCharts() {
     const chart = new TempChart(wrap);
     _charts[section] = chart;
 
+    // Apply the shared mode immediately (before data loads, for button state).
+    if (_sharedChartMode !== 'monthly') {
+      chart.setMode(_sharedChartMode);
+      _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(b => {
+        const active = b.dataset.mode === _sharedChartMode;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
+    }
+
     fetch(`data/${PATHS[i]}/${encodeURIComponent(locationId)}.csv`)
       .then(r => r.ok ? r.text() : '')
       .catch(() => '')
-      .then(text => chart.load(text));
+      .then(text => {
+        chart.load(text);
+        _onChartDataLoaded();
+      });
 
-    // Mode toggle buttons within this section panel
+    // Mode toggle buttons — sync across both temp sections.
     _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(btn => {
       btn.addEventListener('click', () => {
-        _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(b => {
-          b.classList.toggle('active', b === btn);
-          b.setAttribute('aria-pressed', String(b === btn));
+        const mode = btn.dataset.mode;
+        _sharedChartMode = mode;
+        SECTIONS.forEach(s => {
+          _panel.querySelectorAll(`[data-section="${s}"] .chart-mode-btn`).forEach(b => {
+            const active = b.dataset.mode === mode;
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+          });
+          _charts[s]?.setMode(mode);
         });
-        chart.setMode(btn.dataset.mode);
+        _updateStationUrl();
       });
     });
+
+    // Zoom buttons — chart:zoom event (fired by zoomIn/zoomOut/resetZoom) handles
+    // syncing to the other section and updating the URL, so no extra call needed here.
+    _panel.querySelectorAll(`[data-section="${section}"] .chart-zoom-btn`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        if (action === 'zoom-in')         chart.zoomIn();
+        else if (action === 'zoom-out')   chart.zoomOut();
+        else if (action === 'zoom-reset') chart.resetZoom();
+      });
+    });
+
+    // When zoom changes (drag-pan or buttons), mirror it to the other temp section.
+    wrap.addEventListener('chart:zoom', () => {
+      const zoom = chart.getZoom();
+      const otherSection = section === 'temp-qcu' ? 'temp-qcf' : 'temp-qcu';
+      _charts[otherSection]?.setZoom(zoom.min, zoom.max);
+      _updateStationUrl();
+    });
+    wrap.addEventListener('chart:inspect', () => _updateStationUrl());
   });
 }
 
@@ -236,22 +345,27 @@ function _attachHandlers() {
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
 
-  // Section-level tab switching
+  // Section-level tab switching.
   _panel.querySelectorAll('.section-tab').forEach(tab => {
     tab.addEventListener('click', () => _switchSectionTab(tab.dataset.section));
   });
 
-  // BU year tab switching
-  _panel.querySelectorAll('.bu-tab').forEach(tab => {
-    tab.addEventListener('click', () => _switchBuTab(tab.dataset.tab));
+  // Year tab switching — BU and Population tabs are synced together.
+  _panel.querySelectorAll('.bu-tab, .pop-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchYearTab(tab.dataset.tab));
   });
 
-  // Population year tab switching
-  _panel.querySelectorAll('.pop-tab').forEach(tab => {
-    tab.addEventListener('click', () => _switchPopTab(tab.dataset.tab));
-  });
+  // Apply restore state for section tab.
+  if (_restoreState?.section) {
+    _switchSectionTab(_restoreState.section);
+  }
+  // Apply restore state for year tab (bu/pop sections).
+  if (_restoreState?.mode &&
+      (_restoreState.section === 'bu-surface' || _restoreState.section === 'population')) {
+    _switchYearTab(_restoreState.mode);
+  }
 
-  // Initialize temperature charts
+  // Initialize temperature charts (must be after DOM is ready).
   _initCharts();
 }
 
@@ -276,42 +390,74 @@ function _switchSectionTab(sectionName) {
     from_tab: currentSection,
     to_tab: sectionName,
   });
+
+  _updateStationUrl();
 }
 
-function _switchBuTab(tabName) {
-  _panel.querySelectorAll('.bu-tab').forEach(t => {
-    const active = t.dataset.tab === tabName;
-    t.classList.toggle('active', active);
-    t.setAttribute('aria-selected', String(active));
-  });
-  _panel.querySelectorAll('.bu-tab-panel').forEach(panel => {
-    panel.hidden = panel.dataset.panel !== tabName;
-    if (panel.dataset.panel === tabName && tabName === 'change') {
-      const canvas = panel.querySelector('canvas');
-      if (canvas && !canvas._rendered) {
-        canvas._rendered = true;
-        _renderChangeCanvas(canvas);
+/**
+ * Switch the year tab for both BU Surface and Population sections simultaneously
+ * (they share the same subtabs: 2020 / 1975 / Change).
+ * Only updates a section if it has a tab matching tabName.
+ */
+function _switchYearTab(tabName) {
+  // Helper: switch tabs+panels for a given tab selector / panel selector / change-renderer.
+  function _applyYearTab(tabSel, panelSel, renderChangeFn) {
+    const tabs   = [..._panel.querySelectorAll(tabSel)];
+    const target = tabs.find(t => t.dataset.tab === tabName);
+    if (!target) return; // this section doesn't have this tab — skip
+    tabs.forEach(t => {
+      const active = t === target;
+      t.classList.toggle('active', active);
+      t.setAttribute('aria-selected', String(active));
+    });
+    _panel.querySelectorAll(panelSel).forEach(panel => {
+      panel.hidden = panel.dataset.panel !== tabName;
+      if (panel.dataset.panel === tabName && tabName === 'change') {
+        const canvas = panel.querySelector('canvas');
+        if (canvas && !canvas._rendered) {
+          canvas._rendered = true;
+          renderChangeFn(canvas);
+        }
       }
-    }
-  });
+    });
+  }
+
+  _applyYearTab('.bu-tab',  '.bu-tab-panel',  _renderChangeCanvas);
+  _applyYearTab('.pop-tab', '.pop-tab-panel', _renderPopChangeCanvas);
+
+  _updateStationUrl();
 }
 
-function _switchPopTab(tabName) {
-  _panel.querySelectorAll('.pop-tab').forEach(t => {
-    const active = t.dataset.tab === tabName;
-    t.classList.toggle('active', active);
-    t.setAttribute('aria-selected', String(active));
-  });
-  _panel.querySelectorAll('.pop-tab-panel').forEach(panel => {
-    panel.hidden = panel.dataset.panel !== tabName;
-    if (panel.dataset.panel === tabName && tabName === 'change') {
-      const canvas = panel.querySelector('canvas');
-      if (canvas && !canvas._rendered) {
-        canvas._rendered = true;
-        _renderPopChangeCanvas(canvas);
-      }
+/** Serialise current panel state, update the URL hash, and refresh the detail QR code. */
+function _updateStationUrl() {
+  if (!_currentLocationId) return;
+
+  const activeTab = _panel.querySelector('.section-tab.active');
+  const section   = activeTab?.dataset.section;
+  const detail    = { section };
+
+  if (section === 'temp-qcu' || section === 'temp-qcf') {
+    const chart = _charts[section];
+    detail.mode = _sharedChartMode;
+    if (chart) {
+      const zoom = chart.getZoom();
+      detail.zoomMin = zoom?.min;
+      detail.zoomMax = zoom?.max;
+      detail.inspector = chart.getInspector();
     }
-  });
+  } else if (section === 'bu-surface' || section === 'population') {
+    const yearTab = _panel.querySelector('.bu-tab.active') ??
+                    _panel.querySelector('.pop-tab.active');
+    detail.mode = yearTab?.dataset.tab;
+  }
+
+  pushState(serialiseStationState(_currentLocationId, detail));
+
+  // Keep the detail panel QR code in sync with the current shareable URL.
+  const qrContainer = _panel?.querySelector('.detail-qr .qr-code');
+  if (qrContainer) {
+    renderQR(window.location.href, qrContainer, 120);
+  }
 }
 
 // ── BU sprite tile helpers ────────────────────────────────────────────────────
@@ -397,6 +543,11 @@ function _tempChartPanel() {
           <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
           <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
         </div>
+        <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
+          <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+          <button class="chart-zoom-btn" data-action="zoom-reset" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+          <button class="chart-zoom-btn" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+        </div>
       </div>
       <div class="chart-canvas-wrap"></div>
       <div class="chart-heat-legend" hidden aria-label="Temperature colour scale">
@@ -404,7 +555,7 @@ function _tempChartPanel() {
         <div class="heat-legend-bar" aria-hidden="true"></div>
         <span class="heat-hot-label heat-label">—</span>
       </div>
-      <p class="chart-hint">Scroll to zoom · Hover for temperature</p>
+      <p class="chart-hint">Drag to pan · Hover for temperature</p>
     </div>`;
 }
 

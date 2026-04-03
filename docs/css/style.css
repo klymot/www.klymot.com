@@ -850,11 +850,13 @@ body {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.625rem;
+  flex-wrap: wrap;
 }
 
 .chart-mode-toggle {
   display: flex;
   gap: 0.25rem;
+  flex: 1;
 }
 
 .chart-mode-btn {
@@ -877,6 +879,43 @@ body {
 }
 
 .chart-mode-btn.active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-text);
+  border-color: var(--btn-active-bg);
+}
+
+/* ── Chart zoom controls ──────────────────────────────────────────── */
+
+.chart-zoom-controls {
+  display: flex;
+  gap: 0.1875rem;
+  flex-shrink: 0;
+}
+
+.chart-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  font-size: 1rem;
+  line-height: 1;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+.chart-zoom-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.chart-zoom-btn:active {
   background: var(--btn-active-bg);
   color: var(--btn-active-text);
   border-color: var(--btn-active-bg);

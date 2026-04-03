@@ -6,12 +6,25 @@
  *   'yearly'   — line chart, one point per annual average
  *   'heatmap'  — calendar grid: year × month, cell colour = temperature
  *
+ * All modes share a single x-axis domain (_xMin / _xMax in fractional years).
+ * Switching modes preserves the current zoom range.  Heatmap rendering snaps
+ * the domain to integer year boundaries for display.
+ *
  * Usage:
  *   const chart = new TempChart(containerEl);
- *   chart.load(csvText);      // parse and render; empty/null = no data
- *   chart.setMode('heatmap'); // 'monthly' | 'yearly' | 'heatmap'
- *   chart.resize();           // call when container becomes visible
- *   chart.destroy();          // cleanup on panel close
+ *   chart.load(csvText);              // parse and render; empty/null = no data
+ *   chart.setGlobalRange(min, max);   // set the shared x range from outside
+ *   chart.setMode('heatmap');         // 'monthly' | 'yearly' | 'heatmap'
+ *   chart.resize();                   // call when container becomes visible
+ *   chart.destroy();                  // cleanup on panel close
+ *
+ * Interaction:
+ *   Drag to pan.  Use zoomIn() / zoomOut() / resetZoom() for zoom.
+ *   Hover shows a vertical inspector line (line charts) or cell outline (heatmap).
+ *
+ * Events dispatched on the container element (bubbles):
+ *   'chart:zoom'    — fired after zoom or pan ends
+ *   'chart:inspect' — fired (debounced 300 ms) when inspector position changes
  */
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -95,15 +108,11 @@ function _cssVar(name) {
 /**
  * Map a normalised value t ∈ [-1, 1] to an [R, G, B] array.
  * t = -1 → cold blue, t = 0 → theme mid (black in dark / white in light), t = +1 → hot red.
- * Missing data uses the inverse of the mid colour.
  */
 function _heatColor(t, isLight) {
   const clamp = x => Math.max(0, Math.min(255, Math.round(x)));
-  // Cold and hot anchors are the same for both themes.
   const COLD = [10,  50, 220];
   const HOT  = [220, 25,  10];
-  // Mid matches the panel background so near-average temps blend in.
-  // Dark mode: near-black (#0a1018).  Light mode: near-white (#f4f0e8).
   const MID  = isLight ? [244, 240, 232] : [10, 16, 24];
   const [from, to, f] = t <= 0 ? [MID, COLD, -t] : [MID, HOT, t];
   return from.map((c, i) => clamp(c + (to[i] - c) * f));
@@ -118,6 +127,7 @@ export class TempChart {
 
     this._canvas = document.createElement('canvas');
     this._canvas.className = 'temp-chart-canvas';
+    this._canvas.style.cursor = 'grab';
     container.appendChild(this._canvas);
 
     this._tooltip = document.createElement('div');
@@ -137,32 +147,59 @@ export class TempChart {
     this._recordMap  = new Map();   // year → months[]
     this._mode       = 'monthly';
 
-    // Separate x ranges so line and heatmap zoom independently.
-    this._lineXMin = 1900;  this._lineXMax = 2025;
-    this._heatXMin = 1900;  this._heatXMax = 2025;
-    this._heatXMinPadded = 1900;  // minimum allowed heatXMin (respects 50-yr snap)
+    // ── Unified x-axis domain (fractional years, shared across all modes) ──
+    // null until load() or setGlobalRange() initialises them.
+    this._xMin       = null;  // current view left edge
+    this._xMax       = null;  // current view right edge
+    this._xMinPadded = null;  // hard left boundary (heatmap-snapped minimum)
+    this._globalXMin = null;  // reset target left edge
+    this._globalXMax = null;  // reset target right edge
 
-    this._dataXMin = 1900;  this._dataXMax = 2025;
-    this._dpr      = window.devicePixelRatio || 1;
-    this._raf      = null;
+    // Per-chart data extent (reported to detail-panel.js for union calculation).
+    this._dataXMin = null;
+    this._dataXMax = null;
 
-    // Hover state
-    this._hoveredPt   = null;   // line chart hover
+    this._dpr = window.devicePixelRatio || 1;
+    this._raf = null;
+
+    // Inspector state — vertical line for line charts, cell for heatmap.
+    this._hoverX      = null;   // x in data space where the inspector line sits
+    this._hoveredPt   = null;   // nearest data point to _hoverX (for tooltip)
     this._hoveredCell = null;   // heatmap hover { year, month, value }
 
-    // Geometry from last render (CSS px), used by hover handlers.
+    // Drag-to-pan state.
+    this._isDragging      = false;
+    this._dragStartMouseX = 0;
+    this._dragStartXMin   = 0;
+    this._dragStartXMax   = 0;
+
+    // Debounce timer for chart:inspect event.
+    this._inspDebounce = null;
+
+    // Geometry from last render (CSS px), used by mouse hit-testing.
     this._geom = null;
 
     // Margins in CSS px — different for each mode.
     this._LINE_M = { l: 52, r: 16, t: 12, b: 36 };
     this._HEAT_M = { l: 44, r: 16, t:  8, b: 28 };
 
-    this._onWheel      = this._onWheel.bind(this);
+    // Bind handlers.
+    this._onMouseDown  = this._onMouseDown.bind(this);
     this._onMouseMove  = this._onMouseMove.bind(this);
     this._onMouseLeave = this._onMouseLeave.bind(this);
+    this._docMouseMove = (e) => { if (this._isDragging) this._doPan(e); };
+    this._docMouseUp   = (e) => {
+      if (!this._isDragging) return;
+      this._isDragging = false;
+      document.removeEventListener('mousemove', this._docMouseMove);
+      document.removeEventListener('mouseup',   this._docMouseUp);
+      this._canvas.style.cursor = 'grab';
+      this._dispatchZoomChange();
+      this._onMouseMove(e);
+    };
 
-    this._canvas.addEventListener('wheel', this._onWheel, { passive: false });
-    this._canvas.addEventListener('mousemove', this._onMouseMove);
+    this._canvas.addEventListener('mousedown',  this._onMouseDown);
+    this._canvas.addEventListener('mousemove',  this._onMouseMove);
     this._canvas.addEventListener('mouseleave', this._onMouseLeave);
 
     this._ro = new ResizeObserver(() => this.resize());
@@ -191,19 +228,37 @@ export class TempChart {
     this._dataXMin = Math.min(...allX);
     this._dataXMax = Math.max(...allX);
 
-    // Line chart: full data range.
-    this._lineXMin = this._dataXMin;
-    this._lineXMax = this._dataXMax;
-
-    // Heatmap: snap left boundary to a multiple of 50 when span < 100 years.
-    const span = this._dataXMax - this._dataXMin;
-    this._heatXMinPadded = span < 100
-      ? Math.floor(this._dataXMin / 50) * 50
-      : Math.floor(this._dataXMin);
-    this._heatXMin = this._heatXMinPadded;
-    this._heatXMax = Math.ceil(this._dataXMax);
+    // If the global range hasn't been set externally yet, initialise from this
+    // chart's own data.  setGlobalRange() (called once both charts have loaded)
+    // will override this with the cross-chart union range.
+    if (this._globalXMin === null) {
+      this._initRangeFromData(this._dataXMin, this._dataXMax);
+    }
 
     this.resize();
+  }
+
+  /**
+   * Override the x-axis range used by all modes for this chart.
+   * Called by detail-panel.js with the union of all loaded charts' data ranges
+   * so that both QCU and QCF always share the same initial / reset domain.
+   *
+   * @param {number} min  — left edge (fractional year)
+   * @param {number} max  — right edge (fractional year)
+   */
+  setGlobalRange(min, max) {
+    this._initRangeFromData(min, max);
+    this._scheduleRender();
+  }
+
+  /**
+   * The data extent for this chart (used by detail-panel.js to compute the union).
+   * Returns null if data has not yet been loaded.
+   * @returns {{ min: number, max: number }|null}
+   */
+  getDataRange() {
+    if (this._dataXMin === null) return null;
+    return { min: this._dataXMin, max: this._dataXMax };
   }
 
   setMode(mode) {
@@ -211,6 +266,7 @@ export class TempChart {
     this._mode = mode;
 
     // Clear hover state on mode change.
+    this._hoverX      = null;
     this._hoveredPt   = null;
     this._hoveredCell = null;
     this._tooltip.hidden = true;
@@ -221,8 +277,6 @@ export class TempChart {
     // Show / hide HTML legend.
     if (this._heatLegend) this._heatLegend.hidden = mode !== 'heatmap';
 
-    // Height change triggers ResizeObserver → resize() automatically.
-    // Force an immediate resize+render in case no size change fires.
     if (mode !== prev) {
       requestAnimationFrame(() => { this.resize(); });
     }
@@ -245,10 +299,94 @@ export class TempChart {
 
   destroy() {
     this._ro.disconnect();
-    this._canvas.removeEventListener('wheel', this._onWheel);
-    this._canvas.removeEventListener('mousemove', this._onMouseMove);
+    this._canvas.removeEventListener('mousedown',  this._onMouseDown);
+    this._canvas.removeEventListener('mousemove',  this._onMouseMove);
     this._canvas.removeEventListener('mouseleave', this._onMouseLeave);
+    document.removeEventListener('mousemove', this._docMouseMove);
+    document.removeEventListener('mouseup',   this._docMouseUp);
     if (this._raf) cancelAnimationFrame(this._raf);
+    clearTimeout(this._inspDebounce);
+  }
+
+  /** Zoom in by ~25%, centred on current view midpoint. */
+  zoomIn()  { this._zoom(1 / 1.25); }
+
+  /** Zoom out by ~25%, centred on current view midpoint. */
+  zoomOut() { this._zoom(1.25); }
+
+  /** Reset zoom to the full global (cross-chart union) data range. */
+  resetZoom() {
+    if (this._globalXMin === null) return;
+    this._xMin = this._globalXMin;
+    this._xMax = this._globalXMax;
+    this._scheduleRender();
+    this._dispatchZoomChange();
+  }
+
+  /**
+   * Get the current view range (same for all modes).
+   * @returns {{ min: number, max: number }|null}
+   */
+  getZoom() {
+    if (this._xMin === null) return null;
+    return { min: this._xMin, max: this._xMax };
+  }
+
+  /**
+   * Set the view range (applies to all modes).
+   * @param {number} min
+   * @param {number} max
+   */
+  setZoom(min, max) {
+    if (this._xMinPadded === null) return;
+    this._xMin = Math.max(this._xMinPadded, min);
+    this._xMax = Math.min(this._globalXMax, max);
+    this._scheduleRender();
+  }
+
+  /**
+   * Get the current inspector position.
+   * @returns {{ type: 'line', x: number }|{ type: 'heat', year: number, month: number }|null}
+   */
+  getInspector() {
+    if (this._mode === 'heatmap') {
+      return this._hoveredCell
+        ? { type: 'heat', year: this._hoveredCell.year, month: this._hoveredCell.month }
+        : null;
+    }
+    return this._hoverX !== null ? { type: 'line', x: this._hoverX } : null;
+  }
+
+  /**
+   * Set the inspector position for line charts (snaps to nearest data point).
+   * @param {number} x - fractional year
+   */
+  setInspector(x) {
+    this._hoverX = x;
+    const pts = this._linePts();
+    if (pts) {
+      let best = null, bestDist = Infinity;
+      for (const p of pts) {
+        if (!p) continue;
+        const d = Math.abs(p.x - x);
+        if (d < bestDist) { bestDist = d; best = p; }
+      }
+      this._hoveredPt = best;
+      if (best) this._hoverX = best.x;
+    }
+    this._scheduleRender();
+  }
+
+  /**
+   * Set the inspector to a specific heatmap cell.
+   * @param {number} year
+   * @param {number} month  — 0-based
+   */
+  setInspectorCell(year, month) {
+    const months = this._recordMap.get(year);
+    const raw = months ? months[month] : null;
+    this._hoveredCell = { year, month, value: raw };
+    this._scheduleRender();
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -257,9 +395,61 @@ export class TempChart {
     return this._mode === 'yearly' ? this._yearly : this._monthly;
   }
 
+  /**
+   * Initialise the x-axis domain from a data range [min, max].
+   * Computes the padded left boundary (heatmap 50-year snap) and resets the
+   * current view to the full global range.
+   */
+  _initRangeFromData(min, max) {
+    const span = max - min;
+    this._xMinPadded = span < 100
+      ? Math.floor(min / 50) * 50
+      : Math.floor(min);
+    this._globalXMin = this._xMinPadded;
+    this._globalXMax = Math.ceil(max);
+    this._xMin = this._globalXMin;
+    this._xMax = this._globalXMax;
+  }
+
   _scheduleRender() {
     if (this._raf) return;
     this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); });
+  }
+
+  _dispatchZoomChange() {
+    this._container.dispatchEvent(new CustomEvent('chart:zoom', { bubbles: true }));
+  }
+
+  _dispatchInspectorChange() {
+    clearTimeout(this._inspDebounce);
+    this._inspDebounce = setTimeout(() => {
+      this._container.dispatchEvent(new CustomEvent('chart:inspect', { bubbles: true }));
+    }, 300);
+  }
+
+  _zoom(factor) {
+    if (this._xMin === null) return;
+    const mid    = (this._xMin + this._xMax) / 2;
+    let newMin   = mid - (mid - this._xMin) * factor;
+    let newMax   = mid + (this._xMax - mid) * factor;
+
+    const isHeat = this._mode === 'heatmap';
+    if (isHeat) {
+      newMin = Math.floor(newMin);
+      newMax = Math.ceil(newMax);
+    }
+
+    newMin = Math.max(this._xMinPadded, newMin);
+    newMax = Math.min(this._globalXMax, newMax);
+
+    // Enforce mode-appropriate minimum span.
+    const minSpan = isHeat ? 5 : 0.5;
+    if (newMax - newMin < minSpan) return;
+
+    this._xMin = newMin;
+    this._xMax = newMax;
+    this._scheduleRender();
+    this._dispatchZoomChange();
   }
 
   // ── Top-level render dispatcher ───────────────────────────────────────────────
@@ -299,11 +489,12 @@ export class TempChart {
     const isLight  = document.documentElement.dataset.theme === 'light';
     const colLine  = isLight ? '#2060b0' : '#5090e0';
     const colZero  = isLight ? 'rgba(0,80,180,0.22)' : 'rgba(80,144,224,0.22)';
+    const colInsp  = isLight ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
 
     const pts  = this._linePts();
-    const xMin = this._lineXMin, xMax = this._lineXMax;
+    const xMin = this._xMin, xMax = this._xMax;
 
-    if (!pts) {
+    if (!pts || xMin === null) {
       ctx.fillStyle = colText;
       ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -366,10 +557,22 @@ export class TempChart {
       ctx.setLineDash([]);
     }
 
-    // Clip and draw line
     ctx.save();
     ctx.beginPath(); ctx.rect(ml - 0.5, mt - 0.5, cw + 1, ch + 1); ctx.clip();
 
+    // Inspector vertical line (drawn before data so data renders on top).
+    if (this._hoverX !== null && this._hoverX >= xMin && this._hoverX <= xMax) {
+      const px = toX(this._hoverX);
+      ctx.strokeStyle = colInsp;
+      ctx.lineWidth   = 1 * dpr;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(px, mt);
+      ctx.lineTo(px, mt + ch);
+      ctx.stroke();
+    }
+
+    // Data line.
     ctx.strokeStyle = colLine; ctx.lineWidth = 1.5 * dpr;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     let open = false;
@@ -381,12 +584,14 @@ export class TempChart {
     }
     if (open) ctx.stroke();
 
-    // Hover dot
-    if (this._hoveredPt) {
-      const px = toX(this._hoveredPt.x), py = toY(this._hoveredPt.y);
-      ctx.beginPath(); ctx.arc(px, py, 4.5 * dpr, 0, Math.PI * 2);
+    // Intersection dot where inspector line meets the data line.
+    if (this._hoveredPt && this._hoverX !== null &&
+        this._hoverX >= xMin && this._hoverX <= xMax) {
+      const px = toX(this._hoverX);
+      const py = toY(this._hoveredPt.y);
+      ctx.beginPath(); ctx.arc(px, py, 3 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = colLine; ctx.fill();
-      ctx.strokeStyle = colBg; ctx.lineWidth = 2 * dpr; ctx.stroke();
+      ctx.strokeStyle = colBg; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
     }
 
     ctx.restore();
@@ -399,19 +604,25 @@ export class TempChart {
   // ── Heatmap rendering ─────────────────────────────────────────────────────────
 
   _renderHeatmap(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch) {
-    const colText  = _cssVar('--text-muted') || '#5a6880';
+    const colText   = _cssVar('--text-muted') || '#5a6880';
     const colBorder = _cssVar('--border-color') || 'rgba(212,168,85,0.2)';
-    const isLight  = document.documentElement.dataset.theme === 'light';
+    const isLight   = document.documentElement.dataset.theme === 'light';
 
-    // Missing data colour: inverse of the gradient midpoint (white in dark, dark in light).
-    const MISSING_DARK  = [230, 225, 215];  // near-white on a dark panel
-    const MISSING_LIGHT = [10,  15,  25];   // near-black on a light panel
-    const missingRGB    = isLight ? MISSING_LIGHT : MISSING_DARK;
-    const missingStyle  = `rgb(${missingRGB.join(',')})`;
+    const MISSING_DARK  = [230, 225, 215];
+    const MISSING_LIGHT = [10,  15,  25];
+    const missingStyle  = `rgb(${(isLight ? MISSING_LIGHT : MISSING_DARK).join(',')})`;
 
-    const xMin = this._heatXMin, xMax = this._heatXMax;
-    const startYear = Math.floor(xMin);
-    const endYear   = Math.ceil(xMax);
+    if (this._xMin === null) {
+      ctx.fillStyle = colText;
+      ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No temperature data available', W / 2, H / 2);
+      return;
+    }
+
+    // Snap the unified domain to integer year boundaries for the heatmap grid.
+    const startYear = Math.floor(this._xMin);
+    const endYear   = Math.ceil(this._xMax);
     const numYears  = endYear - startYear;
     if (numYears < 1) return;
 
@@ -442,11 +653,9 @@ export class TempChart {
     const dataMid   = (yMin + yMax) / 2;
     const halfRange = Math.max(0.001, (yMax - yMin) / 2);
 
-    // Update HTML legend labels.
     if (this._coldLabel) this._coldLabel.textContent = yMin.toFixed(1) + '°C';
     if (this._hotLabel)  this._hotLabel.textContent  = yMax.toFixed(1) + '°C';
 
-    // ── Draw cells ──
     ctx.save();
     ctx.beginPath(); ctx.rect(ml, mt, cw, ch); ctx.clip();
 
@@ -466,27 +675,26 @@ export class TempChart {
           const rgb = _heatColor(t, isLight);
           ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
         }
-        // +0.5 closes sub-pixel gaps between cells.
         ctx.fillRect(cx, cy, cellW + 0.5, cellH + 0.5);
       }
     }
 
-    // Hovered cell highlight.
+    // Inspector: box outline around the hovered cell.
     if (this._hoveredCell) {
       const { year, month } = this._hoveredCell;
       const col = year - startYear;
       if (col >= 0 && col < numYears) {
         const cx = ml + col * cellW;
         const cy = mt + month * cellH;
-        ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.75)';
-        ctx.lineWidth   = 1.5;
-        ctx.strokeRect(cx + 0.75, cy + 0.75, cellW - 1.5, cellH - 1.5);
+        ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.85)';
+        ctx.lineWidth   = 2;
+        ctx.strokeRect(cx + 1, cy + 1, cellW - 2, cellH - 2);
       }
     }
 
     ctx.restore();
 
-    // ── Y-axis: month labels ──
+    // Y-axis: month labels
     ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
     ctx.fillStyle = colText;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -494,7 +702,7 @@ export class TempChart {
       ctx.fillText(MONTHS[m], ml - 5 * dpr, mt + (m + 0.5) * cellH);
     }
 
-    // ── X-axis: year labels ──
+    // X-axis: year labels
     const xStep  = _niceStep(numYears, 6);
     const xStart = Math.ceil(startYear / xStep) * xStep;
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
@@ -504,46 +712,32 @@ export class TempChart {
       ctx.fillText(String(yr), px, mt + ch + 4 * dpr);
     }
 
-    // ── Axis border ──
     ctx.strokeStyle = colBorder; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + ch); ctx.lineTo(ml + cw, mt + ch); ctx.stroke();
   }
 
-  // ── Mouse / wheel event handlers ──────────────────────────────────────────────
+  // ── Mouse event handlers ──────────────────────────────────────────────────────
 
-  _onWheel(e) {
+  _onMouseDown(e) {
+    if (e.button !== 0 || this._xMin === null) return;
     e.preventDefault();
-    const isHeat = this._mode === 'heatmap';
-    const xMinK  = isHeat ? '_heatXMin' : '_lineXMin';
-    const xMaxK  = isHeat ? '_heatXMax' : '_lineXMax';
-
-    const rect   = this._canvas.getBoundingClientRect();
-    const frac   = (e.clientX - rect.left) / rect.width;
-    const pivot  = this[xMinK] + frac * (this[xMaxK] - this[xMinK]);
-    const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
-
-    let newMin = pivot - (pivot - this[xMinK]) * factor;
-    let newMax = pivot + (this[xMaxK] - pivot) * factor;
-
-    if (isHeat) {
-      // Snap to integer year boundaries.
-      newMin = Math.floor(newMin);
-      newMax = Math.ceil(newMax);
-      newMin = Math.max(this._heatXMinPadded, newMin);
-      newMax = Math.min(Math.ceil(this._dataXMax), newMax);
-      if (newMax - newMin < 5) return;   // keep at least 5 year columns
-    } else {
-      newMin = Math.max(this._dataXMin, newMin);
-      newMax = Math.min(this._dataXMax, newMax);
-      if (newMax - newMin < 0.5) return; // keep at least ~6 months
-    }
-
-    this[xMinK] = newMin;
-    this[xMaxK] = newMax;
+    this._isDragging      = true;
+    this._dragStartMouseX = e.clientX;
+    this._dragStartXMin   = this._xMin;
+    this._dragStartXMax   = this._xMax;
+    this._canvas.style.cursor = 'grabbing';
+    this._tooltip.hidden = true;
+    this._hoverX         = null;
+    this._hoveredPt      = null;
+    this._hoveredCell    = null;
     this._scheduleRender();
+
+    document.addEventListener('mousemove', this._docMouseMove);
+    document.addEventListener('mouseup',   this._docMouseUp);
   }
 
   _onMouseMove(e) {
+    if (this._isDragging) return;
     if (this._mode === 'heatmap') {
       this._hoverHeatmap(e);
     } else {
@@ -552,55 +746,111 @@ export class TempChart {
   }
 
   _onMouseLeave() {
-    this._hoveredPt   = null;
-    this._hoveredCell = null;
-    this._tooltip.hidden = true;
+    if (!this._isDragging) {
+      this._hoverX      = null;
+      this._hoveredPt   = null;
+      this._hoveredCell = null;
+      this._tooltip.hidden = true;
+      this._scheduleRender();
+    }
+  }
+
+  _doPan(e) {
+    const geom = this._geom;
+    if (!geom || this._xMin === null) return;
+
+    const dx    = e.clientX - this._dragStartMouseX;
+    const range = this._dragStartXMax - this._dragStartXMin;
+    const shift = -dx / geom.cw * range;
+
+    let newMin = this._dragStartXMin + shift;
+    let newMax = this._dragStartXMax + shift;
+
+    // Heatmap snaps to integer year boundaries.
+    const isHeat = this._mode === 'heatmap';
+    if (isHeat) {
+      newMin = Math.floor(newMin);
+      newMax = Math.ceil(newMax);
+    }
+
+    // Clamp to global boundaries while preserving span.
+    const span = this._dragStartXMax - this._dragStartXMin;
+    if (newMin < this._xMinPadded) { newMin = this._xMinPadded; newMax = newMin + span; }
+    if (newMax > this._globalXMax) { newMax = this._globalXMax; newMin = newMax - span; }
+
+    this._xMin = newMin;
+    this._xMax = newMax;
     this._scheduleRender();
   }
 
   _hoverLine(e) {
     const pts = this._linePts();
-    if (!pts) { this._tooltip.hidden = true; return; }
+    if (!pts || !this._geom || this._xMin === null) { this._tooltip.hidden = true; return; }
 
     const rect   = this._canvas.getBoundingClientRect();
-    const frac   = (e.clientX - rect.left) / rect.width;
-    const xHover = this._lineXMin + frac * (this._lineXMax - this._lineXMin);
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const { ml, mt, cw, ch } = this._geom;
+
+    if (mouseX < ml || mouseX > ml + cw || mouseY < mt || mouseY > mt + ch) {
+      if (this._hoverX !== null) {
+        this._hoverX    = null;
+        this._hoveredPt = null;
+        this._tooltip.hidden = true;
+        this._scheduleRender();
+      }
+      return;
+    }
+
+    const xHover = this._xMin + (mouseX - ml) / cw * (this._xMax - this._xMin);
 
     let best = null, bestDist = Infinity;
     for (const p of pts) {
       if (!p) continue;
+      if (p.x < this._xMin || p.x > this._xMax) continue;
       const d = Math.abs(p.x - xHover);
       if (d < bestDist) { bestDist = d; best = p; }
     }
 
-    if (!best) { this._hoveredPt = null; this._tooltip.hidden = true; this._scheduleRender(); return; }
+    if (!best) {
+      this._hoverX    = xHover;
+      this._hoveredPt = null;
+      this._tooltip.hidden = true;
+      this._scheduleRender();
+      return;
+    }
 
+    const changed = this._hoveredPt !== best;
+    this._hoverX    = best.x;
     this._hoveredPt = best;
+
     const abs  = Math.abs(best.y);
     const sign = best.y < 0 ? '−' : '';
     this._tooltip.textContent = `${best.label}: ${sign}${abs.toFixed(2)}\u00b0C`;
     this._tooltip.hidden = false;
 
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const ttW    = this._tooltip.offsetWidth + 4;
-    const left   = mouseX + 14 + ttW > rect.width ? mouseX - ttW - 8 : mouseX + 14;
-    const top    = Math.max(4, Math.min(mouseY - 18, rect.height - (this._tooltip.offsetHeight || 28) - 4));
+    const lineX = ml + (best.x - this._xMin) / (this._xMax - this._xMin) * cw;
+    const ttW   = this._tooltip.offsetWidth + 4;
+    const left  = lineX + 14 + ttW > rect.width ? lineX - ttW - 8 : lineX + 14;
+    const top   = Math.max(4, Math.min(mouseY - 18, rect.height - (this._tooltip.offsetHeight || 28) - 4));
     this._tooltip.style.left = left + 'px';
     this._tooltip.style.top  = top  + 'px';
 
-    this._scheduleRender();
+    if (changed) {
+      this._scheduleRender();
+      this._dispatchInspectorChange();
+    }
   }
 
   _hoverHeatmap(e) {
-    if (!this._geom || !this._recordMap.size) {
+    if (!this._geom || !this._recordMap.size || this._xMin === null) {
       this._tooltip.hidden = true; return;
     }
 
     const rect   = this._canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    const { ml, mt, cw, ch } = this._geom; // CSS px
+    const { ml, mt, cw, ch } = this._geom;
 
     const xOff = mouseX - ml;
     const yOff = mouseY - mt;
@@ -610,11 +860,11 @@ export class TempChart {
       return;
     }
 
-    const numYears = Math.ceil(this._heatXMax) - Math.floor(this._heatXMin);
-    const year     = Math.floor(this._heatXMin) + Math.floor(xOff / cw * numYears);
-    const month    = Math.floor(yOff / ch * 12);
+    const startYear = Math.floor(this._xMin);
+    const numYears  = Math.ceil(this._xMax) - startYear;
+    const year      = startYear + Math.floor(xOff / cw * numYears);
+    const month     = Math.floor(yOff / ch * 12);
 
-    // Only re-render if cell changed.
     const prev = this._hoveredCell;
     if (prev && prev.year === year && prev.month === month) return;
 
@@ -638,5 +888,6 @@ export class TempChart {
     this._tooltip.style.top  = top  + 'px';
 
     this._scheduleRender();
+    this._dispatchInspectorChange();
   }
 }
