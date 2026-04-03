@@ -5,6 +5,7 @@
  *   'monthly'  — line chart, one point per month
  *   'yearly'   — line chart, one point per annual average
  *   'heatmap'  — calendar grid: year × month, cell colour = temperature
+ *   'anomaly'  — line chart, annual average temperature anomaly
  *
  * All modes share a single x-axis domain (_xMin / _xMax in fractional years).
  * Switching modes preserves the current zoom range.  Heatmap rendering snaps
@@ -14,7 +15,7 @@
  *   const chart = new TempChart(containerEl);
  *   chart.load(csvText);              // parse and render; empty/null = no data
  *   chart.setGlobalRange(min, max);   // set the shared x range from outside
- *   chart.setMode('heatmap');         // 'monthly' | 'yearly' | 'heatmap'
+ *   chart.setMode('heatmap');         // 'monthly' | 'yearly' | 'heatmap' | 'anomaly'
  *   chart.resize();                   // call when container becomes visible
  *   chart.destroy();                  // cleanup on panel close
  *
@@ -89,6 +90,112 @@ function _yearlyPoints(records) {
     prevYear = rec.year;
   }
   return pts;
+}
+
+/**
+ * Build annual mean summaries from all years with at least one valid month.
+ * @param {Array<{year: number, months: (number|null)[]}>} records
+ * @returns {Array<{year: number, mean: number, nMonths: number, isFull: boolean}>}
+ */
+function _annualSummaries(records) {
+  return records
+    .map(rec => {
+      const months = rec.months.filter(v => v != null);
+      if (months.length === 0) return null;
+      return {
+        year:    rec.year,
+        mean:    months.reduce((sum, v) => sum + v, 0) / months.length / 100,
+        nMonths: months.length,
+        isFull:  months.length === 12,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Pick the full years used as the annual anomaly reference.
+ * @param {Array<{year: number, mean: number, nMonths: number, isFull: boolean}>} summaries
+ * @param {boolean} useCenteredReference
+ * @returns {Array<{year: number, mean: number, nMonths: number, isFull: boolean}>}
+ */
+function _anomalyReferenceYears(summaries, useCenteredReference) {
+  const fullYears = summaries.filter(s => s.isFull);
+  if (fullYears.length === 0) return [];
+
+  if (useCenteredReference && fullYears.length > 30) {
+    const center = (fullYears[0].year + fullYears[fullYears.length - 1].year) / 2;
+    return [...fullYears]
+      .sort((a, b) => {
+        const da = Math.abs(a.year - center);
+        const db = Math.abs(b.year - center);
+        return da - db || a.year - b.year;
+      })
+      .slice(0, 30)
+      .sort((a, b) => a.year - b.year);
+  }
+  return fullYears;
+}
+
+/**
+ * Build annual anomaly points from annual summaries.
+ * Reference mean is always computed from full years only.
+ * @param {Array<{year: number, mean: number, nMonths: number, isFull: boolean}>} summaries
+ * @param {{ excludeSparse: boolean, useCenteredReference: boolean }} options
+ * @returns {Array<{x: number, y: number, label: string, nMonths: number, isFull: boolean}>}
+ */
+function _anomalyPoints(summaries, options = {}) {
+  const excludeSparse = options.excludeSparse !== false;
+  const useCenteredReference = !!options.useCenteredReference;
+  const referenceYears = _anomalyReferenceYears(summaries, useCenteredReference);
+  if (referenceYears.length === 0) return [];
+
+  const referenceMean = referenceYears.reduce((sum, s) => sum + s.mean, 0) / referenceYears.length;
+  const included = summaries.filter(s => excludeSparse ? s.nMonths >= 9 : s.nMonths >= 1);
+
+  const pts = [];
+  let prevYear = null;
+  for (const summary of included) {
+    if (prevYear !== null && summary.year > prevYear + 1) pts.push(null);
+    pts.push({
+      x:       summary.year,
+      y:       summary.mean - referenceMean,
+      label:   String(summary.year),
+      nMonths: summary.nMonths,
+      isFull:  summary.isFull,
+    });
+    prevYear = summary.year;
+  }
+  return pts;
+}
+
+/**
+ * Compute a least-squares trend line for point data.
+ * @param {Array<{x: number, y: number}|null>} pts
+ * @returns {{ slopePerYear: number, slopePer100Years: number, intercept: number }|null}
+ */
+function _trendLine(pts) {
+  const values = (pts ?? []).filter(Boolean);
+  if (values.length < 2) return null;
+
+  let sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
+  for (const p of values) {
+    sumX += p.x;
+    sumY += p.y;
+    sumXX += p.x * p.x;
+    sumXY += p.x * p.y;
+  }
+
+  const n = values.length;
+  const denom = n * sumXX - sumX * sumX;
+  if (Math.abs(denom) < 1e-12) return null;
+
+  const slopePerYear = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slopePerYear * sumX) / n;
+  return {
+    slopePerYear,
+    slopePer100Years: slopePerYear * 100,
+    intercept,
+  };
 }
 
 // ── Matrix inversion (Gauss-Jordan) ───────────────────────────────────────────
@@ -319,11 +426,18 @@ export class TempChart {
     this._records          = null;
     this._monthly          = null;
     this._yearly           = null;
+    this._annualSummaries  = null;
+    this._anomaly          = null;
+    this._anomalyTrend     = null;
+    this._anomalyReferenceWindow = null;
     this._partialEstimates = null;  // [{year, estimate, se, ciLow, ciHigh, nMonths}]
     this._recordMap        = new Map();   // year → months[]
     this._mode             = 'monthly';
     this._showEst          = true;   // show partial-year estimate line + dots
     this._showCI           = true;   // show 95% CI error bars (only when _showEst is true)
+    this._excludeSparseAnomalyYears = true;
+    this._useCenteredAnomalyReference = false;
+    this._showAnomalyTrend = true;
 
     // ── Unified x-axis domain (fractional years, shared across all modes) ──
     // null until load() or setGlobalRange() initialises them.
@@ -394,6 +508,10 @@ export class TempChart {
     if (records.length === 0) {
       this._monthly          = null;
       this._yearly           = null;
+      this._annualSummaries  = null;
+      this._anomaly          = null;
+      this._anomalyTrend     = null;
+      this._anomalyReferenceWindow = null;
       this._partialEstimates = null;
       this._recordMap        = new Map();
       this._scheduleRender();
@@ -402,6 +520,19 @@ export class TempChart {
 
     this._monthly          = _monthlyPoints(records);
     this._yearly           = _yearlyPoints(records);
+    this._annualSummaries  = _annualSummaries(records);
+    this._anomaly          = _anomalyPoints(this._annualSummaries, {
+      excludeSparse: this._excludeSparseAnomalyYears,
+      useCenteredReference: this._useCenteredAnomalyReference,
+    });
+    const referenceYears = _anomalyReferenceYears(
+      this._annualSummaries,
+      this._useCenteredAnomalyReference,
+    );
+    this._anomalyTrend     = _trendLine(this._anomaly);
+    this._anomalyReferenceWindow = referenceYears.length
+      ? { start: referenceYears[0].year, end: referenceYears[referenceYears.length - 1].year }
+      : null;
     this._partialEstimates = _calibrateAndEstimate(records);
     this._recordMap        = new Map(records.map(r => [r.year, r.months]));
 
@@ -516,6 +647,33 @@ export class TempChart {
   /** @returns {boolean} */
   getShowCI() { return this._showCI; }
 
+  setExcludeSparseAnomalyYears(v) {
+    this._excludeSparseAnomalyYears = !!v;
+    this._rebuildAnomaly();
+  }
+
+  getExcludeSparseAnomalyYears() {
+    return this._excludeSparseAnomalyYears;
+  }
+
+  setUseCenteredAnomalyReference(v) {
+    this._useCenteredAnomalyReference = !!v;
+    this._rebuildAnomaly();
+  }
+
+  getUseCenteredAnomalyReference() {
+    return this._useCenteredAnomalyReference;
+  }
+
+  setShowAnomalyTrend(v) {
+    this._showAnomalyTrend = !!v;
+    this._scheduleRender();
+  }
+
+  getShowAnomalyTrend() {
+    return this._showAnomalyTrend;
+  }
+
   /**
    * Get the current view range (same for all modes).
    * @returns {{ min: number, max: number }|null}
@@ -585,7 +743,25 @@ export class TempChart {
   // ── Internal helpers ──────────────────────────────────────────────────────────
 
   _linePts() {
-    return this._mode === 'yearly' ? this._yearly : this._monthly;
+    if (this._mode === 'yearly') return this._yearly;
+    if (this._mode === 'anomaly') return this._anomaly;
+    return this._monthly;
+  }
+
+  _rebuildAnomaly() {
+    this._anomaly = _anomalyPoints(this._annualSummaries ?? [], {
+      excludeSparse: this._excludeSparseAnomalyYears,
+      useCenteredReference: this._useCenteredAnomalyReference,
+    });
+    const referenceYears = _anomalyReferenceYears(
+      this._annualSummaries ?? [],
+      this._useCenteredAnomalyReference,
+    );
+    this._anomalyTrend = _trendLine(this._anomaly);
+    this._anomalyReferenceWindow = referenceYears.length
+      ? { start: referenceYears[0].year, end: referenceYears[referenceYears.length - 1].year }
+      : null;
+    this._scheduleRender();
   }
 
   /**
@@ -680,11 +856,16 @@ export class TempChart {
     const colText     = _cssVar('--text-muted')   || '#5a6880';
     const colBg       = _cssVar('--bg-elevated')  || '#152c4a';
     const isLight     = document.documentElement.dataset.theme === 'light';
-    const colLine     = isLight ? '#2060b0' : '#5090e0';
+    const isAnomaly   = this._mode === 'anomaly';
+    const colLine     = isAnomaly
+      ? (isLight ? '#9a2f00' : '#ff9a5a')
+      : (isLight ? '#2060b0' : '#5090e0');
     const colZero     = isLight ? 'rgba(0,80,180,0.22)' : 'rgba(80,144,224,0.22)';
     const colInsp     = isLight ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
     const colPartial  = isLight ? '#c05020' : '#e09040';
     const colPartialCI = isLight ? 'rgba(192,80,32,0.35)' : 'rgba(224,144,64,0.35)';
+    const colTrend    = isLight ? '#2060b0' : '#7fb2ff';
+    const colRef      = isLight ? 'rgba(90, 100, 115, 0.75)' : 'rgba(190, 196, 205, 0.75)';
 
     const pts  = this._linePts();
     const xMin = this._xMin, xMax = this._xMax;
@@ -696,14 +877,14 @@ export class TempChart {
 
     const visible = pts ? pts.filter(p => p && p.x >= xMin && p.x <= xMax) : [];
 
-    if (!pts && visiblePartials.length === 0) {
-      if (xMin === null) {
-        ctx.fillStyle = colText;
-        ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('No temperature data available', W / 2, H / 2);
-        return;
-      }
+    if ((!pts || pts.length === 0) && visiblePartials.length === 0) {
+      ctx.fillStyle = colText;
+      ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(this._mode === 'anomaly'
+        ? 'Need at least one complete year for anomaly reference'
+        : 'No temperature data available', W / 2, H / 2);
+      return;
     }
 
     if (visible.length < 1 && visiblePartials.length < 1) {
@@ -726,7 +907,7 @@ export class TempChart {
     yMin -= yPad; yMax += yPad;
 
     // Allow CI bands to extend y range by at most 10% of the data span.
-    if (this._showCI && this._showEst && visiblePartials.length > 0) {
+    if (!isAnomaly && this._showCI && this._showEst && visiblePartials.length > 0) {
       const ciExt     = dataSpan * 0.1;
       const yMinLimit = yMin - ciExt;
       const yMaxLimit = yMax + ciExt;
@@ -751,7 +932,7 @@ export class TempChart {
       ctx.beginPath(); ctx.moveTo(ml, py); ctx.lineTo(ml + cw, py); ctx.stroke();
       const dec = Math.max(0, -Math.floor(Math.log10(yStep)));
       ctx.fillStyle = colText;
-      ctx.fillText(y.toFixed(dec) + '°', ml - 5 * dpr, py);
+      ctx.fillText(y.toFixed(dec) + '°C', ml - 5 * dpr, py);
     }
 
     // X grid + labels
@@ -791,10 +972,42 @@ export class TempChart {
       ctx.stroke();
     }
 
+    if (isAnomaly && this._useCenteredAnomalyReference && this._anomalyReferenceWindow) {
+      const markers = [
+        this._anomalyReferenceWindow.start - 0.5,
+        this._anomalyReferenceWindow.end + 0.5,
+      ];
+      ctx.strokeStyle = colRef;
+      ctx.lineWidth = 1 * dpr;
+      ctx.setLineDash([4 * dpr, 4 * dpr]);
+      for (const markerX of markers) {
+        if (markerX < xMin || markerX > xMax) continue;
+        const px = toX(markerX);
+        ctx.beginPath();
+        ctx.moveTo(px, mt);
+        ctx.lineTo(px, mt + ch);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    if (isAnomaly && this._showAnomalyTrend && this._anomalyTrend) {
+      const trendStartY = this._anomalyTrend.intercept + this._anomalyTrend.slopePerYear * xMin;
+      const trendEndY   = this._anomalyTrend.intercept + this._anomalyTrend.slopePerYear * xMax;
+      ctx.strokeStyle = colTrend;
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.setLineDash([6 * dpr, 4 * dpr]);
+      ctx.beginPath();
+      ctx.moveTo(toX(xMin), toY(trendStartY));
+      ctx.lineTo(toX(xMax), toY(trendEndY));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // ── Partial-year estimates (CI toggle ON only) ────────────────────────────
     // Renders: CI bars → amber connecting line → complete-year line → amber dots
     // (layer order ensures blue line overlaps amber at shared endpoints, dots are topmost)
-    if (visiblePartials.length > 0) {
+    if (!isAnomaly && visiblePartials.length > 0) {
       const CAP_W = 4 * dpr;
 
       // 1. CI bars (most rearward; only when the 95% CI toggle is also on)
@@ -905,6 +1118,22 @@ export class TempChart {
     }
 
     ctx.restore();
+
+    if (isAnomaly && this._showAnomalyTrend && this._anomalyTrend) {
+      const slope = this._anomalyTrend.slopePer100Years;
+      const sign = slope < 0 ? '−' : '';
+      const text = `${sign}${Math.abs(slope).toFixed(2)}°C/100yr`;
+      ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
+      const textW = ctx.measureText(text).width;
+      const tx = ml + cw - textW - 6 * dpr;
+      const ty = mt + 6 * dpr;
+      ctx.fillStyle = colBg;
+      ctx.fillRect(tx - 4 * dpr, ty - 2 * dpr, textW + 8 * dpr, 14 * dpr);
+      ctx.fillStyle = colTrend;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(text, tx, ty);
+    }
 
     // Axis border
     ctx.strokeStyle = colGrid; ctx.lineWidth = 1;
@@ -1165,7 +1394,12 @@ export class TempChart {
       this._hoveredPartial = null;
       const abs  = Math.abs(bestPt.y);
       const sign = bestPt.y < 0 ? '−' : '';
-      this._tooltip.textContent = `${bestPt.label}: ${sign}${abs.toFixed(2)}\u00b0C`;
+      if (this._mode === 'anomaly') {
+        const monthNote = bestPt.isFull ? '12 mo' : `${bestPt.nMonths} mo`;
+        this._tooltip.textContent = `${bestPt.label} (${monthNote}): ${sign}${abs.toFixed(2)}\u00b0C anomaly`;
+      } else {
+        this._tooltip.textContent = `${bestPt.label}: ${sign}${abs.toFixed(2)}\u00b0C`;
+      }
     }
     this._tooltip.hidden = false;
 

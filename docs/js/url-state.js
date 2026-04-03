@@ -3,14 +3,15 @@
  *
  * Hash formats:
  *   Map view:   #map=<zoom>/<lat>/<lng>/<projection>
- *   Station:    #station=<location-id>[;<section>;<mode>;<zoom>;<ci>]
+ *   Station:    #station=<location-id>[;<section>;<mode>;<zoom>;<partial>;<anomaly>]
  *   Table view: #table=<sort-column>/<sort-direction>
  *
  * Station detail fields (all optional, use '-' for absent):
  *   section:  qcu | qcf | bu | pop
- *   mode:     monthly | yearly | heatmap | 2020 | 1975 | change
+ *   mode:     monthly | yearly | heatmap | anomaly | 2020 | 1975 | change
  *   zoom:     <min>,<max>  (decimal years)
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
+ *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the anomaly trend line; combine with commas; '-' for defaults
  *
  * Theme is intentionally excluded — it is a user preference stored in
  * localStorage, not part of shareable state.
@@ -49,15 +50,30 @@ export function serialiseMapState(map, projection) {
  * @param {number}  [detail.zoomMax]
  * @param {boolean} [detail.showEst]  — whether partial-year estimates are visible (default true)
  * @param {boolean} [detail.showCI]   — whether 95% CI bands are visible (default true)
+ * @param {boolean} [detail.excludeSparseAnomalyYears]     — whether anomaly mode hides years with <9 months (default true)
+ * @param {boolean} [detail.useCenteredAnomalyReference]   — whether anomaly mode uses the 30 full years nearest the record centre (default false)
+ * @param {boolean} [detail.showAnomalyTrend]              — whether anomaly mode shows the dashed trend line (default true)
  * @returns {string}  e.g. 'station=mauna-loa;qcu;yearly;1950.00,2024.00;-'
  */
 export function serialiseStationState(locationId, detail = {}) {
   const encodedId = encodeURIComponent(locationId);
 
-  const { section, mode, zoomMin, zoomMax, showEst, showCI } = detail;
+  const {
+    section, mode, zoomMin, zoomMax, showEst, showCI,
+    excludeSparseAnomalyYears, useCenteredAnomalyReference, showAnomalyTrend,
+  } = detail;
 
   // If no non-default detail state, emit the compact form.
-  if (!section && !mode && zoomMin == null && showEst !== false && showCI !== false) {
+  if (
+    !section &&
+    !mode &&
+    zoomMin == null &&
+    showEst !== false &&
+    showCI !== false &&
+    excludeSparseAnomalyYears !== false &&
+    useCenteredAnomalyReference !== true &&
+    showAnomalyTrend !== false
+  ) {
     return `station=${encodedId}`;
   }
 
@@ -71,8 +87,13 @@ export function serialiseStationState(locationId, detail = {}) {
 
   // Partial-year state: 'noest' = estimates off; 'noci' = estimates on, CI off; '-' = both on.
   const partialStr = showEst === false ? 'noest' : showCI === false ? 'noci' : '-';
+  const anomalyFlags = [];
+  if (excludeSparseAnomalyYears === false) anomalyFlags.push('inclsparse');
+  if (useCenteredAnomalyReference === true) anomalyFlags.push('center30');
+  if (showAnomalyTrend === false) anomalyFlags.push('notrend');
+  const anomalyStr = anomalyFlags.length ? anomalyFlags.join(',') : '-';
 
-  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr}`;
+  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr};${anomalyStr}`;
 }
 
 /**
@@ -90,7 +111,9 @@ export function serialiseTableState(sortColumn, sortDirection) {
  * @param {string} hash  — raw hash including the leading '#', e.g. '#map=5/0/0/mercator'
  * @returns {{ type: 'map', zoom: number, lat: number, lng: number, projection: string }
  *          |{ type: 'station', id: string, section?: string, mode?: string,
- *             zoomMin?: number, zoomMax?: number, showEst?: boolean, showCI?: boolean }
+ *             zoomMin?: number, zoomMax?: number, showEst?: boolean, showCI?: boolean,
+ *             excludeSparseAnomalyYears?: boolean, useCenteredAnomalyReference?: boolean,
+ *             showAnomalyTrend?: boolean }
  *          |{ type: 'table', sortColumn: string, sortDirection: string }
  *          |null}
  */
@@ -145,6 +168,13 @@ export function parseHash(hash) {
     const p4 = parts.length >= 5 ? parts[4] : '-';
     result.showEst = p4 !== 'noest';
     result.showCI  = p4 !== 'noest' && p4 !== 'noci';
+
+    // Annual anomaly state (index 5): defaults are exclude sparse years and use all full years.
+    const p5 = parts.length >= 6 ? parts[5] : '-';
+    const anomalyFlags = new Set((p5 && p5 !== '-') ? p5.split(',') : []);
+    result.excludeSparseAnomalyYears = !anomalyFlags.has('inclsparse');
+    result.useCenteredAnomalyReference = anomalyFlags.has('center30');
+    result.showAnomalyTrend = !anomalyFlags.has('notrend');
 
     return result;
   }

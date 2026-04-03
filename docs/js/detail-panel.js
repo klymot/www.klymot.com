@@ -67,6 +67,15 @@ let _sharedShowEst = true;
 /** Shared 95% CI error-bar visibility across both temp sections (requires _sharedShowEst). */
 let _sharedShowCI = true;
 
+/** Shared annual anomaly toggle: exclude years with fewer than 9 months. */
+let _sharedExcludeSparseAnomalyYears = true;
+
+/** Shared annual anomaly toggle: reference anomaly to the 30 full years nearest the record centre. */
+let _sharedUseCenteredAnomalyReference = false;
+
+/** Shared annual anomaly toggle: show the anomaly trend line. */
+let _sharedShowAnomalyTrend = true;
+
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
 
@@ -232,6 +241,25 @@ function _destroyCharts() {
   _charts = {};
 }
 
+function _applyChartModeUi(section, mode) {
+  _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(b => {
+    const active = b.dataset.mode === mode;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+
+  const partialControls = _panel.querySelector(`[data-section="${section}"] .chart-partial-controls`);
+  if (partialControls) partialControls.hidden = mode !== 'yearly';
+
+  const anomalyControls = _panel.querySelector(`[data-section="${section}"] .chart-anomaly-controls`);
+  if (anomalyControls) anomalyControls.hidden = mode !== 'anomaly';
+
+  const hint = _panel.querySelector(`[data-section="${section}"] .chart-hint`);
+  if (hint) hint.textContent = mode === 'anomaly'
+    ? 'Drag to pan · Hover for anomaly'
+    : 'Drag to pan · Hover for temperature';
+}
+
 function _initCharts() {
   const locationId = _currentLocationId;
   if (!locationId) return;
@@ -254,6 +282,15 @@ function _initCharts() {
   // Restore partial-year visibility from URL state.
   if (restore?.showEst != null) _sharedShowEst = restore.showEst;
   if (restore?.showCI  != null) _sharedShowCI  = restore.showCI;
+  if (restore?.excludeSparseAnomalyYears != null) {
+    _sharedExcludeSparseAnomalyYears = restore.excludeSparseAnomalyYears;
+  }
+  if (restore?.useCenteredAnomalyReference != null) {
+    _sharedUseCenteredAnomalyReference = restore.useCenteredAnomalyReference;
+  }
+  if (restore?.showAnomalyTrend != null) {
+    _sharedShowAnomalyTrend = restore.showAnomalyTrend;
+  }
 
   // Track data-load completion so we can compute the cross-chart union range.
   let loadsRemaining = SECTIONS.length;
@@ -305,16 +342,8 @@ function _initCharts() {
     // Apply the shared mode immediately (before data loads, for button state).
     if (_sharedChartMode !== 'monthly') {
       chart.setMode(_sharedChartMode);
-      _panel.querySelectorAll(`[data-section="${section}"] .chart-mode-btn`).forEach(b => {
-        const active = b.dataset.mode === _sharedChartMode;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-pressed', String(active));
-      });
     }
-
-    // Show/hide the partial-year controls group based on current mode.
-    const partialControlsEl = _panel.querySelector(`[data-section="${section}"] .chart-partial-controls`);
-    if (partialControlsEl) partialControlsEl.hidden = _sharedChartMode !== 'yearly';
+    _applyChartModeUi(section, _sharedChartMode);
 
     // Apply restored Est. / CI button states.
     const estBtn = _panel.querySelector(`[data-section="${section}"] [data-action="est-toggle"]`);
@@ -330,6 +359,25 @@ function _initCharts() {
     }
     chart.setShowEst(_sharedShowEst);
     chart.setShowCI(_sharedShowCI);
+    chart.setExcludeSparseAnomalyYears(_sharedExcludeSparseAnomalyYears);
+    chart.setUseCenteredAnomalyReference(_sharedUseCenteredAnomalyReference);
+    chart.setShowAnomalyTrend(_sharedShowAnomalyTrend);
+
+    const sparseBtn = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-sparse-toggle"]`);
+    const refBtn    = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-ref-toggle"]`);
+    const trendBtn  = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-trend-toggle"]`);
+    if (sparseBtn) {
+      sparseBtn.classList.toggle('active', _sharedExcludeSparseAnomalyYears);
+      sparseBtn.setAttribute('aria-pressed', String(_sharedExcludeSparseAnomalyYears));
+    }
+    if (refBtn) {
+      refBtn.classList.toggle('active', _sharedUseCenteredAnomalyReference);
+      refBtn.setAttribute('aria-pressed', String(_sharedUseCenteredAnomalyReference));
+    }
+    if (trendBtn) {
+      trendBtn.classList.toggle('active', _sharedShowAnomalyTrend);
+      trendBtn.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+    }
 
     fetch(`data/${PATHS[i]}/${encodeURIComponent(locationId)}.csv`)
       .then(r => r.ok ? r.text() : '')
@@ -345,15 +393,8 @@ function _initCharts() {
         const mode = btn.dataset.mode;
         _sharedChartMode = mode;
         SECTIONS.forEach(s => {
-          _panel.querySelectorAll(`[data-section="${s}"] .chart-mode-btn`).forEach(b => {
-            const active = b.dataset.mode === mode;
-            b.classList.toggle('active', active);
-            b.setAttribute('aria-pressed', String(active));
-          });
+          _applyChartModeUi(s, mode);
           _charts[s]?.setMode(mode);
-          // Show partial-year controls only in yearly mode.
-          const pc = _panel.querySelector(`[data-section="${s}"] .chart-partial-controls`);
-          if (pc) pc.hidden = mode !== 'yearly';
         });
         _updateStationUrl();
       });
@@ -392,6 +433,48 @@ function _initCharts() {
           _charts[s]?.setShowCI(_sharedShowCI);
           const cb = _panel.querySelector(`[data-section="${s}"] [data-action="ci-toggle"]`);
           if (cb) { cb.classList.toggle('active', _sharedShowCI); cb.setAttribute('aria-pressed', String(_sharedShowCI)); }
+        });
+        _updateStationUrl();
+      });
+
+    _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-sparse-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedExcludeSparseAnomalyYears = !_sharedExcludeSparseAnomalyYears;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setExcludeSparseAnomalyYears(_sharedExcludeSparseAnomalyYears);
+          const b = _panel.querySelector(`[data-section="${s}"] [data-action="anomaly-sparse-toggle"]`);
+          if (b) {
+            b.classList.toggle('active', _sharedExcludeSparseAnomalyYears);
+            b.setAttribute('aria-pressed', String(_sharedExcludeSparseAnomalyYears));
+          }
+        });
+        _updateStationUrl();
+      });
+
+    _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-ref-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedUseCenteredAnomalyReference = !_sharedUseCenteredAnomalyReference;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setUseCenteredAnomalyReference(_sharedUseCenteredAnomalyReference);
+          const b = _panel.querySelector(`[data-section="${s}"] [data-action="anomaly-ref-toggle"]`);
+          if (b) {
+            b.classList.toggle('active', _sharedUseCenteredAnomalyReference);
+            b.setAttribute('aria-pressed', String(_sharedUseCenteredAnomalyReference));
+          }
+        });
+        _updateStationUrl();
+      });
+
+    _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-trend-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedShowAnomalyTrend = !_sharedShowAnomalyTrend;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setShowAnomalyTrend(_sharedShowAnomalyTrend);
+          const b = _panel.querySelector(`[data-section="${s}"] [data-action="anomaly-trend-toggle"]`);
+          if (b) {
+            b.classList.toggle('active', _sharedShowAnomalyTrend);
+            b.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+          }
         });
         _updateStationUrl();
       });
@@ -510,6 +593,9 @@ function _updateStationUrl() {
     detail.mode    = _sharedChartMode;
     detail.showEst = _sharedShowEst;
     detail.showCI  = _sharedShowCI;
+    detail.excludeSparseAnomalyYears = _sharedExcludeSparseAnomalyYears;
+    detail.useCenteredAnomalyReference = _sharedUseCenteredAnomalyReference;
+    detail.showAnomalyTrend = _sharedShowAnomalyTrend;
     if (chart) {
       const zoom = chart.getZoom();
       detail.zoomMin = zoom?.min;
@@ -615,10 +701,16 @@ function _tempChartPanel() {
           <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
           <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
+          <button class="chart-mode-btn" data-mode="anomaly" aria-pressed="false">Anomaly</button>
         </div>
         <div class="chart-partial-controls" hidden role="group" aria-label="Partial year options">
           <button class="chart-ci-btn active" data-action="est-toggle" title="Show/hide partial-year estimates" aria-pressed="true">Est.</button>
           <button class="chart-ci-btn active" data-action="ci-toggle" title="Show/hide 95% CI error bars" aria-pressed="true">95% CI</button>
+        </div>
+        <div class="chart-anomaly-controls" hidden role="group" aria-label="Annual anomaly options">
+          <button class="chart-ci-btn active" data-action="anomaly-sparse-toggle" title="Exclude years with fewer than 9 months" aria-pressed="true">9+ mo</button>
+          <button class="chart-ci-btn" data-action="anomaly-ref-toggle" title="Reference anomaly to the 30 full years nearest the record centre" aria-pressed="false">30 yr ref</button>
+          <button class="chart-ci-btn active" data-action="anomaly-trend-toggle" title="Show or hide the anomaly trend line" aria-pressed="true">Trend</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
