@@ -97,13 +97,94 @@ function init() {
   document.getElementById('zoom-out')
     ?.addEventListener('click', () => map.zoomOut());
   const locationBtn = document.getElementById('zoom-current-location');
+  const locationTooltip = document.getElementById('zoom-current-location-tooltip');
+  let locationTooltipTimer = null;
+  let suppressLocationHoverTooltip = false;
+  const defaultLocationMessage = 'Zoom to current location. Your location stays on this device.';
+  let isLocationStatusVisible = false;
+
+  function setLocationTooltipMessage(message) {
+    if (locationTooltip) locationTooltip.textContent = message;
+  }
+
+  function positionLocationTooltip() {
+    if (!locationTooltip || !locationBtn) return;
+    const rect = locationBtn.getBoundingClientRect();
+    const tooltipHeight = locationTooltip.offsetHeight || 48;
+    const top = Math.min(rect.bottom + 8, window.innerHeight - tooltipHeight - 8);
+    const right = Math.max(8, window.innerWidth - rect.right);
+    locationTooltip.style.right = `${right}px`;
+    locationTooltip.style.top = `${top}px`;
+  }
+
+  function showLocationTooltip(duration = null) {
+    if (!locationTooltip) return;
+    globalThis.clearTimeout(locationTooltipTimer);
+    locationTooltip.hidden = false;
+    positionLocationTooltip();
+    if (duration != null) {
+      locationTooltipTimer = globalThis.setTimeout(() => {
+        locationTooltip.hidden = true;
+      }, duration);
+    }
+  }
+
+  function showLocationStatus(message, duration = 5000) {
+    setLocationTooltipMessage(message);
+    isLocationStatusVisible = true;
+    showLocationTooltip(duration);
+  }
+
+  function hideLocationTooltip() {
+    if (!locationTooltip) return;
+    globalThis.clearTimeout(locationTooltipTimer);
+    locationTooltip.hidden = true;
+    isLocationStatusVisible = false;
+    setLocationTooltipMessage(defaultLocationMessage);
+  }
+
+  locationBtn?.addEventListener('mouseenter', () => {
+    if (suppressLocationHoverTooltip || isLocationStatusVisible) return;
+    setLocationTooltipMessage(defaultLocationMessage);
+    showLocationTooltip();
+  });
+  locationBtn?.addEventListener('mouseleave', () => {
+    suppressLocationHoverTooltip = false;
+    if (isLocationStatusVisible) return;
+    hideLocationTooltip();
+  });
+  locationBtn?.addEventListener('focus', () => {
+    if (isLocationStatusVisible) return;
+    setLocationTooltipMessage(defaultLocationMessage);
+    showLocationTooltip();
+  });
+  locationBtn?.addEventListener('blur', () => {
+    if (isLocationStatusVisible) return;
+    hideLocationTooltip();
+  });
+  locationBtn?.addEventListener('touchstart', () => {
+    if (isLocationStatusVisible) return;
+    setLocationTooltipMessage(defaultLocationMessage);
+    showLocationTooltip(2500);
+  }, { passive: true });
+  window.addEventListener('resize', () => {
+    if (!locationTooltip?.hidden) positionLocationTooltip();
+  });
   locationBtn?.addEventListener('click', () => {
+    suppressLocationHoverTooltip = true;
     const geolocation = navigator.geolocation;
-    if (!geolocation) return;
+    if (!window.isSecureContext) {
+      showLocationStatus('Location needs HTTPS on iPhone/Safari. Your location would stay on this device.');
+      return;
+    }
+
+    if (!geolocation) {
+      showLocationStatus('Location is not available in this browser.');
+      return;
+    }
 
     locationBtn.disabled = true;
-    const previousTitle = locationBtn.title;
-    locationBtn.title = 'Locating on this device only…';
+    showLocationStatus('Locating on this device only…', 2500);
 
     geolocation.getCurrentPosition(
       ({ coords }) => {
@@ -114,11 +195,19 @@ function init() {
           essential: true,
         });
         locationBtn.disabled = false;
-        locationBtn.title = previousTitle;
+        showLocationStatus('Current location found. Your location stays on this device.', 2500);
       },
-      () => {
+      (error) => {
         locationBtn.disabled = false;
-        locationBtn.title = previousTitle;
+        if (error?.code === 1) {
+          showLocationStatus('Location access was denied. Your location is not sent to this site.');
+        } else if (error?.code === 2) {
+          showLocationStatus('Current location is unavailable right now.');
+        } else if (error?.code === 3) {
+          showLocationStatus('Location request timed out. Try again.');
+        } else {
+          showLocationStatus('Could not get current location on this device.');
+        }
       },
       {
         enableHighAccuracy: false,
