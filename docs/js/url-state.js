@@ -3,14 +3,14 @@
  *
  * Hash formats:
  *   Map view:   #map=<zoom>/<lat>/<lng>/<projection>
- *   Station:    #station=<location-id>[;<section>;<mode>;<zoom>;<inspector>]
+ *   Station:    #station=<location-id>[;<section>;<mode>;<zoom>;<ci>]
  *   Table view: #table=<sort-column>/<sort-direction>
  *
  * Station detail fields (all optional, use '-' for absent):
- *   section:   qcu | qcf | bu | pop
- *   mode:      monthly | yearly | heatmap | 2020 | 1975 | change
- *   zoom:      <min>,<max>  (decimal years)
- *   inspector: <x>  (decimal year, line charts) | <year>~<month>  (heatmap)
+ *   section:  qcu | qcf | bu | pop
+ *   mode:     monthly | yearly | heatmap | 2020 | 1975 | change
+ *   zoom:     <min>,<max>  (decimal years)
+ *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
  *
  * Theme is intentionally excluded — it is a user preference stored in
  * localStorage, not part of shareable state.
@@ -43,20 +43,21 @@ export function serialiseMapState(map, projection) {
  * Serialise a selected station to a hash fragment string.
  * @param {string} locationId
  * @param {object} [detail]  — optional detail panel state
- * @param {string} [detail.section]    — active section name (e.g. 'temp-qcu')
- * @param {string} [detail.mode]       — chart mode or year tab
- * @param {number} [detail.zoomMin]
- * @param {number} [detail.zoomMax]
- * @param {{ type: 'line', x: number }|{ type: 'heat', year: number, month: number }} [detail.inspector]
- * @returns {string}  e.g. 'station=mauna-loa;qcu;heatmap;1950.0,2024.0;1985.5833'
+ * @param {string}  [detail.section]  — active section name (e.g. 'temp-qcu')
+ * @param {string}  [detail.mode]     — chart mode or year tab
+ * @param {number}  [detail.zoomMin]
+ * @param {number}  [detail.zoomMax]
+ * @param {boolean} [detail.showEst]  — whether partial-year estimates are visible (default true)
+ * @param {boolean} [detail.showCI]   — whether 95% CI bands are visible (default true)
+ * @returns {string}  e.g. 'station=mauna-loa;qcu;yearly;1950.00,2024.00;-'
  */
 export function serialiseStationState(locationId, detail = {}) {
   const encodedId = encodeURIComponent(locationId);
 
-  const { section, mode, zoomMin, zoomMax, inspector } = detail;
+  const { section, mode, zoomMin, zoomMax, showEst, showCI } = detail;
 
-  // If no detail state, emit the compact form.
-  if (!section && !mode && zoomMin == null && !inspector) {
+  // If no non-default detail state, emit the compact form.
+  if (!section && !mode && zoomMin == null && showEst !== false && showCI !== false) {
     return `station=${encodedId}`;
   }
 
@@ -68,17 +69,10 @@ export function serialiseStationState(locationId, detail = {}) {
     zoomStr = `${zoomMin.toFixed(2)},${zoomMax.toFixed(2)}`;
   }
 
-  let inspStr = '-';
-  if (inspector) {
-    if (inspector.type === 'line' && isFinite(inspector.x)) {
-      inspStr = inspector.x.toFixed(4);
-    } else if (inspector.type === 'heat' &&
-               isFinite(inspector.year) && isFinite(inspector.month)) {
-      inspStr = `${inspector.year}~${inspector.month}`;
-    }
-  }
+  // Partial-year state: 'noest' = estimates off; 'noci' = estimates on, CI off; '-' = both on.
+  const partialStr = showEst === false ? 'noest' : showCI === false ? 'noci' : '-';
 
-  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${inspStr}`;
+  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr}`;
 }
 
 /**
@@ -96,8 +90,7 @@ export function serialiseTableState(sortColumn, sortDirection) {
  * @param {string} hash  — raw hash including the leading '#', e.g. '#map=5/0/0/mercator'
  * @returns {{ type: 'map', zoom: number, lat: number, lng: number, projection: string }
  *          |{ type: 'station', id: string, section?: string, mode?: string,
- *             zoomMin?: number, zoomMax?: number,
- *             inspector?: { type: 'line', x: number }|{ type: 'heat', year: number, month: number } }
+ *             zoomMin?: number, zoomMax?: number, showEst?: boolean, showCI?: boolean }
  *          |{ type: 'table', sortColumn: string, sortDirection: string }
  *          |null}
  */
@@ -148,21 +141,10 @@ export function parseHash(hash) {
       }
     }
 
-    // inspector (index 4): decimal year OR "year~month"
-    if (parts.length >= 5 && parts[4] && parts[4] !== '-') {
-      const iStr = parts[4];
-      if (iStr.includes('~')) {
-        const [yr, mo] = iStr.split('~').map(Number);
-        if (isFinite(yr) && isFinite(mo)) {
-          result.inspector = { type: 'heat', year: yr, month: mo };
-        }
-      } else {
-        const x = parseFloat(iStr);
-        if (isFinite(x)) {
-          result.inspector = { type: 'line', x };
-        }
-      }
-    }
+    // Partial-year state (index 4): 'noest' = estimates off; 'noci' = est on, CI off; '-'/absent = both on.
+    const p4 = parts.length >= 5 ? parts[4] : '-';
+    result.showEst = p4 !== 'noest';
+    result.showCI  = p4 !== 'noest' && p4 !== 'noci';
 
     return result;
   }

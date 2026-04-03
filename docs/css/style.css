@@ -947,6 +947,18 @@ body {
   border-color: var(--btn-active-bg);
 }
 
+/* ── Chart partial-year controls (Est. + 95% CI) ─────────────────── */
+
+.chart-partial-controls {
+  display: flex;
+  gap: 0.1875rem;
+  flex-shrink: 0;
+}
+
+.chart-partial-controls[hidden] {
+  display: none;
+}
+
 /* ── Chart zoom controls ──────────────────────────────────────────── */
 
 .chart-zoom-controls {
@@ -982,6 +994,39 @@ body {
   background: var(--btn-active-bg);
   color: var(--btn-active-text);
   border-color: var(--btn-active-bg);
+}
+
+.chart-ci-btn {
+  padding: 0 0.375rem;
+  height: 1.625rem;
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chart-ci-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.chart-ci-btn.active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-text);
+  border-color: var(--btn-active-bg);
+}
+
+.chart-ci-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* Fixed-height canvas container; chart fills it completely. */

@@ -74,19 +74,194 @@ function _monthlyPoints(records) {
 
 /**
  * Build point array for annual-average display.
- * Years where every month is missing produce null; year gaps also produce null.
+ * Only complete years (all 12 months present) are included.
+ * Year gaps between consecutive complete years produce null (line break).
+ * Partial years are handled separately via _calibrateAndEstimate().
  */
 function _yearlyPoints(records) {
   const pts = [];
-  for (let i = 0; i < records.length; i++) {
-    const rec = records[i];
-    if (i > 0 && rec.year > records[i - 1].year + 1) pts.push(null);
-    const valid = rec.months.filter(v => v != null);
-    pts.push(valid.length > 0
-      ? { x: rec.year, y: valid.reduce((s, v) => s + v, 0) / valid.length / 100, label: String(rec.year) }
-      : null);
+  let prevYear = null;
+  for (const rec of records) {
+    if (!rec.months.every(v => v != null)) continue; // skip partial years
+    if (prevYear !== null && rec.year > prevYear + 1) pts.push(null);
+    const avg = rec.months.reduce((s, v) => s + v, 0) / 12 / 100;
+    pts.push({ x: rec.year, y: avg, label: String(rec.year) });
+    prevYear = rec.year;
   }
   return pts;
+}
+
+// ── Matrix inversion (Gauss-Jordan) ───────────────────────────────────────────
+
+/**
+ * Invert an n×n matrix using Gauss-Jordan elimination.
+ * Returns null if the matrix is singular (pivot < 1e-12).
+ * @param {number[][]} A
+ * @returns {number[][]|null}
+ */
+function _matInverse(A) {
+  const n = A.length;
+  // Build augmented matrix [A | I]
+  const M = A.map((row, i) => {
+    const aug = row.map(v => v);
+    for (let j = 0; j < n; j++) aug.push(j === i ? 1 : 0);
+    return aug;
+  });
+
+  for (let col = 0; col < n; col++) {
+    // Partial pivot
+    let maxRow = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(M[row][col]) > Math.abs(M[maxRow][col])) maxRow = row;
+    }
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+
+    const pivot = M[col][col];
+    if (Math.abs(pivot) < 1e-12) return null; // singular
+
+    const invPivot = 1 / pivot;
+    for (let j = 0; j < 2 * n; j++) M[col][j] *= invPivot;
+
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const f = M[row][col];
+      if (f === 0) continue;
+      for (let j = 0; j < 2 * n; j++) M[row][j] -= f * M[col][j];
+    }
+  }
+
+  return M.map(row => row.slice(n));
+}
+
+// ── GLS partial-year estimator ────────────────────────────────────────────────
+
+/**
+ * Calibrate a month-to-annual estimator from complete years, then apply GLS
+ * to estimate annual means for partial years (with 95% CI).
+ *
+ * Algorithm:
+ *   T[i]    = climatological monthly mean (raw 0.01°C) across complete years
+ *   A       = mean(T[0..11])  — grand climatological mean
+ *   E[y,i]  = A * t[y,i] / T[i]  — month-implied annual estimate
+ *   A_y     = mean(t[y,i]) for the 12 complete months of year y (actual annual mean)
+ *   r[y,i]  = E[y,i] − A_y  — residual
+ *   Sigma   = 12×12 sample covariance of residuals (across complete years)
+ *
+ *   For each partial year: GLS combining the k observed E[y,i] values with the
+ *   k×k covariance submatrix; falls back to inverse-variance if submatrix is singular.
+ *
+ * @param {Array<{year: number, months: (number|null)[]}>} records
+ * @returns {Array<{year, estimate, se, ciLow, ciHigh, nMonths}>}
+ *   All values in °C (converted from 0.01°C raw units).
+ */
+function _calibrateAndEstimate(records) {
+  const complete = records.filter(r => r.months.every(v => v != null));
+  const partial  = records.filter(r =>
+    !r.months.every(v => v != null) && r.months.some(v => v != null));
+
+  if (complete.length < 3 || partial.length === 0) return [];
+
+  // T[i] = climatological monthly mean (raw 0.01°C)
+  const T = new Array(12).fill(0);
+  for (const yr of complete) {
+    for (let i = 0; i < 12; i++) T[i] += yr.months[i];
+  }
+  for (let i = 0; i < 12; i++) T[i] /= complete.length;
+
+  // A = grand annual mean
+  const A = T.reduce((s, v) => s + v, 0) / 12;
+
+  // Guard: skip months where |T[i]| < 50 (0.5°C in raw units)
+  const usable = T.map(t => Math.abs(t) >= 50);
+
+  // Build E[y,i] and A_y for complete years, then compute residuals.
+  // A_y = simple mean of the 12 raw month values for year y.
+  const residuals = complete.map(yr => {
+    const Ay = yr.months.reduce((s, v) => s + v, 0) / 12;
+    return yr.months.map((v, i) =>
+      usable[i] ? (A * v / T[i]) - Ay : null
+    );
+  });
+
+  // 12×12 sample covariance matrix of residuals
+  const n = complete.length;
+  const Sigma = Array.from({ length: 12 }, () => new Array(12).fill(0));
+  for (let i = 0; i < 12; i++) {
+    if (!usable[i]) continue;
+    for (let j = i; j < 12; j++) {
+      if (!usable[j]) continue;
+      let cov = 0;
+      for (const r of residuals) cov += r[i] * r[j];
+      Sigma[i][j] = Sigma[j][i] = cov / (n - 1);
+    }
+  }
+
+  // Estimate each partial year via GLS
+  const results = [];
+  for (const rec of partial) {
+    // Indices of observed, usable months
+    const obsIdx = [];
+    for (let i = 0; i < 12; i++) {
+      if (rec.months[i] != null && usable[i]) obsIdx.push(i);
+    }
+    if (obsIdx.length === 0) continue;
+
+    // Month-implied annual estimates E_S (raw 0.01°C)
+    const ES = obsIdx.map(i => A * rec.months[i] / T[i]);
+
+    const k = obsIdx.length;
+    let hatA, se;
+
+    // Try GLS with the k×k covariance submatrix
+    const SigmaS = Array.from({ length: k }, (_, ri) =>
+      Array.from({ length: k }, (_, ci) => Sigma[obsIdx[ri]][obsIdx[ci]])
+    );
+    const SigmaSInv = _matInverse(SigmaS);
+
+    if (SigmaSInv) {
+      // GLS: hat_A = (1^T Sigma_S^{-1} 1)^{-1} * 1^T Sigma_S^{-1} * E_S
+      let denom = 0, numer = 0;
+      for (let ri = 0; ri < k; ri++) {
+        let rowSumInv = 0, rowSumInvE = 0;
+        for (let ci = 0; ci < k; ci++) {
+          rowSumInv  += SigmaSInv[ri][ci];
+          rowSumInvE += SigmaSInv[ri][ci] * ES[ci];
+        }
+        denom += rowSumInv;
+        numer += rowSumInvE;
+      }
+      if (denom <= 0) continue;
+      hatA = numer / denom;
+      se   = Math.sqrt(1 / denom);
+    } else {
+      // Fallback: inverse-variance weighting (diagonal only)
+      let sumW = 0, sumWE = 0;
+      for (let ki = 0; ki < k; ki++) {
+        const v = Sigma[obsIdx[ki]][obsIdx[ki]];
+        if (v <= 0) continue;
+        const w = 1 / v;
+        sumW  += w;
+        sumWE += w * ES[ki];
+      }
+      if (sumW <= 0) continue;
+      hatA = sumWE / sumW;
+      se   = Math.sqrt(1 / sumW);
+    }
+
+    // Convert from raw 0.01°C to °C
+    const estimate = hatA / 100;
+    const seDeg    = se   / 100;
+    results.push({
+      year:     rec.year,
+      estimate,
+      se:       seDeg,
+      ciLow:    estimate - 1.96 * seDeg,
+      ciHigh:   estimate + 1.96 * seDeg,
+      nMonths:  k,
+    });
+  }
+
+  return results;
 }
 
 // ── Axis / colour helpers ──────────────────────────────────────────────────────
@@ -141,11 +316,14 @@ export class TempChart {
     this._coldLabel  = section?.querySelector('.heat-cold-label')    ?? null;
     this._hotLabel   = section?.querySelector('.heat-hot-label')     ?? null;
 
-    this._records    = null;
-    this._monthly    = null;
-    this._yearly     = null;
-    this._recordMap  = new Map();   // year → months[]
-    this._mode       = 'monthly';
+    this._records          = null;
+    this._monthly          = null;
+    this._yearly           = null;
+    this._partialEstimates = null;  // [{year, estimate, se, ciLow, ciHigh, nMonths}]
+    this._recordMap        = new Map();   // year → months[]
+    this._mode             = 'monthly';
+    this._showEst          = true;   // show partial-year estimate line + dots
+    this._showCI           = true;   // show 95% CI error bars (only when _showEst is true)
 
     // ── Unified x-axis domain (fractional years, shared across all modes) ──
     // null until load() or setGlobalRange() initialises them.
@@ -163,9 +341,10 @@ export class TempChart {
     this._raf = null;
 
     // Inspector state — vertical line for line charts, cell for heatmap.
-    this._hoverX      = null;   // x in data space where the inspector line sits
-    this._hoveredPt   = null;   // nearest data point to _hoverX (for tooltip)
-    this._hoveredCell = null;   // heatmap hover { year, month, value }
+    this._hoverX         = null;   // x in data space where the inspector line sits
+    this._hoveredPt      = null;   // nearest complete-year point to _hoverX (for tooltip)
+    this._hoveredPartial = null;   // nearest partial-year estimate to _hoverX (for tooltip)
+    this._hoveredCell    = null;   // heatmap hover { year, month, value }
 
     // Drag-to-pan state.
     this._isDragging      = false;
@@ -213,16 +392,18 @@ export class TempChart {
     this._records = records;
 
     if (records.length === 0) {
-      this._monthly   = null;
-      this._yearly    = null;
-      this._recordMap = new Map();
+      this._monthly          = null;
+      this._yearly           = null;
+      this._partialEstimates = null;
+      this._recordMap        = new Map();
       this._scheduleRender();
       return;
     }
 
-    this._monthly   = _monthlyPoints(records);
-    this._yearly    = _yearlyPoints(records);
-    this._recordMap = new Map(records.map(r => [r.year, r.months]));
+    this._monthly          = _monthlyPoints(records);
+    this._yearly           = _yearlyPoints(records);
+    this._partialEstimates = _calibrateAndEstimate(records);
+    this._recordMap        = new Map(records.map(r => [r.year, r.months]));
 
     const allX = this._monthly.filter(Boolean).map(p => p.x);
     this._dataXMin = Math.min(...allX);
@@ -322,6 +503,18 @@ export class TempChart {
     this._scheduleRender();
     this._dispatchZoomChange();
   }
+
+  /** Show or hide the partial-year estimate line + dots (yearly mode). */
+  setShowEst(v) { this._showEst = !!v; this._scheduleRender(); }
+
+  /** @returns {boolean} */
+  getShowEst() { return this._showEst; }
+
+  /** Show or hide 95% CI error bars for partial-year estimates (yearly mode, requires showEst). */
+  setShowCI(v) { this._showCI = !!v; this._scheduleRender(); }
+
+  /** @returns {boolean} */
+  getShowCI() { return this._showCI; }
 
   /**
    * Get the current view range (same for all modes).
@@ -483,27 +676,37 @@ export class TempChart {
   // ── Line chart rendering ──────────────────────────────────────────────────────
 
   _renderLine(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch) {
-    const colGrid  = _cssVar('--border-color') || 'rgba(212,168,85,0.2)';
-    const colText  = _cssVar('--text-muted')   || '#5a6880';
-    const colBg    = _cssVar('--bg-elevated')  || '#152c4a';
-    const isLight  = document.documentElement.dataset.theme === 'light';
-    const colLine  = isLight ? '#2060b0' : '#5090e0';
-    const colZero  = isLight ? 'rgba(0,80,180,0.22)' : 'rgba(80,144,224,0.22)';
-    const colInsp  = isLight ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
+    const colGrid     = _cssVar('--border-color') || 'rgba(212,168,85,0.2)';
+    const colText     = _cssVar('--text-muted')   || '#5a6880';
+    const colBg       = _cssVar('--bg-elevated')  || '#152c4a';
+    const isLight     = document.documentElement.dataset.theme === 'light';
+    const colLine     = isLight ? '#2060b0' : '#5090e0';
+    const colZero     = isLight ? 'rgba(0,80,180,0.22)' : 'rgba(80,144,224,0.22)';
+    const colInsp     = isLight ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
+    const colPartial  = isLight ? '#c05020' : '#e09040';
+    const colPartialCI = isLight ? 'rgba(192,80,32,0.35)' : 'rgba(224,144,64,0.35)';
 
     const pts  = this._linePts();
     const xMin = this._xMin, xMax = this._xMax;
 
-    if (!pts || xMin === null) {
-      ctx.fillStyle = colText;
-      ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('No temperature data available', W / 2, H / 2);
-      return;
+    // Partial-year estimates are only shown in yearly mode when Est. is toggled on.
+    const visiblePartials = (this._mode === 'yearly' && this._showEst && this._partialEstimates)
+      ? this._partialEstimates.filter(pe => pe.year >= xMin && pe.year <= xMax)
+      : [];
+
+    const visible = pts ? pts.filter(p => p && p.x >= xMin && p.x <= xMax) : [];
+
+    if (!pts && visiblePartials.length === 0) {
+      if (xMin === null) {
+        ctx.fillStyle = colText;
+        ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('No temperature data available', W / 2, H / 2);
+        return;
+      }
     }
 
-    const visible = pts.filter(p => p && p.x >= xMin && p.x <= xMax);
-    if (visible.length < 1) {
+    if (visible.length < 1 && visiblePartials.length < 1) {
       ctx.fillStyle = colText;
       ctx.font = `${12 * dpr}px 'JetBrains Mono', monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -511,11 +714,27 @@ export class TempChart {
       return;
     }
 
+    // Y-axis range from visible complete-year points and partial estimate centres.
     let yMin = Infinity, yMax = -Infinity;
-    for (const p of visible) { if (p.y < yMin) yMin = p.y; if (p.y > yMax) yMax = p.y; }
-    if (yMin === yMax) { yMin -= 0.5; yMax += 0.5; }
-    const yPad = (yMax - yMin) * 0.1;
+    for (const p of visible)         { if (p.y < yMin) yMin = p.y; if (p.y > yMax) yMax = p.y; }
+    for (const pe of visiblePartials) { if (pe.estimate < yMin) yMin = pe.estimate; if (pe.estimate > yMax) yMax = pe.estimate; }
+    if (!isFinite(yMin)) { yMin = -1; yMax = 1; }
+    if (yMin === yMax)   { yMin -= 0.5; yMax += 0.5; }
+
+    const dataSpan = yMax - yMin;
+    const yPad     = dataSpan * 0.1;
     yMin -= yPad; yMax += yPad;
+
+    // Allow CI bands to extend y range by at most 10% of the data span.
+    if (this._showCI && this._showEst && visiblePartials.length > 0) {
+      const ciExt     = dataSpan * 0.1;
+      const yMinLimit = yMin - ciExt;
+      const yMaxLimit = yMax + ciExt;
+      for (const pe of visiblePartials) {
+        if (pe.ciLow  < yMin) yMin = Math.max(yMinLimit, pe.ciLow);
+        if (pe.ciHigh > yMax) yMax = Math.min(yMaxLimit, pe.ciHigh);
+      }
+    }
 
     const toX = x => ml + (x - xMin) / (xMax - xMin) * cw;
     const toY = y => mt + (yMax - y) / (yMax - yMin) * ch;
@@ -572,19 +791,110 @@ export class TempChart {
       ctx.stroke();
     }
 
-    // Data line.
-    ctx.strokeStyle = colLine; ctx.lineWidth = 1.5 * dpr;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    let open = false;
-    ctx.beginPath();
-    for (const p of pts) {
-      if (!p) { if (open) { ctx.stroke(); ctx.beginPath(); open = false; } continue; }
-      const px = toX(p.x), py = toY(p.y);
-      if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
-    }
-    if (open) ctx.stroke();
+    // ── Partial-year estimates (CI toggle ON only) ────────────────────────────
+    // Renders: CI bars → amber connecting line → complete-year line → amber dots
+    // (layer order ensures blue line overlaps amber at shared endpoints, dots are topmost)
+    if (visiblePartials.length > 0) {
+      const CAP_W = 4 * dpr;
 
-    // Intersection dot where inspector line meets the data line.
+      // 1. CI bars (most rearward; only when the 95% CI toggle is also on)
+      if (this._showCI) {
+        for (const pe of visiblePartials) {
+          const px    = toX(pe.year);
+          const pyLow = toY(Math.max(pe.ciLow,  yMin));
+          const pyHi  = toY(Math.min(pe.ciHigh, yMax));
+          ctx.strokeStyle = colPartialCI; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([]);
+          ctx.beginPath(); ctx.moveTo(px, pyLow); ctx.lineTo(px, pyHi); ctx.stroke();
+          ctx.strokeStyle = colPartial;   ctx.lineWidth = 1 * dpr;
+          ctx.beginPath();
+          ctx.moveTo(px - CAP_W / 2, pyLow); ctx.lineTo(px + CAP_W / 2, pyLow);
+          ctx.moveTo(px - CAP_W / 2, pyHi);  ctx.lineTo(px + CAP_W / 2, pyHi);
+          ctx.stroke();
+        }
+      }
+
+      // 2. Amber connecting line: for each contiguous partial-year run, draw a line
+      //    that starts at the preceding complete year, passes through all partial
+      //    estimates in the run, and ends at the following complete year.
+      //    This bridges the gaps in the blue complete-year line.
+      if (this._partialEstimates) {
+        const compMap = new Map((pts ?? []).filter(Boolean).map(p => [Math.round(p.x), p]));
+        const partMap = new Map(this._partialEstimates.map(pe => [pe.year, pe]));
+        const allYrs  = [...new Set([
+          ...(pts ?? []).filter(Boolean).map(p => Math.round(p.x)),
+          ...this._partialEstimates.map(pe => pe.year),
+        ])].sort((a, b) => a - b);
+
+        for (let i = 0; i < allYrs.length; ) {
+          if (!partMap.has(allYrs[i])) { i++; continue; }
+
+          // Build bridge segment for this partial run.
+          const seg = [];
+
+          // Preceding complete year (immediately before this run in allYrs).
+          if (i > 0) {
+            const prev = compMap.get(allYrs[i - 1]);
+            if (prev) seg.push({ x: prev.x, y: prev.y });
+          }
+
+          // All partial years in this contiguous run.
+          while (i < allYrs.length && partMap.has(allYrs[i])) {
+            const pe = partMap.get(allYrs[i]);
+            seg.push({ x: pe.year, y: pe.estimate });
+            i++;
+          }
+
+          // Following complete year (immediately after this run in allYrs).
+          if (i < allYrs.length) {
+            const next = compMap.get(allYrs[i]);
+            if (next) seg.push({ x: next.x, y: next.y });
+          }
+
+          // Draw amber line for points within the visible x range.
+          const segVis = seg.filter(p => p.x >= xMin && p.x <= xMax);
+          if (segVis.length >= 2) {
+            ctx.strokeStyle = colPartial; ctx.lineWidth = 1 * dpr; ctx.setLineDash([]);
+            ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+            ctx.beginPath();
+            for (let k = 0; k < segVis.length; k++) {
+              const px = toX(segVis[k].x), py = toY(segVis[k].y);
+              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    // Complete-year data line (drawn after amber connecting line so blue overlaps
+    // amber at the shared complete-year junction points).
+    if (pts) {
+      ctx.strokeStyle = colLine; ctx.lineWidth = 1.5 * dpr;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      let open = false;
+      ctx.beginPath();
+      for (const p of pts) {
+        if (!p) { if (open) { ctx.stroke(); ctx.beginPath(); open = false; } continue; }
+        const px = toX(p.x), py = toY(p.y);
+        if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
+      }
+      if (open) ctx.stroke();
+    }
+
+    // Partial-year estimate dots — only when CI is also on (Est.-only shows the line alone).
+    if (this._showCI) {
+      for (const pe of visiblePartials) {
+        if (pe.estimate < yMin || pe.estimate > yMax) continue;
+        const px = toX(pe.year);
+        const py = toY(pe.estimate);
+        const r  = this._hoveredPartial === pe ? 4 * dpr : 3 * dpr;
+        ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = colPartial; ctx.fill();
+        ctx.strokeStyle = colBg; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      }
+    }
+
+    // Intersection dot where inspector line meets the complete-year data line.
     if (this._hoveredPt && this._hoverX !== null &&
         this._hoverX >= xMin && this._hoverX <= xMax) {
       const px = toX(this._hoverX);
@@ -729,6 +1039,7 @@ export class TempChart {
     this._tooltip.hidden = true;
     this._hoverX         = null;
     this._hoveredPt      = null;
+    this._hoveredPartial = null;
     this._hoveredCell    = null;
     this._scheduleRender();
 
@@ -747,9 +1058,10 @@ export class TempChart {
 
   _onMouseLeave() {
     if (!this._isDragging) {
-      this._hoverX      = null;
-      this._hoveredPt   = null;
-      this._hoveredCell = null;
+      this._hoverX         = null;
+      this._hoveredPt      = null;
+      this._hoveredPartial = null;
+      this._hoveredCell    = null;
       this._tooltip.hidden = true;
       this._scheduleRender();
     }
@@ -804,39 +1116,67 @@ export class TempChart {
 
     const xHover = this._xMin + (mouseX - ml) / cw * (this._xMax - this._xMin);
 
-    let best = null, bestDist = Infinity;
-    for (const p of pts) {
-      if (!p) continue;
-      if (p.x < this._xMin || p.x > this._xMax) continue;
-      const d = Math.abs(p.x - xHover);
-      if (d < bestDist) { bestDist = d; best = p; }
+    // Search complete-year points.
+    let bestPt = null, bestPtDist = Infinity;
+    if (pts) {
+      for (const p of pts) {
+        if (!p) continue;
+        if (p.x < this._xMin || p.x > this._xMax) continue;
+        const d = Math.abs(p.x - xHover);
+        if (d < bestPtDist) { bestPtDist = d; bestPt = p; }
+      }
     }
 
-    if (!best) {
-      this._hoverX    = xHover;
-      this._hoveredPt = null;
+    // In yearly mode also search partial-year estimates (only when Est. is shown).
+    let bestPe = null, bestPeDist = Infinity;
+    if (this._mode === 'yearly' && this._showEst && this._partialEstimates) {
+      for (const pe of this._partialEstimates) {
+        if (pe.year < this._xMin || pe.year > this._xMax) continue;
+        const d = Math.abs(pe.year - xHover);
+        if (d < bestPeDist) { bestPeDist = d; bestPe = pe; }
+      }
+    }
+
+    const usePartial = bestPe && bestPeDist < bestPtDist;
+    const prevPt      = this._hoveredPt;
+    const prevPartial = this._hoveredPartial;
+
+    if (!bestPt && !bestPe) {
+      this._hoverX         = xHover;
+      this._hoveredPt      = null;
+      this._hoveredPartial = null;
       this._tooltip.hidden = true;
       this._scheduleRender();
       return;
     }
 
-    const changed = this._hoveredPt !== best;
-    this._hoverX    = best.x;
-    this._hoveredPt = best;
-
-    const abs  = Math.abs(best.y);
-    const sign = best.y < 0 ? '−' : '';
-    this._tooltip.textContent = `${best.label}: ${sign}${abs.toFixed(2)}\u00b0C`;
+    if (usePartial) {
+      this._hoverX         = bestPe.year;
+      this._hoveredPt      = null;
+      this._hoveredPartial = bestPe;
+      const abs  = Math.abs(bestPe.estimate);
+      const sign = bestPe.estimate < 0 ? '−' : '';
+      this._tooltip.textContent =
+        `${bestPe.year} (${bestPe.nMonths} mo): ${sign}${abs.toFixed(2)}\u00b0C` +
+        ` [${bestPe.ciLow.toFixed(2)}\u2013${bestPe.ciHigh.toFixed(2)}]`;
+    } else {
+      this._hoverX         = bestPt.x;
+      this._hoveredPt      = bestPt;
+      this._hoveredPartial = null;
+      const abs  = Math.abs(bestPt.y);
+      const sign = bestPt.y < 0 ? '−' : '';
+      this._tooltip.textContent = `${bestPt.label}: ${sign}${abs.toFixed(2)}\u00b0C`;
+    }
     this._tooltip.hidden = false;
 
-    const lineX = ml + (best.x - this._xMin) / (this._xMax - this._xMin) * cw;
+    const lineX = ml + (this._hoverX - this._xMin) / (this._xMax - this._xMin) * cw;
     const ttW   = this._tooltip.offsetWidth + 4;
     const left  = lineX + 14 + ttW > rect.width ? lineX - ttW - 8 : lineX + 14;
     const top   = Math.max(4, Math.min(mouseY - 18, rect.height - (this._tooltip.offsetHeight || 28) - 4));
     this._tooltip.style.left = left + 'px';
     this._tooltip.style.top  = top  + 'px';
 
-    if (changed) {
+    if (this._hoveredPt !== prevPt || this._hoveredPartial !== prevPartial) {
       this._scheduleRender();
       this._dispatchInspectorChange();
     }

@@ -61,6 +61,12 @@ let _charts = {};
 /** Shared chart mode across both temp sections (kept in sync). */
 let _sharedChartMode = 'monthly';
 
+/** Shared partial-year estimate visibility (line + dots) across both temp sections. */
+let _sharedShowEst = true;
+
+/** Shared 95% CI error-bar visibility across both temp sections (requires _sharedShowEst). */
+let _sharedShowCI = true;
+
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
 
@@ -245,6 +251,10 @@ function _initCharts() {
     _sharedChartMode = restore.mode;
   }
 
+  // Restore partial-year visibility from URL state.
+  if (restore?.showEst != null) _sharedShowEst = restore.showEst;
+  if (restore?.showCI  != null) _sharedShowCI  = restore.showCI;
+
   // Track data-load completion so we can compute the cross-chart union range.
   let loadsRemaining = SECTIONS.length;
   function _onChartDataLoaded() {
@@ -302,6 +312,25 @@ function _initCharts() {
       });
     }
 
+    // Show/hide the partial-year controls group based on current mode.
+    const partialControlsEl = _panel.querySelector(`[data-section="${section}"] .chart-partial-controls`);
+    if (partialControlsEl) partialControlsEl.hidden = _sharedChartMode !== 'yearly';
+
+    // Apply restored Est. / CI button states.
+    const estBtn = _panel.querySelector(`[data-section="${section}"] [data-action="est-toggle"]`);
+    const ciBtn  = _panel.querySelector(`[data-section="${section}"] [data-action="ci-toggle"]`);
+    if (estBtn) {
+      estBtn.classList.toggle('active', _sharedShowEst);
+      estBtn.setAttribute('aria-pressed', String(_sharedShowEst));
+    }
+    if (ciBtn) {
+      ciBtn.classList.toggle('active', _sharedShowCI);
+      ciBtn.setAttribute('aria-pressed', String(_sharedShowCI));
+      ciBtn.disabled = !_sharedShowEst;
+    }
+    chart.setShowEst(_sharedShowEst);
+    chart.setShowCI(_sharedShowCI);
+
     fetch(`data/${PATHS[i]}/${encodeURIComponent(locationId)}.csv`)
       .then(r => r.ok ? r.text() : '')
       .catch(() => '')
@@ -322,6 +351,9 @@ function _initCharts() {
             b.setAttribute('aria-pressed', String(active));
           });
           _charts[s]?.setMode(mode);
+          // Show partial-year controls only in yearly mode.
+          const pc = _panel.querySelector(`[data-section="${s}"] .chart-partial-controls`);
+          if (pc) pc.hidden = mode !== 'yearly';
         });
         _updateStationUrl();
       });
@@ -337,6 +369,32 @@ function _initCharts() {
         else if (action === 'zoom-reset') chart.resetZoom();
       });
     });
+
+    // Est. toggle — show/hide partial-year estimate line + dots; also disables CI btn.
+    _panel.querySelector(`[data-section="${section}"] [data-action="est-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedShowEst = !_sharedShowEst;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setShowEst(_sharedShowEst);
+          const eb = _panel.querySelector(`[data-section="${s}"] [data-action="est-toggle"]`);
+          if (eb) { eb.classList.toggle('active', _sharedShowEst); eb.setAttribute('aria-pressed', String(_sharedShowEst)); }
+          const cb = _panel.querySelector(`[data-section="${s}"] [data-action="ci-toggle"]`);
+          if (cb) cb.disabled = !_sharedShowEst;
+        });
+        _updateStationUrl();
+      });
+
+    // CI toggle — show/hide 95% error bars (requires Est. to be on).
+    _panel.querySelector(`[data-section="${section}"] [data-action="ci-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedShowCI = !_sharedShowCI;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setShowCI(_sharedShowCI);
+          const cb = _panel.querySelector(`[data-section="${s}"] [data-action="ci-toggle"]`);
+          if (cb) { cb.classList.toggle('active', _sharedShowCI); cb.setAttribute('aria-pressed', String(_sharedShowCI)); }
+        });
+        _updateStationUrl();
+      });
 
     // When zoom changes (drag-pan or buttons), mirror it to the other temp section.
     wrap.addEventListener('chart:zoom', () => {
@@ -449,12 +507,13 @@ function _updateStationUrl() {
 
   if (section === 'temp-qcu' || section === 'temp-qcf') {
     const chart = _charts[section];
-    detail.mode = _sharedChartMode;
+    detail.mode    = _sharedChartMode;
+    detail.showEst = _sharedShowEst;
+    detail.showCI  = _sharedShowCI;
     if (chart) {
       const zoom = chart.getZoom();
       detail.zoomMin = zoom?.min;
       detail.zoomMax = zoom?.max;
-      detail.inspector = chart.getInspector();
     }
   } else if (section === 'bu-surface' || section === 'population') {
     const yearTab = _panel.querySelector('.bu-tab.active') ??
@@ -556,6 +615,10 @@ function _tempChartPanel() {
           <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
           <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
+        </div>
+        <div class="chart-partial-controls" hidden role="group" aria-label="Partial year options">
+          <button class="chart-ci-btn active" data-action="est-toggle" title="Show/hide partial-year estimates" aria-pressed="true">Est.</button>
+          <button class="chart-ci-btn active" data-action="ci-toggle" title="Show/hide 95% CI error bars" aria-pressed="true">95% CI</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
