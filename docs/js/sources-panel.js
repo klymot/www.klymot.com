@@ -122,6 +122,10 @@ function _renderContent() {
             <div class="sources-item-name">USHCNv2.5 <span class="sources-cite">Menne et al., 2009</span></div>
             <div class="sources-item-desc">US Historical Climatology Network version 2.5 — adjusted monthly temperature dataset for ~1,200 US stations.</div>
           </li>
+          <li class="sources-item">
+            <div class="sources-item-name">Partial-year annual estimates</div>
+            <div class="sources-item-desc">For years with fewer than 12 months of data, each observed month <i>i</i> yields an implied annual estimate E = Ā · t<sub>i</sub> / T<sub>i</sub>, where T<sub>i</sub> is the climatological monthly mean and Ā = mean(T<sub>1</sub>…T<sub>12</sub>). All arithmetic is performed in Kelvin so that T<sub>i</sub> is always large and positive. These estimates are combined via Generalised Least Squares using a 12×12 sample covariance matrix of residuals derived from complete years, giving a weighted mean and 95% confidence interval.</div>
+          </li>
         </ul>
       </section>
     </div>

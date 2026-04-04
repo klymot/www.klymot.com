@@ -246,20 +246,24 @@ function _matInverse(A) {
  * Calibrate a month-to-annual estimator from complete years, then apply GLS
  * to estimate annual means for partial years (with 95% CI).
  *
+ * All arithmetic is performed in Kelvin (raw units: 0.01 K, i.e. add 27315 to
+ * each 0.01 °C value) so that monthly means are always ~27000–31000 and the
+ * ratio estimator E[y,i] = A·t[y,i]/T[i] is never subject to division by a
+ * value near zero.
+ *
  * Algorithm:
- *   T[i]    = climatological monthly mean (raw 0.01°C) across complete years
- *   A       = mean(T[0..11])  — grand climatological mean
- *   E[y,i]  = A * t[y,i] / T[i]  — month-implied annual estimate
- *   A_y     = mean(t[y,i]) for the 12 complete months of year y (actual annual mean)
+ *   T[i]    = climatological monthly mean (0.01 K) across complete years
+ *   A       = mean(T[0..11])  — grand climatological mean in Kelvin
+ *   E[y,i]  = A · t_K[y,i] / T[i]  — month-implied annual estimate (0.01 K)
+ *   A_y     = mean of 12 Kelvin values for complete year y
  *   r[y,i]  = E[y,i] − A_y  — residual
  *   Sigma   = 12×12 sample covariance of residuals (across complete years)
  *
  *   For each partial year: GLS combining the k observed E[y,i] values with the
  *   k×k covariance submatrix; falls back to inverse-variance if submatrix is singular.
  *
- * @param {Array<{year: number, months: (number|null)[]}>} records
- * @returns {Array<{year, estimate, se, ciLow, ciHigh, nMonths}>}
- *   All values in °C (converted from 0.01°C raw units).
+ * @param {Array<{year: number, months: (number|null)[]}>} records  — values in 0.01 °C
+ * @returns {Array<{year, estimate, se, ciLow, ciHigh, nMonths}>}   — all values in °C
  */
 function _calibrateAndEstimate(records) {
   const complete = records.filter(r => r.months.every(v => v != null));
@@ -268,35 +272,30 @@ function _calibrateAndEstimate(records) {
 
   if (complete.length < 3 || partial.length === 0) return [];
 
-  // T[i] = climatological monthly mean (raw 0.01°C)
+  // Work in 0.01 K throughout: offset each raw 0.01 °C value by +27315.
+  const K = 27315;
+
+  // T[i] = climatological monthly mean in 0.01 K
   const T = new Array(12).fill(0);
   for (const yr of complete) {
-    for (let i = 0; i < 12; i++) T[i] += yr.months[i];
+    for (let i = 0; i < 12; i++) T[i] += yr.months[i] + K;
   }
   for (let i = 0; i < 12; i++) T[i] /= complete.length;
 
-  // A = grand annual mean
+  // A = grand annual mean in 0.01 K
   const A = T.reduce((s, v) => s + v, 0) / 12;
 
-  // Guard: skip months where |T[i]| < 50 (0.5°C in raw units)
-  const usable = T.map(t => Math.abs(t) >= 50);
-
   // Build E[y,i] and A_y for complete years, then compute residuals.
-  // A_y = simple mean of the 12 raw month values for year y.
   const residuals = complete.map(yr => {
-    const Ay = yr.months.reduce((s, v) => s + v, 0) / 12;
-    return yr.months.map((v, i) =>
-      usable[i] ? (A * v / T[i]) - Ay : null
-    );
+    const Ay = yr.months.reduce((s, v) => s + v + K, 0) / 12;
+    return yr.months.map((v, i) => (A * (v + K) / T[i]) - Ay);
   });
 
   // 12×12 sample covariance matrix of residuals
   const n = complete.length;
   const Sigma = Array.from({ length: 12 }, () => new Array(12).fill(0));
   for (let i = 0; i < 12; i++) {
-    if (!usable[i]) continue;
     for (let j = i; j < 12; j++) {
-      if (!usable[j]) continue;
       let cov = 0;
       for (const r of residuals) cov += r[i] * r[j];
       Sigma[i][j] = Sigma[j][i] = cov / (n - 1);
@@ -306,20 +305,15 @@ function _calibrateAndEstimate(records) {
   // Estimate each partial year via GLS
   const results = [];
   for (const rec of partial) {
-    // Indices of observed, usable months
-    const obsIdx = [];
-    for (let i = 0; i < 12; i++) {
-      if (rec.months[i] != null && usable[i]) obsIdx.push(i);
-    }
+    const obsIdx = rec.months.reduce((acc, v, i) => { if (v != null) acc.push(i); return acc; }, []);
     if (obsIdx.length === 0) continue;
 
-    // Month-implied annual estimates E_S (raw 0.01°C)
-    const ES = obsIdx.map(i => A * rec.months[i] / T[i]);
+    // Month-implied annual estimates in 0.01 K
+    const ES = obsIdx.map(i => A * (rec.months[i] + K) / T[i]);
 
     const k = obsIdx.length;
     let hatA, se;
 
-    // Try GLS with the k×k covariance submatrix
     const SigmaS = Array.from({ length: k }, (_, ri) =>
       Array.from({ length: k }, (_, ci) => Sigma[obsIdx[ri]][obsIdx[ci]])
     );
@@ -355,16 +349,16 @@ function _calibrateAndEstimate(records) {
       se   = Math.sqrt(1 / sumW);
     }
 
-    // Convert from raw 0.01°C to °C
-    const estimate = hatA / 100;
-    const seDeg    = se   / 100;
+    // Convert from 0.01 K back to °C: subtract Kelvin offset then scale.
+    const estimate = (hatA - K) / 100;
+    const seDeg    = se / 100;   // SE is a difference, no offset needed
     results.push({
-      year:     rec.year,
+      year:    rec.year,
       estimate,
-      se:       seDeg,
-      ciLow:    estimate - 1.96 * seDeg,
-      ciHigh:   estimate + 1.96 * seDeg,
-      nMonths:  k,
+      se:      seDeg,
+      ciLow:   estimate - 1.96 * seDeg,
+      ciHigh:  estimate + 1.96 * seDeg,
+      nMonths: k,
     });
   }
 
