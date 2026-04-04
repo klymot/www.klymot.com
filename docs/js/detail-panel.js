@@ -12,7 +12,7 @@
 import { renderQR } from './qr.js';
 import { serialiseStationState, pushState } from './url-state.js';
 import { trackEvent } from './analytics.js';
-import { TempChart } from './temp-chart.js';
+import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js';
 
 /**
  * State to restore when the next detail panel opens (set by setRestoreState).
@@ -66,6 +66,9 @@ let _sharedShowEst = true;
 
 /** Shared 95% CI error-bar visibility across both temp sections (requires _sharedShowEst). */
 let _sharedShowCI = true;
+
+/** Shared bymonth selected-months set across both temp sections. */
+let _sharedSelectedMonths = new Set([0, 6]);
 
 /** Shared annual anomaly toggle: exclude years with fewer than 9 months. */
 let _sharedExcludeSparseAnomalyYears = true;
@@ -251,13 +254,21 @@ function _applyChartModeUi(section, mode) {
   const partialControls = _panel.querySelector(`[data-section="${section}"] .chart-partial-controls`);
   if (partialControls) partialControls.hidden = mode !== 'yearly';
 
+  const monthToggles = _panel.querySelector(`[data-section="${section}"] .chart-month-toggles`);
+  if (monthToggles) monthToggles.hidden = mode !== 'bymonth';
+
   const anomalyControls = _panel.querySelector(`[data-section="${section}"] .chart-anomaly-controls`);
   if (anomalyControls) anomalyControls.hidden = mode !== 'anomaly';
 
   const hint = _panel.querySelector(`[data-section="${section}"] .chart-hint`);
-  if (hint) hint.textContent = mode === 'anomaly'
-    ? 'Drag to pan · Hover for anomaly'
-    : 'Drag to pan · Hover for temperature';
+  if (hint) {
+    hint.hidden = mode === 'bymonth';
+    if (mode !== 'bymonth') {
+      hint.textContent = mode === 'anomaly'
+        ? 'Drag to pan · Hover for anomaly'
+        : 'Drag to pan · Hover for temperature';
+    }
+  }
 }
 
 function _initCharts() {
@@ -282,6 +293,9 @@ function _initCharts() {
   // Restore partial-year visibility from URL state.
   if (restore?.showEst != null) _sharedShowEst = restore.showEst;
   if (restore?.showCI  != null) _sharedShowCI  = restore.showCI;
+
+  // Restore bymonth selection.
+  if (restore?.selectedMonths != null) _sharedSelectedMonths = new Set(restore.selectedMonths);
   if (restore?.excludeSparseAnomalyYears != null) {
     _sharedExcludeSparseAnomalyYears = restore.excludeSparseAnomalyYears;
   }
@@ -359,6 +373,16 @@ function _initCharts() {
     }
     chart.setShowEst(_sharedShowEst);
     chart.setShowCI(_sharedShowCI);
+    chart.setSelectedMonths(new Set(_sharedSelectedMonths));
+
+    // Apply restored bymonth button states.
+    _panel.querySelectorAll(`[data-section="${section}"] .month-toggle-btn`).forEach(btn => {
+      const m = parseInt(btn.dataset.month, 10);
+      const active = _sharedSelectedMonths.has(m);
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+
     chart.setExcludeSparseAnomalyYears(_sharedExcludeSparseAnomalyYears);
     chart.setUseCenteredAnomalyReference(_sharedUseCenteredAnomalyReference);
     chart.setShowAnomalyTrend(_sharedShowAnomalyTrend);
@@ -436,6 +460,25 @@ function _initCharts() {
         });
         _updateStationUrl();
       });
+
+    // Month toggle buttons — sync selection across both temp sections.
+    _panel.querySelectorAll(`[data-section="${section}"] .month-toggle-btn`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const m = parseInt(btn.dataset.month, 10);
+        if (_sharedSelectedMonths.has(m)) _sharedSelectedMonths.delete(m);
+        else _sharedSelectedMonths.add(m);
+        SECTIONS.forEach(s => {
+          _charts[s]?.setSelectedMonths(new Set(_sharedSelectedMonths));
+          _panel.querySelectorAll(`[data-section="${s}"] .month-toggle-btn`).forEach(b => {
+            const bm     = parseInt(b.dataset.month, 10);
+            const active = _sharedSelectedMonths.has(bm);
+            b.classList.toggle('active', active);
+            b.setAttribute('aria-pressed', String(active));
+          });
+        });
+        _updateStationUrl();
+      });
+    });
 
     _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-sparse-toggle"]`)
       ?.addEventListener('click', () => {
@@ -590,9 +633,10 @@ function _updateStationUrl() {
 
   if (section === 'temp-qcu' || section === 'temp-qcf') {
     const chart = _charts[section];
-    detail.mode    = _sharedChartMode;
-    detail.showEst = _sharedShowEst;
-    detail.showCI  = _sharedShowCI;
+    detail.mode            = _sharedChartMode;
+    detail.showEst         = _sharedShowEst;
+    detail.showCI          = _sharedShowCI;
+    detail.selectedMonths  = _sharedSelectedMonths;
     detail.excludeSparseAnomalyYears = _sharedExcludeSparseAnomalyYears;
     detail.useCenteredAnomalyReference = _sharedUseCenteredAnomalyReference;
     detail.showAnomalyTrend = _sharedShowAnomalyTrend;
@@ -692,6 +736,17 @@ function _renderDataSections(indexEntry, sprites) {
     </div>`;
 }
 
+/** Generate 12 month toggle buttons for bymonth mode. */
+function _monthToggleButtons() {
+  return MONTHS.map((name, i) => {
+    const active = (BYMONTH_DEFAULT_MASK >> i) & 1 ? 'active' : '';
+    const dash   = MONTH_DASH[i].length === 0 ? 'solid'
+                 : MONTH_DASH[i][0] >= 5       ? 'dashed'
+                 :                               'dotted';
+    return `<button class="month-toggle-btn ${active}" data-month="${i}" data-dash="${dash}" style="--m-color:var(--month-${i})" aria-pressed="${active ? 'true' : 'false'}">${name}</button>`;
+  }).join('');
+}
+
 /** HTML scaffold for a temperature chart panel (chart is initialised in _initCharts). */
 function _tempChartPanel() {
   return `
@@ -699,6 +754,7 @@ function _tempChartPanel() {
       <div class="chart-controls">
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
           <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
+          <button class="chart-mode-btn" data-mode="bymonth" aria-pressed="false">By Month</button>
           <button class="chart-mode-btn" data-mode="yearly" aria-pressed="false">Annual</button>
           <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
           <button class="chart-mode-btn" data-mode="anomaly" aria-pressed="false">Anomaly</button>
@@ -719,6 +775,9 @@ function _tempChartPanel() {
         </div>
       </div>
       <div class="chart-canvas-wrap"></div>
+      <div class="chart-month-toggles" hidden role="group" aria-label="Month selection">
+        ${_monthToggleButtons()}
+      </div>
       <div class="chart-heat-legend" hidden aria-label="Temperature colour scale">
         <span class="heat-cold-label heat-label">—</span>
         <div class="heat-legend-bar" aria-hidden="true"></div>

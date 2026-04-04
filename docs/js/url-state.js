@@ -8,10 +8,11 @@
  *
  * Station detail fields (all optional, use '-' for absent):
  *   section:  qcu | qcf | bu | pop
- *   mode:     monthly | yearly | heatmap | anomaly | 2020 | 1975 | change
+ *   mode:     monthly | yearly | heatmap | anomaly | bymonth | 2020 | 1975 | change
  *   zoom:     <min>,<max>  (decimal years)
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
  *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the anomaly trend line; combine with commas; '-' for defaults
+ *   bymonth:  3-hex-digit bitmask of selected months (bit 0 = Jan … bit 11 = Dec); default '041' = Jan+Jul
  *
  * Theme is intentionally excluded — it is a user preference stored in
  * localStorage, not part of shareable state.
@@ -53,6 +54,7 @@ export function serialiseMapState(map, projection) {
  * @param {boolean} [detail.excludeSparseAnomalyYears]     — whether anomaly mode hides years with <9 months (default true)
  * @param {boolean} [detail.useCenteredAnomalyReference]   — whether anomaly mode uses the 30 full years nearest the record centre (default false)
  * @param {boolean} [detail.showAnomalyTrend]              — whether anomaly mode shows the dashed trend line (default true)
+ * @param {Set<number>} [detail.selectedMonths]            — bymonth mode: which months to display (default Jan+Jul)
  * @returns {string}  e.g. 'station=mauna-loa;qcu;yearly;1950.00,2024.00;-'
  */
 export function serialiseStationState(locationId, detail = {}) {
@@ -61,7 +63,16 @@ export function serialiseStationState(locationId, detail = {}) {
   const {
     section, mode, zoomMin, zoomMax, showEst, showCI,
     excludeSparseAnomalyYears, useCenteredAnomalyReference, showAnomalyTrend,
+    selectedMonths,
   } = detail;
+
+  // Build bymonth bitmask; default is Jan+Jul = 0x041.
+  const _BYMONTH_DEFAULT = 0x041;
+  let bymonthMask = _BYMONTH_DEFAULT;
+  if (selectedMonths instanceof Set) {
+    bymonthMask = 0;
+    for (const m of selectedMonths) bymonthMask |= (1 << m);
+  }
 
   // If no non-default detail state, emit the compact form.
   if (
@@ -72,7 +83,8 @@ export function serialiseStationState(locationId, detail = {}) {
     showCI !== false &&
     excludeSparseAnomalyYears !== false &&
     useCenteredAnomalyReference !== true &&
-    showAnomalyTrend !== false
+    showAnomalyTrend !== false &&
+    bymonthMask === _BYMONTH_DEFAULT
   ) {
     return `station=${encodedId}`;
   }
@@ -91,9 +103,10 @@ export function serialiseStationState(locationId, detail = {}) {
   if (excludeSparseAnomalyYears === false) anomalyFlags.push('inclsparse');
   if (useCenteredAnomalyReference === true) anomalyFlags.push('center30');
   if (showAnomalyTrend === false) anomalyFlags.push('notrend');
-  const anomalyStr = anomalyFlags.length ? anomalyFlags.join(',') : '-';
+  const anomalyStr  = anomalyFlags.length ? anomalyFlags.join(',') : '-';
+  const bymonthStr  = bymonthMask === _BYMONTH_DEFAULT ? '-' : bymonthMask.toString(16).padStart(3, '0');
 
-  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr};${anomalyStr}`;
+  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr};${anomalyStr};${bymonthStr}`;
 }
 
 /**
@@ -113,7 +126,7 @@ export function serialiseTableState(sortColumn, sortDirection) {
  *          |{ type: 'station', id: string, section?: string, mode?: string,
  *             zoomMin?: number, zoomMax?: number, showEst?: boolean, showCI?: boolean,
  *             excludeSparseAnomalyYears?: boolean, useCenteredAnomalyReference?: boolean,
- *             showAnomalyTrend?: boolean }
+ *             showAnomalyTrend?: boolean, selectedMonths?: number[] }
  *          |{ type: 'table', sortColumn: string, sortDirection: string }
  *          |null}
  */
@@ -175,6 +188,15 @@ export function parseHash(hash) {
     result.excludeSparseAnomalyYears = !anomalyFlags.has('inclsparse');
     result.useCenteredAnomalyReference = anomalyFlags.has('center30');
     result.showAnomalyTrend = !anomalyFlags.has('notrend');
+
+    // Bymonth selection (index 6): 3-hex-digit bitmask; '-'/absent = default Jan+Jul.
+    const p6 = parts.length >= 7 ? parts[6] : '-';
+    const bymonthMask = (p6 && p6 !== '-') ? parseInt(p6, 16) : 0x041;
+    if (!isNaN(bymonthMask)) {
+      const months = [];
+      for (let i = 0; i < 12; i++) { if (bymonthMask & (1 << i)) months.push(i); }
+      result.selectedMonths = months;
+    }
 
     return result;
   }

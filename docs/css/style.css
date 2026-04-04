@@ -31,6 +31,20 @@
   --map-water: #0f2847;
   --map-land:  #2d6b45;
   --map-bg:    #0a1628;
+
+  /* Per-month colours for bymonth chart lines and toggle buttons */
+  --month-0:  #5090f8;
+  --month-1:  #c040a0;
+  --month-2:  #30b860;
+  --month-3:  #90d040;
+  --month-4:  #e0c020;
+  --month-5:  #f08030;
+  --month-6:  #f84040;
+  --month-7:  #f04888;
+  --month-8:  #d08020;
+  --month-9:  #40b8c0;
+  --month-10: #60a8e0;
+  --month-11: #8060d8;
 }
 
 [data-theme="light"] {
@@ -57,6 +71,20 @@
   --map-water: #9fc7df;
   --map-land:  #cbd8a0;
   --map-bg:    #edf2e6;
+
+  /* Per-month colours — light-theme variants */
+  --month-0:  #1050c8;
+  --month-1:  #901070;
+  --month-2:  #108840;
+  --month-3:  #508800;
+  --month-4:  #908000;
+  --month-5:  #b86000;
+  --month-6:  #c81010;
+  --month-7:  #b81050;
+  --month-8:  #906000;
+  --month-9:  #108088;
+  --month-10: #1060a0;
+  --month-11: #5030a8;
 }
 
 /* ── Reset & Base ─────────────────────────────────────────────────── */
@@ -1027,6 +1055,57 @@ body {
   opacity: 0.35;
   cursor: default;
   pointer-events: none;
+}
+
+/* ── By-month toggle bar ──────────────────────────────────────────── */
+
+.chart-month-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.375rem 0.25rem 0.125rem;
+  justify-content: center;
+}
+
+.chart-month-toggles[hidden] {
+  display: none;
+}
+
+.month-toggle-btn {
+  /* --m-color is set per-button via inline style="--m-color:var(--month-N)" */
+  padding: 0 0.375rem;
+  height: 1.5rem;
+  font-size: 0.625rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 0.25rem;
+  border: 1.5px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.month-toggle-btn:hover {
+  border-color: var(--m-color);
+  color: var(--m-color);
+}
+
+.month-toggle-btn.active {
+  border-color: var(--m-color);
+  color: var(--m-color);
+  background: transparent;
+}
+
+/* Line-style indicator: dashed or dotted border on active buttons */
+.month-toggle-btn.active[data-dash="dashed"] {
+  border-style: dashed;
+}
+
+.month-toggle-btn.active[data-dash="dotted"] {
+  border-style: dotted;
 }
 
 /* Fixed-height canvas container; chart fills it completely. */

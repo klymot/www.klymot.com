@@ -3,6 +3,7 @@
  *
  * Modes:
  *   'monthly'  — line chart, one point per month
+ *   'bymonth'  — line chart, one line per calendar month (year on x-axis)
  *   'yearly'   — line chart, one point per annual average
  *   'heatmap'  — calendar grid: year × month, cell colour = temperature
  *   'anomaly'  — line chart, annual average temperature anomaly
@@ -28,7 +29,31 @@
  *   'chart:inspect' — fired (debounced 300 ms) when inspector position changes
  */
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+export const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Per-month colours — matched by corresponding CSS variables --month-0 … --month-11.
+export const MONTH_COLORS_DARK = [
+  '#5090f8', '#c040a0', '#30b860', '#90d040',
+  '#e0c020', '#f08030', '#f84040', '#f04888',
+  '#d08020', '#40b8c0', '#60a8e0', '#8060d8',
+];
+export const MONTH_COLORS_LIGHT = [
+  '#1050c8', '#901070', '#108840', '#508800',
+  '#908000', '#b86000', '#c81010', '#b81050',
+  '#906000', '#108088', '#1060a0', '#5030a8',
+];
+
+// Canvas dash patterns — solid / dashed / dotted cycling every 3 months.
+// CSS border-style equivalents: solid, dashed, dotted.
+export const MONTH_DASH = [
+  [],     [6,3],  [2,3],   // Jan Feb Mar
+  [],     [6,3],  [2,3],   // Apr May Jun
+  [],     [6,3],  [2,3],   // Jul Aug Sep
+  [],     [6,3],  [2,3],   // Oct Nov Dec
+];
+
+// Default selected months for bymonth mode: January (0) and July (6).
+export const BYMONTH_DEFAULT_MASK = (1 << 0) | (1 << 6); // 0x041
 
 // ── Data parsing ───────────────────────────────────────────────────────────────
 
@@ -71,6 +96,26 @@ function _monthlyPoints(records) {
     }
   }
   return pts;
+}
+
+/**
+ * Build per-month point arrays for bymonth display.
+ * Returns an array of 12 point arrays; each contains {x: year, y: °C}|null entries.
+ * Nulls appear for missing month values and for year gaps.
+ */
+function _byMonthPoints(records) {
+  const result = Array.from({ length: 12 }, () => []);
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    const hasGap = i > 0 && rec.year > records[i - 1].year + 1;
+    for (let m = 0; m < 12; m++) {
+      if (hasGap) result[m].push(null);
+      result[m].push(rec.months[m] != null
+        ? { x: rec.year, y: rec.months[m] / 100 }
+        : null);
+    }
+  }
+  return result;
 }
 
 /**
@@ -420,6 +465,7 @@ export class TempChart {
     this._records          = null;
     this._monthly          = null;
     this._yearly           = null;
+    this._byMonth          = null;  // array of 12 point arrays for bymonth mode
     this._annualSummaries  = null;
     this._anomaly          = null;
     this._anomalyTrend     = null;
@@ -427,6 +473,7 @@ export class TempChart {
     this._partialEstimates = null;  // [{year, estimate, se, ciLow, ciHigh, nMonths}]
     this._recordMap        = new Map();   // year → months[]
     this._mode             = 'monthly';
+    this._selectedMonths   = new Set([0, 6]);  // bymonth mode: which months to display
     this._showEst          = true;   // show partial-year estimate line + dots
     this._showCI           = true;   // show 95% CI error bars (only when _showEst is true)
     this._excludeSparseAnomalyYears = true;
@@ -502,6 +549,7 @@ export class TempChart {
     if (records.length === 0) {
       this._monthly          = null;
       this._yearly           = null;
+      this._byMonth          = null;
       this._annualSummaries  = null;
       this._anomaly          = null;
       this._anomalyTrend     = null;
@@ -514,6 +562,7 @@ export class TempChart {
 
     this._monthly          = _monthlyPoints(records);
     this._yearly           = _yearlyPoints(records);
+    this._byMonth          = _byMonthPoints(records);
     this._annualSummaries  = _annualSummaries(records);
     this._anomaly          = _anomalyPoints(this._annualSummaries, {
       excludeSparse: this._excludeSparseAnomalyYears,
@@ -641,6 +690,12 @@ export class TempChart {
   /** @returns {boolean} */
   getShowCI() { return this._showCI; }
 
+  /** Set the selected months for bymonth mode. @param {Set<number>} s */
+  setSelectedMonths(s) { this._selectedMonths = new Set(s); this._scheduleRender(); }
+
+  /** @returns {Set<number>} */
+  getSelectedMonths() { return new Set(this._selectedMonths); }
+
   setExcludeSparseAnomalyYears(v) {
     this._excludeSparseAnomalyYears = !!v;
     this._rebuildAnomaly();
@@ -737,8 +792,9 @@ export class TempChart {
   // ── Internal helpers ──────────────────────────────────────────────────────────
 
   _linePts() {
-    if (this._mode === 'yearly') return this._yearly;
+    if (this._mode === 'yearly')  return this._yearly;
     if (this._mode === 'anomaly') return this._anomaly;
+    if (this._mode === 'bymonth') return null; // handled by _renderByMonth
     return this._monthly;
   }
 
@@ -838,6 +894,8 @@ export class TempChart {
 
     if (this._mode === 'heatmap') {
       this._renderHeatmap(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch);
+    } else if (this._mode === 'bymonth') {
+      this._renderByMonth(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch);
     } else {
       this._renderLine(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch);
     }
@@ -1141,6 +1199,151 @@ export class TempChart {
     ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + ch); ctx.lineTo(ml + cw, mt + ch); ctx.stroke();
   }
 
+  // ── By-month rendering ────────────────────────────────────────────────────────
+
+  _renderByMonth(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch) {
+    const colGrid  = _cssVar('--border-color') || 'rgba(212,168,85,0.2)';
+    const colText  = _cssVar('--text-muted')   || '#5a6880';
+    const colBg    = _cssVar('--bg-elevated')  || '#152c4a';
+    const colInsp  = document.documentElement.dataset.theme === 'light'
+      ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
+    const isLight  = document.documentElement.dataset.theme === 'light';
+    const colors   = isLight ? MONTH_COLORS_LIGHT : MONTH_COLORS_DARK;
+
+    const xMin = this._xMin, xMax = this._xMax;
+    const selected = [...this._selectedMonths].sort((a, b) => a - b);
+
+    if (!this._byMonth || xMin === null) {
+      ctx.fillStyle = colText;
+      ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No temperature data available', W / 2, H / 2);
+      return;
+    }
+
+    if (selected.length === 0) {
+      ctx.fillStyle = colText;
+      ctx.font = `${12 * dpr}px 'JetBrains Mono', monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No months selected', W / 2, H / 2);
+      return;
+    }
+
+    // Y range from all visible selected-month values.
+    let yMin = Infinity, yMax = -Infinity;
+    for (const m of selected) {
+      for (const p of this._byMonth[m]) {
+        if (p && p.x >= xMin && p.x <= xMax) {
+          if (p.y < yMin) yMin = p.y;
+          if (p.y > yMax) yMax = p.y;
+        }
+      }
+    }
+
+    if (!isFinite(yMin)) {
+      ctx.fillStyle = colText;
+      ctx.font = `${12 * dpr}px 'JetBrains Mono', monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('Zoom out to see data', W / 2, H / 2);
+      return;
+    }
+
+    if (yMin === yMax) { yMin -= 0.5; yMax += 0.5; }
+    const yPad = (yMax - yMin) * 0.1;
+    yMin -= yPad; yMax += yPad;
+
+    const toX = x => ml + (x - xMin) / (xMax - xMin) * cw;
+    const toY = y => mt + (yMax - y) / (yMax - yMin) * ch;
+
+    // Y grid + labels
+    const yStep  = _niceStep(yMax - yMin, 5);
+    const yStart = Math.ceil(yMin / yStep) * yStep;
+    ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let y = yStart; y < yMax + yStep * 0.01; y += yStep) {
+      if (y < yMin - 1e-9) continue;
+      const py = toY(y);
+      ctx.strokeStyle = colGrid; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(ml, py); ctx.lineTo(ml + cw, py); ctx.stroke();
+      const dec = Math.max(0, -Math.floor(Math.log10(yStep)));
+      ctx.fillStyle = colText;
+      ctx.fillText(y.toFixed(dec) + '°', ml - 5 * dpr, py);
+    }
+
+    // X grid + labels
+    const xStep  = _niceStep(xMax - xMin, 6);
+    const xStart = Math.ceil(xMin / xStep) * xStep;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let x = xStart; x <= xMax + xStep * 0.01; x += xStep) {
+      const px = toX(x);
+      if (px < ml - 0.5 || px > ml + cw + 0.5) continue;
+      ctx.strokeStyle = colGrid; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(px, mt); ctx.lineTo(px, mt + ch); ctx.stroke();
+      ctx.fillStyle = colText;
+      ctx.fillText(String(Math.round(x)), px, mt + ch + 5 * dpr);
+    }
+
+    // Zero line
+    if (yMin < 0 && yMax > 0) {
+      const colZero = isLight ? 'rgba(0,80,180,0.22)' : 'rgba(80,144,224,0.22)';
+      const py0 = toY(0);
+      ctx.strokeStyle = colZero; ctx.lineWidth = 1.5;
+      ctx.setLineDash([4 * dpr, 4 * dpr]);
+      ctx.beginPath(); ctx.moveTo(ml, py0); ctx.lineTo(ml + cw, py0); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ml - 0.5, mt - 0.5, cw + 1, ch + 1); ctx.clip();
+
+    // Inspector vertical line
+    if (this._hoverX !== null && this._hoverX >= xMin && this._hoverX <= xMax) {
+      const px = toX(this._hoverX);
+      ctx.strokeStyle = colInsp; ctx.lineWidth = 1 * dpr; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(px, mt); ctx.lineTo(px, mt + ch); ctx.stroke();
+    }
+
+    // Month lines
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const m of selected) {
+      ctx.strokeStyle = colors[m];
+      ctx.lineWidth   = 1.5 * dpr;
+      ctx.setLineDash(MONTH_DASH[m].map(v => v * dpr));
+      let open = false;
+      ctx.beginPath();
+      for (const p of this._byMonth[m]) {
+        if (!p) { if (open) { ctx.stroke(); ctx.beginPath(); open = false; } continue; }
+        const px = toX(p.x), py = toY(p.y);
+        if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
+      }
+      if (open) ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Dots at inspector x for each selected month
+    if (this._hoverX !== null) {
+      const year   = Math.round(this._hoverX);
+      const months = this._recordMap.get(year);
+      if (months) {
+        for (const m of selected) {
+          if (months[m] == null) continue;
+          const py = toY(months[m] / 100);
+          if (py < mt || py > mt + ch) continue;
+          const px = toX(year);
+          ctx.beginPath(); ctx.arc(px, py, 3 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = colors[m]; ctx.fill();
+          ctx.strokeStyle = colBg; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+        }
+      }
+    }
+
+    ctx.restore();
+
+    // Axis border
+    ctx.strokeStyle = colGrid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + ch); ctx.lineTo(ml + cw, mt + ch); ctx.stroke();
+  }
+
   // ── Heatmap rendering ─────────────────────────────────────────────────────────
 
   _renderHeatmap(ctx, W, H, dpr, ml, mr, mt, mb, cw, ch) {
@@ -1326,6 +1529,7 @@ export class TempChart {
   }
 
   _hoverLine(e) {
+    if (this._mode === 'bymonth') { this._hoverByMonth(e); return; }
     const pts = this._linePts();
     if (!pts || !this._geom || this._xMin === null) { this._tooltip.hidden = true; return; }
 
@@ -1412,6 +1616,71 @@ export class TempChart {
     this._tooltip.style.top  = top  + 'px';
 
     if (this._hoveredPt !== prevPt || this._hoveredPartial !== prevPartial) {
+      this._scheduleRender();
+      this._dispatchInspectorChange();
+    }
+  }
+
+  _hoverByMonth(e) {
+    if (!this._byMonth || !this._geom || this._xMin === null) { this._tooltip.hidden = true; return; }
+
+    const rect   = this._canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const { ml, mt, cw, ch } = this._geom;
+
+    if (mouseX < ml || mouseX > ml + cw || mouseY < mt || mouseY > mt + ch) {
+      if (this._hoverX !== null) {
+        this._hoverX = null;
+        this._tooltip.hidden = true;
+        this._scheduleRender();
+      }
+      return;
+    }
+
+    const xHover = this._xMin + (mouseX - ml) / cw * (this._xMax - this._xMin);
+    const selected = [...this._selectedMonths];
+
+    // Find nearest year that has data for any selected month in view.
+    let bestYear = null, bestDist = Infinity;
+    for (const m of selected) {
+      for (const p of this._byMonth[m]) {
+        if (!p || p.x < this._xMin || p.x > this._xMax) continue;
+        const d = Math.abs(p.x - xHover);
+        if (d < bestDist) { bestDist = d; bestYear = p.x; }
+      }
+    }
+
+    if (bestYear === null) {
+      this._hoverX = null;
+      this._tooltip.hidden = true;
+      this._scheduleRender();
+      return;
+    }
+
+    const changed = this._hoverX !== bestYear;
+    this._hoverX = bestYear;
+
+    // Tooltip: year heading + one line per selected month with data.
+    const months = this._recordMap.get(bestYear);
+    const lines  = [`<strong>${bestYear}</strong>`];
+    for (const m of selected) {
+      if (!months || months[m] == null) continue;
+      const v    = months[m] / 100;
+      const sign = v < 0 ? '−' : '';
+      lines.push(`${MONTHS[m]}: ${sign}${Math.abs(v).toFixed(2)}°C`);
+    }
+    this._tooltip.innerHTML = lines.join('<br>');
+    this._tooltip.hidden = false;
+
+    const px  = ml + (bestYear - this._xMin) / (this._xMax - this._xMin) * cw;
+    const ttW = this._tooltip.offsetWidth + 4;
+    const left = px + 14 + ttW > rect.width ? px - ttW - 8 : px + 14;
+    const top  = Math.max(4, Math.min(mouseY - 18, rect.height - (this._tooltip.offsetHeight || 48) - 4));
+    this._tooltip.style.left = left + 'px';
+    this._tooltip.style.top  = top  + 'px';
+
+    if (changed) {
       this._scheduleRender();
       this._dispatchInspectorChange();
     }
