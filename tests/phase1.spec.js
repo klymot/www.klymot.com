@@ -133,6 +133,13 @@ test('AC3 – zoom-in and zoom-out buttons are visible', async ({ page }) => {
 
 test('AC3 – current-location button requests high-accuracy geolocation and flies to zoom 12', async ({ page }) => {
   await page.addInitScript(() => {
+    // Stub permissions API to report 'granted' so the pre-check passes.
+    Object.defineProperty(navigator, 'permissions', {
+      configurable: true,
+      value: {
+        query: () => Promise.resolve({ state: 'granted' }),
+      },
+    });
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
       value: {

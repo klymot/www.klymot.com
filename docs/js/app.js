@@ -183,38 +183,54 @@ function init() {
       return;
     }
 
-    locationBtn.disabled = true;
-    showLocationStatus('Locating on this device only…', 15000);
+    const doRequest = () => {
+      locationBtn.disabled = true;
+      showLocationStatus('Locating on this device only…', 15000);
 
-    geolocation.getCurrentPosition(
-      ({ coords }) => {
-        if (isTableVisible()) hideTable();
-        map.flyTo({
-          center: [coords.longitude, coords.latitude],
-          zoom: 12,
-          essential: true,
-        });
-        locationBtn.disabled = false;
-        showLocationStatus('Current location found. Your location stays on this device.', 2500);
-      },
-      (error) => {
-        locationBtn.disabled = false;
-        if (error?.code === 1) {
-          showLocationStatus('Location access was denied. Your location is not sent to this site.');
-        } else if (error?.code === 2) {
-          showLocationStatus('Current location is unavailable right now.');
-        } else if (error?.code === 3) {
-          showLocationStatus('Location request timed out. Try again.');
-        } else {
-          showLocationStatus('Could not get current location on this device.');
+      geolocation.getCurrentPosition(
+        ({ coords }) => {
+          if (isTableVisible()) hideTable();
+          map.flyTo({
+            center: [coords.longitude, coords.latitude],
+            zoom: 12,
+            essential: true,
+          });
+          locationBtn.disabled = false;
+          showLocationStatus('Current location found. Your location stays on this device.', 2500);
+        },
+        (error) => {
+          locationBtn.disabled = false;
+          if (error?.code === 1) {
+            showLocationStatus('Location denied. On iPhone, check Settings → Privacy → Location Services → Safari Websites.');
+          } else if (error?.code === 2) {
+            showLocationStatus('Current location is unavailable right now.');
+          } else if (error?.code === 3) {
+            showLocationStatus('Location request timed out. Try again.');
+          } else {
+            showLocationStatus('Could not get current location on this device.');
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 300000,
+          timeout: 15000,
         }
-      },
-      {
-        enableHighAccuracy: true,   // false only uses Wi-Fi/cell triangulation which fails on iOS when no Wi-Fi is visible
-        maximumAge: 300000,
-        timeout: 15000,
-      }
-    );
+      );
+    };
+
+    // Pre-check permission state where the API is available (avoids a doomed
+    // request and gives a more actionable message if already hard-denied).
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then(status => {
+        if (status.state === 'denied') {
+          showLocationStatus('Location denied. On iPhone, check Settings → Privacy → Location Services → Safari Websites.');
+        } else {
+          doRequest();
+        }
+      }).catch(() => doRequest()); // permissions API unsupported path
+    } else {
+      doRequest();
+    }
   });
 
   const zoomDisplay = document.getElementById('zoom-level');
