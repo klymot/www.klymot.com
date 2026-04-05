@@ -173,7 +173,7 @@ export class AdjChart {
     this._diffRecs  = null;
     this._monthly   = null;
     this._yearly    = null;
-    this._mode      = 'yearly';
+    this._mode      = 'monthly';
 
     // X-axis domain (fractional years).
     this._xMin       = null;

@@ -81,7 +81,7 @@ let _sharedUseCenteredAnomalyReference = false;
 let _sharedShowAnomalyTrend = true;
 
 /** Current mode for the Adjustments chart (independent of temp chart mode). */
-let _adjMode = 'yearly';
+let _adjMode = 'monthly';
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -801,8 +801,8 @@ function _adjChartPanel() {
     <div class="temp-chart-section">
       <div class="chart-controls">
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
-          <button class="chart-mode-btn active" data-adj-mode="yearly" aria-pressed="true">Annual</button>
-          <button class="chart-mode-btn" data-adj-mode="monthly" aria-pressed="false">Monthly</button>
+          <button class="chart-mode-btn active" data-adj-mode="monthly" aria-pressed="true">Monthly</button>
+          <button class="chart-mode-btn" data-adj-mode="yearly" aria-pressed="false">Annual</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -816,7 +816,6 @@ function _adjChartPanel() {
         <button class="adj-series-btn" data-series="tob" style="--s-color:var(--adj-tob)" disabled title="TOB component coming soon" aria-pressed="false">TOB</button>
         <button class="adj-series-btn" data-series="pha" style="--s-color:var(--adj-pha)" disabled title="PHA component coming soon" aria-pressed="false">PHA</button>
       </div>
-      <p class="chart-hint">Drag to pan · Hover for adjustment</p>
     </div>`;
 }
 
