@@ -131,7 +131,7 @@ test('AC3 – zoom-in and zoom-out buttons are visible', async ({ page }) => {
   await expect(page.locator('#zoom-level')).toBeVisible();
 });
 
-test('AC3 – current-location button requests coarse geolocation and flies to zoom 12', async ({ page }) => {
+test('AC3 – current-location button requests high-accuracy geolocation and flies to zoom 12', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
@@ -160,9 +160,9 @@ test('AC3 – current-location button requests coarse geolocation and flies to z
   }));
 
   expect(result.geoOptions).toEqual({
-    enableHighAccuracy: false,
+    enableHighAccuracy: true,
     maximumAge: 300000,
-    timeout: 8000,
+    timeout: 15000,
   });
   expect(result.flyTo).toMatchObject({
     center: [-6.2603, 53.3498],
