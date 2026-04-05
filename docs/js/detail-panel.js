@@ -9,11 +9,11 @@
  * sprites: { bu2020, bu1975, pop2020, pop1975 } — any may be null if not yet generated
  */
 
-import { renderQR } from './qr.js';
-import { serialiseStationState, pushState } from './url-state.js';
-import { trackEvent } from './analytics.js';
-import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js';
-import { AdjChart } from './adj-chart.js';
+import { renderQR } from './qr.js?v=20260405';
+import { serialiseStationState, pushState } from './url-state.js?v=20260405';
+import { trackEvent } from './analytics.js?v=20260405';
+import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js?v=20260405';
+import { AdjChart } from './adj-chart.js?v=20260405';
 
 /**
  * State to restore when the next detail panel opens (set by setRestoreState).
@@ -79,6 +79,12 @@ let _sharedUseCenteredAnomalyReference = false;
 
 /** Shared annual anomaly toggle: show the anomaly trend line. */
 let _sharedShowAnomalyTrend = true;
+
+/** Shared LOESS smooth-line toggle. */
+let _sharedShowLoess = false;
+
+/** Shared LOESS bandwidth span (0.1–0.9). */
+let _sharedLoessSpan = 0.3;
 
 /** Current mode for the Adjustments chart (independent of temp chart mode). */
 let _adjMode = 'monthly';
@@ -267,15 +273,21 @@ function _applyChartModeUi(section, mode) {
   const trendControls = _panel.querySelector(`[data-section="${section}"] .chart-trend-controls`);
   if (trendControls) trendControls.hidden = mode === 'heatmap';
 
+  const chartFooter = _panel.querySelector(`[data-section="${section}"] .chart-footer`);
+  if (chartFooter) chartFooter.hidden = mode === 'heatmap';
+
   const hint = _panel.querySelector(`[data-section="${section}"] .chart-hint`);
   if (hint) {
-    hint.hidden = mode === 'bymonth';
+    hint.style.visibility = mode === 'bymonth' ? 'hidden' : 'visible';
     if (mode !== 'bymonth') {
       hint.textContent = mode === 'anomaly'
         ? 'Drag to pan · Hover for anomaly'
         : 'Drag to pan · Hover for temperature';
     }
   }
+
+  const loessControls = _panel.querySelector(`[data-section="${section}"] .chart-loess-controls`);
+  if (loessControls) loessControls.style.visibility = (_sharedShowLoess && mode !== 'heatmap') ? 'visible' : 'hidden';
 }
 
 function _initCharts() {
@@ -311,6 +323,12 @@ function _initCharts() {
   }
   if (restore?.showAnomalyTrend != null) {
     _sharedShowAnomalyTrend = restore.showAnomalyTrend;
+  }
+  if (restore?.showLoess != null) {
+    _sharedShowLoess = restore.showLoess;
+  }
+  if (restore?.loessSpan != null) {
+    _sharedLoessSpan = restore.loessSpan;
   }
 
   // Initialise the Adjustments chart.
@@ -352,35 +370,6 @@ function _initCharts() {
       if (action === 'zoom-reset') adjChart?.resetZoom();
     });
   });
-
-  // Apply initial trend state to adj chart.
-  adjChart?.setShowTrend(_sharedShowAnomalyTrend);
-  const adjTrendBtnInit = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
-  if (adjTrendBtnInit) {
-    adjTrendBtnInit.classList.toggle('active', _sharedShowAnomalyTrend);
-    adjTrendBtnInit.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
-  }
-
-  // Wire adj trend toggle (clicking the adj trend button syncs all sections).
-  _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`)
-    ?.addEventListener('click', () => {
-      _sharedShowAnomalyTrend = !_sharedShowAnomalyTrend;
-      SECTIONS.forEach(s => {
-        _charts[s]?.setShowAnomalyTrend(_sharedShowAnomalyTrend);
-        const b = _panel.querySelector(`[data-section="${s}"] [data-action="trend-toggle"]`);
-        if (b) {
-          b.classList.toggle('active', _sharedShowAnomalyTrend);
-          b.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
-        }
-      });
-      adjChart?.setShowTrend(_sharedShowAnomalyTrend);
-      const ab = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
-      if (ab) {
-        ab.classList.toggle('active', _sharedShowAnomalyTrend);
-        ab.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
-      }
-      _updateStationUrl();
-    });
 
   // Propagate adj zoom changes to URL.
   adjWrap?.addEventListener('chart:zoom', () => _updateStationUrl());
@@ -488,6 +477,24 @@ function _initCharts() {
       trendBtn.classList.toggle('active', _sharedShowAnomalyTrend);
       trendBtn.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
     }
+
+    // Apply initial LOESS state.
+    const loessBtn = _panel.querySelector(`[data-section="${section}"] [data-action="loess-toggle"]`);
+    if (loessBtn) {
+      loessBtn.classList.toggle('active', _sharedShowLoess);
+      loessBtn.setAttribute('aria-pressed', String(_sharedShowLoess));
+    }
+    chart.setShowLoess(_sharedShowLoess);
+    chart.setLoessSpan(_sharedLoessSpan);
+
+    // Apply initial loess-controls visibility.
+    const loessCtrl = _panel.querySelector(`[data-section="${section}"] .chart-loess-controls`);
+    if (loessCtrl) loessCtrl.style.visibility = _sharedShowLoess ? 'visible' : 'hidden';
+    // Sync slider value display.
+    const loessRange = _panel.querySelector(`[data-section="${section}"] .loess-range`);
+    const loessVal   = _panel.querySelector(`[data-section="${section}"] .loess-slider-value`);
+    if (loessRange) loessRange.value = Math.round(_sharedLoessSpan * 100);
+    if (loessVal)   loessVal.textContent = _sharedLoessSpan.toFixed(2);
 
     fetch(`data/${PATHS[i]}/${encodeURIComponent(locationId)}.csv`)
       .then(r => r.ok ? r.text() : '')
@@ -606,14 +613,34 @@ function _initCharts() {
             b.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
           }
         });
-        // Also sync adj chart trend.
-        const adjChart = _charts['adj'];
-        adjChart?.setShowTrend(_sharedShowAnomalyTrend);
-        const adjTrendBtn = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
-        if (adjTrendBtn) {
-          adjTrendBtn.classList.toggle('active', _sharedShowAnomalyTrend);
-          adjTrendBtn.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
-        }
+        _updateStationUrl();
+      });
+
+    // LOESS toggle.
+    _panel.querySelector(`[data-section="${section}"] [data-action="loess-toggle"]`)
+      ?.addEventListener('click', () => {
+        _sharedShowLoess = !_sharedShowLoess;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setShowLoess(_sharedShowLoess);
+          const b = _panel.querySelector(`[data-section="${s}"] [data-action="loess-toggle"]`);
+          if (b) { b.classList.toggle('active', _sharedShowLoess); b.setAttribute('aria-pressed', String(_sharedShowLoess)); }
+          const lc = _panel.querySelector(`[data-section="${s}"] .chart-loess-controls`);
+          if (lc) lc.style.visibility = _sharedShowLoess ? 'visible' : 'hidden';
+        });
+        _updateStationUrl();
+      });
+
+    // LOESS span slider.
+    _panel.querySelector(`[data-section="${section}"] .loess-range`)
+      ?.addEventListener('input', (e) => {
+        _sharedLoessSpan = parseInt(e.target.value, 10) / 100;
+        SECTIONS.forEach(s => {
+          _charts[s]?.setLoessSpan(_sharedLoessSpan);
+          const r = _panel.querySelector(`[data-section="${s}"] .loess-range`);
+          const v = _panel.querySelector(`[data-section="${s}"] .loess-slider-value`);
+          if (r) r.value = e.target.value;
+          if (v) v.textContent = _sharedLoessSpan.toFixed(2);
+        });
         _updateStationUrl();
       });
 
@@ -632,6 +659,22 @@ function _attachHandlers() {
   const closeBtn = _panel.querySelector('.detail-close');
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
+
+  // Station meta toggle — collapsed by default on narrow viewports, expanded on wide.
+  const metaToggle = _panel.querySelector('.detail-name-toggle');
+  const metaPanel  = metaToggle ? document.getElementById(metaToggle.getAttribute('aria-controls')) : null;
+  if (metaToggle && metaPanel) {
+    const startExpanded = window.innerWidth > 834;
+    if (startExpanded) {
+      metaPanel.hidden = false;
+      metaToggle.setAttribute('aria-expanded', 'true');
+    }
+    metaToggle.addEventListener('click', () => {
+      const expanded = metaToggle.getAttribute('aria-expanded') === 'true';
+      metaToggle.setAttribute('aria-expanded', String(!expanded));
+      metaPanel.hidden = expanded;
+    });
+  }
 
   // Section-level tab switching.
   _panel.querySelectorAll('.section-tab').forEach(tab => {
@@ -654,9 +697,32 @@ function _attachHandlers() {
   }
 
   _initDetailMapMedia();
+  _initTabScrollArrows();
 
   // Initialize temperature charts (must be after DOM is ready).
   _initCharts();
+}
+
+function _initTabScrollArrows() {
+  const wrap = _panel.querySelector('.section-tabs-wrap');
+  if (!wrap) return;
+  const tabs = wrap.querySelector('.section-tabs');
+  const btnL = wrap.querySelector('.tabs-scroll-left');
+  const btnR = wrap.querySelector('.tabs-scroll-right');
+  if (!tabs || !btnL || !btnR) return;
+
+  function updateArrows() {
+    const atStart = tabs.scrollLeft <= 2;
+    const atEnd   = tabs.scrollLeft >= tabs.scrollWidth - tabs.clientWidth - 2;
+    const hasOverflow = tabs.scrollWidth > tabs.clientWidth + 4;
+    btnL.hidden = !hasOverflow || atStart;
+    btnR.hidden = !hasOverflow || atEnd;
+  }
+
+  tabs.addEventListener('scroll', updateArrows, { passive: true });
+  btnL.addEventListener('click', () => tabs.scrollBy({ left: -120, behavior: 'smooth' }));
+  btnR.addEventListener('click', () => tabs.scrollBy({ left:  120, behavior: 'smooth' }));
+  requestAnimationFrame(updateArrows);
 }
 
 function _switchSectionTab(sectionName) {
@@ -735,6 +801,8 @@ function _updateStationUrl() {
     detail.excludeSparseAnomalyYears = _sharedExcludeSparseAnomalyYears;
     detail.useCenteredAnomalyReference = _sharedUseCenteredAnomalyReference;
     detail.showAnomalyTrend = _sharedShowAnomalyTrend;
+    detail.showLoess  = _sharedShowLoess;
+    detail.loessSpan  = _sharedLoessSpan;
     if (chart) {
       const zoom = chart.getZoom();
       detail.zoomMin = zoom?.min;
@@ -828,8 +896,12 @@ function _renderDataSections(indexEntry, sprites) {
 
   return `
     <div class="detail-sections">
-      <div class="section-tabs" role="tablist" aria-label="Detail sections">
-        ${tabs.join('')}
+      <div class="section-tabs-wrap">
+        <button class="tabs-scroll-btn tabs-scroll-left" aria-label="Scroll tabs left" hidden>‹</button>
+        <div class="section-tabs" role="tablist" aria-label="Detail sections">
+          ${tabs.join('')}
+        </div>
+        <button class="tabs-scroll-btn tabs-scroll-right" aria-label="Scroll tabs right" hidden>›</button>
       </div>
       ${panels.join('')}
     </div>`;
@@ -843,9 +915,6 @@ function _adjChartPanel() {
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
           <button class="chart-mode-btn active" data-adj-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-adj-mode="yearly" aria-pressed="false">Annual</button>
-        </div>
-        <div class="chart-trend-controls" role="group" aria-label="Trend">
-          <button class="chart-ci-btn active" data-action="trend-toggle" title="Show or hide the trend line" aria-pressed="true">Trend</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -893,8 +962,9 @@ function _tempChartPanel() {
           <button class="chart-ci-btn active" data-action="anomaly-sparse-toggle" title="Exclude years with fewer than 9 months" aria-pressed="true">9+ mo</button>
           <button class="chart-ci-btn" data-action="anomaly-ref-toggle" title="Reference anomaly to the 30 full years nearest the record centre" aria-pressed="false">30 yr ref</button>
         </div>
-        <div class="chart-trend-controls" role="group" aria-label="Trend">
-          <button class="chart-ci-btn active" data-action="trend-toggle" title="Show or hide the trend line" aria-pressed="true">Trend</button>
+        <div class="chart-trend-controls" role="group" aria-label="Trend and smoothing">
+          <button class="chart-ci-btn active" data-action="trend-toggle" title="Show or hide the linear trend line" aria-pressed="true">Trend</button>
+          <button class="chart-ci-btn" data-action="loess-toggle" title="Show or hide LOESS smooth line" aria-pressed="false">LOESS</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -911,7 +981,16 @@ function _tempChartPanel() {
         <div class="heat-legend-bar" aria-hidden="true"></div>
         <span class="heat-hot-label heat-label">—</span>
       </div>
-      <p class="chart-hint">Drag to pan · Hover for temperature</p>
+      <div class="chart-footer">
+        <p class="chart-hint">Drag to pan · Hover for temperature</p>
+        <div class="chart-loess-controls">
+          <label class="loess-slider-label">
+            <span class="loess-slider-title">Smoothing</span>
+            <input type="range" class="loess-range" min="10" max="90" step="5" value="30" aria-label="LOESS span">
+            <span class="loess-slider-value">0.30</span>
+          </label>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -1476,9 +1555,12 @@ function _renderDetail(locationId, data, indexEntry, buSprites) {
       <div class="detail-top-main">
         <div class="detail-header-text">
           <div class="detail-category">${_esc(data.type ?? '')}</div>
-          <h2 class="detail-name">${_esc(data.name ?? locationId)}</h2>
+          <button class="detail-name-toggle" aria-expanded="false" aria-controls="detail-meta-main">
+            <h2 class="detail-name">${_esc(data.name ?? locationId)}</h2>
+            <span class="detail-expand-chevron" aria-hidden="true">›</span>
+          </button>
         </div>
-        <div class="detail-meta">
+        <div class="detail-meta" id="detail-meta-main" hidden>
           <div class="meta-item">
             <span class="meta-label">Country</span>
             <span class="meta-value">${_esc(data.country ?? '—')}</span>
@@ -1527,9 +1609,12 @@ function _renderIndexDetail(locationId, indexEntry, buSprites) {
       <div class="detail-top-main">
         <div class="detail-header-text">
           <div class="detail-category">${_esc(catStr)}</div>
-          <h2 class="detail-name">${_esc(name)}</h2>
+          <button class="detail-name-toggle" aria-expanded="false" aria-controls="detail-meta-index">
+            <h2 class="detail-name">${_esc(name)}</h2>
+            <span class="detail-expand-chevron" aria-hidden="true">›</span>
+          </button>
         </div>
-        <div class="detail-meta">
+        <div class="detail-meta" id="detail-meta-index" hidden>
           <div class="meta-item">
             <span class="meta-label">Station ID</span>
             <span class="meta-value">${_esc(locationId)}</span>

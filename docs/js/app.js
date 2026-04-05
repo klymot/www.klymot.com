@@ -1,13 +1,13 @@
-import { initMap, getMap, setProjection, getProjection, updateMapTheme, supportsProjection } from './map.js';
-import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
-import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js';
-import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js';
-import { initMapQR } from './qr.js';
-import { initDetailPanel, openDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js';
-import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js';
-import { initSourcesPanel, toggleSources } from './sources-panel.js';
-import { initConsent } from './consent.js';
-import { trackEvent } from './analytics.js';
+import { initMap, getMap, setProjection, getProjection, updateMapTheme, supportsProjection } from './map.js?v=20260405';
+import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js?v=20260405';
+import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js?v=20260405';
+import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js?v=20260405';
+import { initMapQR } from './qr.js?v=20260405';
+import { initDetailPanel, openDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260405';
+import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js?v=20260405';
+import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260405';
+import { initConsent } from './consent.js?v=20260405';
+import { trackEvent } from './analytics.js?v=20260405';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.

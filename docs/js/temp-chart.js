@@ -243,6 +243,53 @@ function _trendLine(pts) {
   };
 }
 
+/**
+ * Locally-weighted scatterplot smoothing (LOESS / LOWESS).
+ * Uses local linear regression with tricube kernel weights.
+ * @param {Array<{x:number,y:number}|null>} pts  — nulls are ignored
+ * @param {number} span  — fraction of points to use as neighbours (0.1–0.9)
+ * @returns {Array<{x:number,y:number}>|null}
+ */
+function _loess(pts, span) {
+  const valid = (pts ?? []).filter(Boolean);
+  if (valid.length < 3) return null;
+  const n = valid.length;
+  const k = Math.max(3, Math.round(span * n));
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    const xi = valid[i].x;
+    // Expand window outward from i to find k nearest (data is x-sorted).
+    let lo = i, hi = i + 1, count = 1;
+    while (count < k) {
+      const dLo = lo > 0     ? xi - valid[lo - 1].x : Infinity;
+      const dHi = hi < n     ? valid[hi].x - xi     : Infinity;
+      if (dLo <= dHi) { lo--; } else { hi++; }
+      count++;
+    }
+    const h = Math.max(xi - valid[lo].x, valid[hi - 1].x - xi);
+    if (h < 1e-12) { result.push({ x: xi, y: valid[i].y }); continue; }
+    let W = 0, WX = 0, WY = 0, WXX = 0, WXY = 0;
+    for (let j = lo; j < hi; j++) {
+      const u = Math.abs(valid[j].x - xi) / h;
+      if (u >= 1) continue;
+      const w = Math.pow(1 - u * u * u, 3);
+      const { x, y } = valid[j];
+      W += w; WX += w * x; WY += w * y; WXX += w * x * x; WXY += w * x * y;
+    }
+    const det = W * WXX - WX * WX;
+    let yFit;
+    if (Math.abs(det) < 1e-12) {
+      yFit = WY / W;
+    } else {
+      const slope = (W * WXY - WX * WY) / det;
+      const intercept = (WY - slope * WX) / W;
+      yFit = intercept + slope * xi;
+    }
+    result.push({ x: xi, y: yFit });
+  }
+  return result;
+}
+
 // ── Matrix inversion (Gauss-Jordan) ───────────────────────────────────────────
 
 /**
@@ -482,6 +529,12 @@ export class TempChart {
     this._excludeSparseAnomalyYears = true;
     this._useCenteredAnomalyReference = false;
     this._showAnomalyTrend = true;
+    this._showLoess    = false;
+    this._loessSpan    = 0.3;
+    this._loessMonthly  = null;
+    this._loessYearly   = null;
+    this._loessByMonth  = null;
+    this._loessAnomaly  = null;
 
     // ── Unified x-axis domain (fractional years, shared across all modes) ──
     // null until load() or setGlobalRange() initialises them.
@@ -559,6 +612,10 @@ export class TempChart {
       this._monthlyTrend     = null;
       this._yearlyTrend      = null;
       this._byMonthTrends    = null;
+      this._loessMonthly  = null;
+      this._loessYearly   = null;
+      this._loessByMonth  = null;
+      this._loessAnomaly  = null;
       this._anomalyReferenceWindow = null;
       this._partialEstimates = null;
       this._recordMap        = new Map();
@@ -582,6 +639,10 @@ export class TempChart {
     this._monthlyTrend     = _trendLine(this._monthly);
     this._yearlyTrend      = _trendLine(this._yearly);
     this._byMonthTrends    = this._byMonth.map(pts => _trendLine(pts));
+    this._loessMonthly  = _loess(this._monthly,  this._loessSpan);
+    this._loessYearly   = _loess(this._yearly,   this._loessSpan);
+    this._loessByMonth  = this._byMonth.map(pts => _loess(pts, this._loessSpan));
+    this._loessAnomaly  = _loess(this._anomaly,  this._loessSpan);
     this._anomalyReferenceWindow = referenceYears.length
       ? { start: referenceYears[0].year, end: referenceYears[referenceYears.length - 1].year }
       : null;
@@ -731,6 +792,23 @@ export class TempChart {
   getShowAnomalyTrend() {
     return this._showAnomalyTrend;
   }
+
+  /** Show or hide the LOESS smooth line. */
+  setShowLoess(v) { this._showLoess = !!v; this._scheduleRender(); }
+  getShowLoess()  { return this._showLoess; }
+
+  /** Set LOESS bandwidth span (0.1–0.9) and recompute all curves. */
+  setLoessSpan(span) {
+    this._loessSpan   = Math.max(0.1, Math.min(0.9, span));
+    if (this._monthly) {
+      this._loessMonthly = _loess(this._monthly, this._loessSpan);
+      this._loessYearly  = _loess(this._yearly,  this._loessSpan);
+      this._loessByMonth = this._byMonth.map(pts => _loess(pts, this._loessSpan));
+      this._loessAnomaly = _loess(this._anomaly, this._loessSpan);
+    }
+    this._scheduleRender();
+  }
+  getLoessSpan() { return this._loessSpan; }
 
   /**
    * Get the current view range (same for all modes).
@@ -1155,6 +1233,7 @@ export class TempChart {
     // Complete-year data line (drawn after amber connecting line so blue overlaps
     // amber at the shared complete-year junction points).
     if (pts) {
+      if (this._showLoess) ctx.globalAlpha = 0.5;
       ctx.strokeStyle = colLine; ctx.lineWidth = 1.5 * dpr;
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       let open = false;
@@ -1165,6 +1244,7 @@ export class TempChart {
         if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
       }
       if (open) ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     // Partial-year estimate dots — only when CI is also on (Est.-only shows the line alone).
@@ -1188,6 +1268,27 @@ export class TempChart {
       ctx.beginPath(); ctx.arc(px, py, 3 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = colLine; ctx.fill();
       ctx.strokeStyle = colBg; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+    }
+
+    // LOESS smooth line (bold, solid, 3 px).
+    const _activeLoess = isAnomaly ? this._loessAnomaly
+      : this._mode === 'yearly'    ? this._loessYearly
+      : this._mode === 'monthly'   ? this._loessMonthly
+      : null;
+    if (_activeLoess && _activeLoess.length >= 2 && this._showLoess) {
+      ctx.strokeStyle = colTrend;
+      ctx.lineWidth   = 3 * dpr;
+      ctx.setLineDash([]);
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      let loessOpen = false;
+      for (const p of _activeLoess) {
+        if (p.x < xMin || p.x > xMax) { loessOpen = false; continue; }
+        const px = toX(p.x), py = toY(p.y);
+        if (!loessOpen) { ctx.moveTo(px, py); loessOpen = true; } else { ctx.lineTo(px, py); }
+      }
+      if (loessOpen) ctx.stroke();
     }
 
     ctx.restore();
@@ -1318,6 +1419,7 @@ export class TempChart {
     }
 
     // Month lines
+    if (this._showLoess) ctx.globalAlpha = 0.5;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const m of selected) {
       ctx.strokeStyle = colors[m];
@@ -1333,6 +1435,28 @@ export class TempChart {
       if (open) ctx.stroke();
     }
     ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // LOESS smooth lines for each selected month (bold, solid, 3 px).
+    if (this._showLoess && this._loessByMonth) {
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (const m of selected) {
+        const curve = this._loessByMonth[m];
+        if (!curve || curve.length < 2) continue;
+        ctx.strokeStyle = colors[m];
+        ctx.lineWidth   = 3 * dpr;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        let loessOpen = false;
+        for (const p of curve) {
+          if (p.x < xMin || p.x > xMax) { loessOpen = false; continue; }
+          const px = toX(p.x), py = toY(p.y);
+          if (!loessOpen) { ctx.moveTo(px, py); loessOpen = true; } else { ctx.lineTo(px, py); }
+        }
+        if (loessOpen) ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
 
     // Trend lines for each selected month (when trend is enabled).
     if (this._showAnomalyTrend && this._byMonthTrends) {

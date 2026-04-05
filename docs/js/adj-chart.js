@@ -173,6 +173,45 @@ function _adjTrendLine(pts) {
   return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept };
 }
 
+/** LOESS for adj chart (identical algorithm to temp-chart.js _loess). */
+function _adjLoess(pts, span) {
+  const valid = (pts ?? []).filter(Boolean);
+  if (valid.length < 3) return null;
+  const n = valid.length;
+  const k = Math.max(3, Math.round(span * n));
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    const xi = valid[i].x;
+    let lo = i, hi = i + 1, count = 1;
+    while (count < k) {
+      const dLo = lo > 0 ? xi - valid[lo - 1].x : Infinity;
+      const dHi = hi < n ? valid[hi].x - xi      : Infinity;
+      if (dLo <= dHi) { lo--; } else { hi++; }
+      count++;
+    }
+    const h = Math.max(xi - valid[lo].x, valid[hi - 1].x - xi);
+    if (h < 1e-12) { result.push({ x: xi, y: valid[i].y }); continue; }
+    let W = 0, WX = 0, WY = 0, WXX = 0, WXY = 0;
+    for (let j = lo; j < hi; j++) {
+      const u = Math.abs(valid[j].x - xi) / h;
+      if (u >= 1) continue;
+      const w = Math.pow(1 - u * u * u, 3);
+      const { x, y } = valid[j];
+      W += w; WX += w * x; WY += w * y; WXX += w * x * x; WXY += w * x * y;
+    }
+    const det = W * WXX - WX * WX;
+    let yFit;
+    if (Math.abs(det) < 1e-12) { yFit = WY / W; }
+    else {
+      const slope = (W * WXY - WX * WY) / det;
+      const intercept = (WY - slope * WX) / W;
+      yFit = intercept + slope * xi;
+    }
+    result.push({ x: xi, y: yFit });
+  }
+  return result;
+}
+
 // ── AdjChart class ────────────────────────────────────────────────────────────
 
 export class AdjChart {
@@ -194,9 +233,13 @@ export class AdjChart {
     this._monthly      = null;
     this._yearly       = null;
     this._mode         = 'monthly';
-    this._showTrend    = true;
+    this._showTrend    = false;
     this._monthlyTrend = null;
     this._yearlyTrend  = null;
+    this._showLoess     = false;
+    this._loessSpan     = 0.3;
+    this._loessMonthly  = null;
+    this._loessYearly   = null;
 
     // X-axis domain (fractional years).
     this._xMin       = null;
@@ -266,6 +309,8 @@ export class AdjChart {
       this._yearly       = null;
       this._monthlyTrend = null;
       this._yearlyTrend  = null;
+      this._loessMonthly = null;
+      this._loessYearly  = null;
       this._scheduleRender();
       return;
     }
@@ -276,6 +321,8 @@ export class AdjChart {
     this._yearly       = _yearlyPts(diffRecs);
     this._monthlyTrend = _adjTrendLine(this._monthly);
     this._yearlyTrend  = _adjTrendLine(this._yearly);
+    this._loessMonthly = _adjLoess(this._monthly, this._loessSpan);
+    this._loessYearly  = _adjLoess(this._yearly,  this._loessSpan);
 
     const allX = this._monthly.filter(Boolean).map(p => p.x);
     if (allX.length > 0) {
@@ -331,6 +378,19 @@ export class AdjChart {
   getZoom() {
     if (this._xMin === null) return null;
     return { min: this._xMin, max: this._xMax };
+  }
+
+  /** Show or hide the LOESS smooth line. */
+  setShowLoess(v) { this._showLoess = !!v; this._scheduleRender(); }
+
+  /** Set LOESS bandwidth span (0.1–0.9) and recompute. */
+  setLoessSpan(span) {
+    this._loessSpan    = Math.max(0.1, Math.min(0.9, span));
+    if (this._monthly) {
+      this._loessMonthly = _adjLoess(this._monthly, this._loessSpan);
+      this._loessYearly  = _adjLoess(this._yearly,  this._loessSpan);
+    }
+    this._scheduleRender();
   }
 
   /** Show or hide the trend line. @param {boolean} v */
@@ -553,6 +613,25 @@ export class AdjChart {
     // Trend line (inside clip).
     const _activeTrend = this._mode === 'monthly' ? this._monthlyTrend : this._yearlyTrend;
     const colTrend     = isLight ? '#2060b0' : '#7fb2ff';
+
+    // LOESS smooth line (bold, solid, 3 px — inside clip).
+    const _activeLoess = this._mode === 'monthly' ? this._loessMonthly : this._loessYearly;
+    if (_activeLoess && _activeLoess.length >= 2 && this._showLoess) {
+      ctx.strokeStyle = colTrend;
+      ctx.lineWidth   = 3 * dpr;
+      ctx.setLineDash([]);
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      let loessOpen = false;
+      for (const p of _activeLoess) {
+        if (p.x < xMin || p.x > xMax) { loessOpen = false; continue; }
+        const px = toX(p.x), py = toY(p.y);
+        if (!loessOpen) { ctx.moveTo(px, py); loessOpen = true; } else { ctx.lineTo(px, py); }
+      }
+      if (loessOpen) ctx.stroke();
+    }
+
     if (_activeTrend && this._showTrend) {
       const trendStartY = _activeTrend.intercept + _activeTrend.slopePerYear * xMin;
       const trendEndY   = _activeTrend.intercept + _activeTrend.slopePerYear * xMax;

@@ -11,7 +11,7 @@
  *   mode:     monthly | yearly | heatmap | anomaly | bymonth | 2020 | 1975 | change
  *   zoom:     <min>,<max>  (decimal years)
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
- *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the anomaly trend line; combine with commas; '-' for defaults
+ *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the trend line; 'loess' to enable LOESS; 'loessspan=NN' for span (10–90); combine with commas; '-' for defaults
  *   bymonth:  3-hex-digit bitmask of selected months (bit 0 = Jan … bit 11 = Dec); default '041' = Jan+Jul
  *
  * Theme is intentionally excluded — it is a user preference stored in
@@ -53,9 +53,11 @@ export function serialiseMapState(map, projection) {
  * @param {boolean} [detail.showCI]   — whether 95% CI bands are visible (default true)
  * @param {boolean} [detail.excludeSparseAnomalyYears]     — whether anomaly mode hides years with <9 months (default true)
  * @param {boolean} [detail.useCenteredAnomalyReference]   — whether anomaly mode uses the 30 full years nearest the record centre (default false)
- * @param {boolean} [detail.showAnomalyTrend]              — whether anomaly mode shows the dashed trend line (default true)
+ * @param {boolean} [detail.showAnomalyTrend]              — whether to show the dashed trend line (default true)
+ * @param {boolean} [detail.showLoess]                     — whether to show LOESS smooth line (default false)
+ * @param {number}  [detail.loessSpan]                     — LOESS bandwidth span 0.1–0.9 (default 0.3)
  * @param {Set<number>} [detail.selectedMonths]            — bymonth mode: which months to display (default Jan+Jul)
- * @returns {string}  e.g. 'station=mauna-loa;qcu;yearly;1950.00,2024.00;-'
+ * @returns {string}  e.g. 'station=USW00021514;qcu;yearly;1950.00,2024.00;-'
  */
 export function serialiseStationState(locationId, detail = {}) {
   const encodedId = encodeURIComponent(locationId);
@@ -63,6 +65,7 @@ export function serialiseStationState(locationId, detail = {}) {
   const {
     section, mode, zoomMin, zoomMax, showEst, showCI,
     excludeSparseAnomalyYears, useCenteredAnomalyReference, showAnomalyTrend,
+    showLoess, loessSpan,
     selectedMonths,
   } = detail;
 
@@ -84,6 +87,7 @@ export function serialiseStationState(locationId, detail = {}) {
     excludeSparseAnomalyYears !== false &&
     useCenteredAnomalyReference !== true &&
     showAnomalyTrend !== false &&
+    !showLoess &&
     bymonthMask === _BYMONTH_DEFAULT
   ) {
     return `station=${encodedId}`;
@@ -103,6 +107,11 @@ export function serialiseStationState(locationId, detail = {}) {
   if (excludeSparseAnomalyYears === false) anomalyFlags.push('inclsparse');
   if (useCenteredAnomalyReference === true) anomalyFlags.push('center30');
   if (showAnomalyTrend === false) anomalyFlags.push('notrend');
+  if (showLoess === true) {
+    anomalyFlags.push('loess');
+    const spanInt = Math.round((loessSpan ?? 0.3) * 100);
+    if (spanInt !== 30) anomalyFlags.push(`loessspan=${spanInt}`);
+  }
   const anomalyStr  = anomalyFlags.length ? anomalyFlags.join(',') : '-';
   const bymonthStr  = bymonthMask === _BYMONTH_DEFAULT ? '-' : bymonthMask.toString(16).padStart(3, '0');
 
@@ -188,6 +197,9 @@ export function parseHash(hash) {
     result.excludeSparseAnomalyYears = !anomalyFlags.has('inclsparse');
     result.useCenteredAnomalyReference = anomalyFlags.has('center30');
     result.showAnomalyTrend = !anomalyFlags.has('notrend');
+    result.showLoess = anomalyFlags.has('loess');
+    const loessSpanFlag = [...anomalyFlags].find(f => f.startsWith('loessspan='));
+    result.loessSpan = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
 
     // Bymonth selection (index 6): 3-hex-digit bitmask; '-'/absent = default Jan+Jul.
     const p6 = parts.length >= 7 ? parts[6] : '-';

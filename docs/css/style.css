@@ -473,6 +473,40 @@ body {
   line-height: 1.2;
 }
 
+.detail-name-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.detail-name-toggle .detail-name {
+  /* inherits all name styles above */
+}
+
+.detail-expand-chevron {
+  font-size: 1rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease, color 0.15s;
+  flex-shrink: 0;
+  line-height: 1.2;
+  margin-top: 0.25rem;
+}
+
+.detail-name-toggle[aria-expanded="true"] .detail-expand-chevron {
+  transform: rotate(90deg);
+  color: var(--accent-primary);
+}
+
+.detail-meta[hidden] {
+  display: none;
+}
+
 .detail-close {
   background: none;
   border: none;
@@ -594,6 +628,49 @@ body {
 }
 
 .section-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Section-tab scroll arrows ────────────────────────────────────── */
+
+.section-tabs-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+/* Remove bottom border from .section-tabs itself when inside wrap */
+.section-tabs-wrap .section-tabs {
+  border-bottom: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.tabs-scroll-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  font-size: 1.125rem;
+  line-height: 1;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  padding: 0;
+  z-index: 1;
+}
+
+.tabs-scroll-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.tabs-scroll-btn[hidden] {
   display: none;
 }
 
@@ -1211,13 +1288,97 @@ body {
   display: none;
 }
 
+/* ── Chart footer (hint + LOESS slider — fixed height for layout stability) ── */
+
+.chart-footer {
+  display: flex;
+  flex-direction: column;
+  min-height: 2.75rem;
+  padding-top: 0.125rem;
+  gap: 0.125rem;
+}
+
+.chart-footer[hidden] {
+  display: none;
+}
+
 .chart-hint {
-  margin-top: 0.375rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
   text-align: center;
-  font-size: 0.6rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin: 0;
+  line-height: 1.4rem;
+}
+
+.chart-loess-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden; /* JS shows when LOESS is active */
+}
+
+.loess-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.loess-slider-title {
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  font-size: 0.625rem;
   color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.loess-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 120px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  outline: none;
+  cursor: pointer;
+}
+
+.loess-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+  transition: transform 0.1s;
+}
+
+.loess-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+}
+
+.loess-range::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.loess-slider-value {
+  min-width: 2rem;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
 }
 
 /* ── Heatmap colour-scale legend ──────────────────────────────────── */
@@ -1420,7 +1581,8 @@ body {
     gap: 0.75rem;
   }
 
-  .detail-name {
+  .detail-name,
+  .detail-name-toggle .detail-name {
     font-size: 1.375rem;
   }
 
