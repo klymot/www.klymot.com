@@ -184,7 +184,7 @@ function init() {
     }
 
     locationBtn.disabled = true;
-    showLocationStatus('Locating on this device only…', 2500);
+    showLocationStatus('Locating on this device only…', 15000);
 
     geolocation.getCurrentPosition(
       ({ coords }) => {
@@ -210,9 +210,9 @@ function init() {
         }
       },
       {
-        enableHighAccuracy: false,
+        enableHighAccuracy: true,   // false only uses Wi-Fi/cell triangulation which fails on iOS when no Wi-Fi is visible
         maximumAge: 300000,
-        timeout: 8000,
+        timeout: 15000,
       }
     );
   });
