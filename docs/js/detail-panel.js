@@ -13,6 +13,7 @@ import { renderQR } from './qr.js';
 import { serialiseStationState, pushState } from './url-state.js';
 import { trackEvent } from './analytics.js';
 import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js';
+import { AdjChart } from './adj-chart.js';
 
 /**
  * State to restore when the next detail panel opens (set by setRestoreState).
@@ -78,6 +79,9 @@ let _sharedUseCenteredAnomalyReference = false;
 
 /** Shared annual anomaly toggle: show the anomaly trend line. */
 let _sharedShowAnomalyTrend = true;
+
+/** Current mode for the Adjustments chart (independent of temp chart mode). */
+let _adjMode = 'yearly';
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -306,7 +310,52 @@ function _initCharts() {
     _sharedShowAnomalyTrend = restore.showAnomalyTrend;
   }
 
+  // Initialise the Adjustments chart.
+  const adjWrap = _panel.querySelector(`[data-section="adj"] .chart-canvas-wrap`);
+  const adjChart = adjWrap ? new AdjChart(adjWrap) : null;
+  if (adjChart) _charts['adj'] = adjChart;
+
+  // Restore adj mode from URL if the adj section was active.
+  if (restore?.section === 'adj' && restore?.mode) {
+    _adjMode = restore.mode;
+    adjChart?.setMode(_adjMode);
+    _panel.querySelectorAll('[data-section="adj"] [data-adj-mode]').forEach(b => {
+      const active = b.dataset.adjMode === _adjMode;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  // Wire adj mode buttons.
+  _panel.querySelectorAll('[data-section="adj"] [data-adj-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _adjMode = btn.dataset.adjMode;
+      adjChart?.setMode(_adjMode);
+      _panel.querySelectorAll('[data-section="adj"] [data-adj-mode]').forEach(b => {
+        const active = b.dataset.adjMode === _adjMode;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
+      _updateStationUrl();
+    });
+  });
+
+  // Wire adj zoom buttons.
+  _panel.querySelectorAll('[data-section="adj"] .chart-zoom-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      if (action === 'zoom-in')    adjChart?.zoomIn();
+      if (action === 'zoom-out')   adjChart?.zoomOut();
+      if (action === 'zoom-reset') adjChart?.resetZoom();
+    });
+  });
+
+  // Propagate adj zoom changes to URL.
+  adjWrap?.addEventListener('chart:zoom', () => _updateStationUrl());
+
   // Track data-load completion so we can compute the cross-chart union range.
+  // Raw CSV texts are stored so we can feed both to AdjChart once both have loaded.
+  const _rawCsv = { qcu: null, qcf: null };
   let loadsRemaining = SECTIONS.length;
   function _onChartDataLoaded() {
     loadsRemaining--;
@@ -323,8 +372,7 @@ function _initCharts() {
 
     if (!isFinite(globalMin)) return;
 
-    // Apply the union range to all charts (resets zoom to the global domain).
-    // Then layer any URL-restored zoom/inspector on top.
+    // Apply the union range to all temp charts.
     for (const s of SECTIONS) {
       const c = _charts[s];
       if (!c) continue;
@@ -332,6 +380,12 @@ function _initCharts() {
       if (restore?.zoomMin != null && restore.zoomMax != null) {
         c.setZoom(restore.zoomMin, restore.zoomMax);
       }
+    }
+
+    // Feed both datasets to the adj chart and give it the same x range.
+    if (adjChart && _rawCsv.qcu !== null && _rawCsv.qcf !== null) {
+      adjChart.load(_rawCsv.qcu, _rawCsv.qcf);
+      adjChart.setGlobalRange(globalMin, globalMax);
     }
 
     // Apply inspector only to the section that was active when the URL was shared.
@@ -408,6 +462,7 @@ function _initCharts() {
       .catch(() => '')
       .then(text => {
         chart.load(text);
+        _rawCsv[PATHS[i]] = text;
         _onChartDataLoaded();
       });
 
@@ -645,6 +700,8 @@ function _updateStationUrl() {
       detail.zoomMin = zoom?.min;
       detail.zoomMax = zoom?.max;
     }
+  } else if (section === 'adj') {
+    detail.mode = _adjMode;
   } else if (section === 'bu-surface' || section === 'population') {
     const yearTab = _panel.querySelector('.bu-tab.active') ??
                     _panel.querySelector('.pop-tab.active');
@@ -715,8 +772,10 @@ function _renderDataSections(indexEntry, sprites) {
   // Temperature charts — always shown (chart handles no-data state internally)
   tabs.push(`<button class="section-tab active" role="tab" data-section="temp-qcu" aria-selected="true">Unadjusted</button>`);
   tabs.push(`<button class="section-tab" role="tab" data-section="temp-qcf" aria-selected="false">Adjusted</button>`);
+  tabs.push(`<button class="section-tab" role="tab" data-section="adj" aria-selected="false">Adjustments</button>`);
   panels.push(`<div class="section-panel" data-section="temp-qcu">${_tempChartPanel()}</div>`);
   panels.push(`<div class="section-panel" data-section="temp-qcf" hidden>${_tempChartPanel()}</div>`);
+  panels.push(`<div class="section-panel" data-section="adj" hidden>${_adjChartPanel()}</div>`);
 
   if (buContent) {
     tabs.push(`<button class="section-tab" role="tab" data-section="bu-surface" aria-selected="false">Built-Up Surface</button>`);
@@ -733,6 +792,31 @@ function _renderDataSections(indexEntry, sprites) {
         ${tabs.join('')}
       </div>
       ${panels.join('')}
+    </div>`;
+}
+
+/** HTML scaffold for the Adjustments chart panel (AdjChart is initialised in _initCharts). */
+function _adjChartPanel() {
+  return `
+    <div class="temp-chart-section">
+      <div class="chart-controls">
+        <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
+          <button class="chart-mode-btn active" data-adj-mode="yearly" aria-pressed="true">Annual</button>
+          <button class="chart-mode-btn" data-adj-mode="monthly" aria-pressed="false">Monthly</button>
+        </div>
+        <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
+          <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+          <button class="chart-zoom-btn" data-action="zoom-reset" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+          <button class="chart-zoom-btn" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap"></div>
+      <div class="adj-series-toggles" role="group" aria-label="Adjustment series">
+        <button class="adj-series-btn active" data-series="total" style="--s-color:var(--adj-total)" aria-pressed="true">Total</button>
+        <button class="adj-series-btn" data-series="tob" style="--s-color:var(--adj-tob)" disabled title="TOB component coming soon" aria-pressed="false">TOB</button>
+        <button class="adj-series-btn" data-series="pha" style="--s-color:var(--adj-pha)" disabled title="PHA component coming soon" aria-pressed="false">PHA</button>
+      </div>
+      <p class="chart-hint">Drag to pan · Hover for adjustment</p>
     </div>`;
 }
 
