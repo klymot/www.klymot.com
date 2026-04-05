@@ -419,8 +419,8 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 1rem;
-  width: 720px;
-  max-width: 92vw;
+  width: 800px;
+  max-width: 96vw;
   max-height: 80vh;
   overflow-y: auto;
   animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1004,6 +1004,18 @@ body {
   display: none;
 }
 
+/* ── Chart trend controls (universal Trend toggle) ───────────────── */
+
+.chart-trend-controls {
+  display: flex;
+  gap: 0.1875rem;
+  flex-shrink: 0;
+}
+
+.chart-trend-controls[hidden] {
+  display: none;
+}
+
 /* ── Chart zoom controls ──────────────────────────────────────────── */
 
 .chart-zoom-controls {
@@ -1383,6 +1395,48 @@ body {
 }
 
 /* ── Responsive: narrow viewports ─────────────────────────────────── */
+
+/*
+ * Compact panel layout — kicks in when the viewport is too narrow to show the
+ * full 800 px panel (96 vw < 800 px  ⟹  viewport < ~834 px).
+ *
+ * Changes:
+ *   • QR code is hidden (saves ~130 px of header width).
+ *   • Header padding is tightened.
+ *   • Section-tab font shrinks slightly to keep all tabs visible.
+ *   • Chart controls are allowed to wrap more aggressively.
+ */
+@media (max-width: 834px) {
+  .detail-qr {
+    display: none !important;
+  }
+
+  .detail-top-aside {
+    gap: 0;
+  }
+
+  .detail-top {
+    padding: 1rem 1.25rem 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .detail-name {
+    font-size: 1.375rem;
+  }
+
+  .section-tab {
+    font-size: 0.6875rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .chart-controls {
+    gap: 0.4rem;
+  }
+
+  .chart-mode-toggle {
+    flex-wrap: wrap;
+  }
+}
 
 @media (max-width: 600px) {
   .app-header {

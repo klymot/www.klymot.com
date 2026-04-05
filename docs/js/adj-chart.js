@@ -153,6 +153,26 @@ function _adjYRange(pts) {
   return { yMin, yMax };
 }
 
+/**
+ * Compute a least-squares trend line for point data.
+ * @param {Array<{x: number, y: number}|null>} pts
+ * @returns {{ slopePerYear: number, slopePer100Years: number, intercept: number }|null}
+ */
+function _adjTrendLine(pts) {
+  const values = (pts ?? []).filter(Boolean);
+  if (values.length < 2) return null;
+  let sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
+  for (const p of values) {
+    sumX += p.x; sumY += p.y; sumXX += p.x * p.x; sumXY += p.x * p.y;
+  }
+  const n = values.length;
+  const denom = n * sumXX - sumX * sumX;
+  if (Math.abs(denom) < 1e-12) return null;
+  const slopePerYear = (n * sumXY - sumX * sumY) / denom;
+  const intercept    = (sumY - slopePerYear * sumX) / n;
+  return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept };
+}
+
 // ── AdjChart class ────────────────────────────────────────────────────────────
 
 export class AdjChart {
@@ -170,10 +190,13 @@ export class AdjChart {
     container.appendChild(this._tooltip);
 
     // Data state.
-    this._diffRecs  = null;
-    this._monthly   = null;
-    this._yearly    = null;
-    this._mode      = 'monthly';
+    this._diffRecs     = null;
+    this._monthly      = null;
+    this._yearly       = null;
+    this._mode         = 'monthly';
+    this._showTrend    = true;
+    this._monthlyTrend = null;
+    this._yearlyTrend  = null;
 
     // X-axis domain (fractional years).
     this._xMin       = null;
@@ -238,17 +261,21 @@ export class AdjChart {
     const qcfRecs = _parseCsv(qcfCsvText || '');
 
     if (qcuRecs.length === 0 && qcfRecs.length === 0) {
-      this._diffRecs = null;
-      this._monthly  = null;
-      this._yearly   = null;
+      this._diffRecs     = null;
+      this._monthly      = null;
+      this._yearly       = null;
+      this._monthlyTrend = null;
+      this._yearlyTrend  = null;
       this._scheduleRender();
       return;
     }
 
-    const diffRecs   = _diffRecords(qcuRecs, qcfRecs);
-    this._diffRecs   = diffRecs;
-    this._monthly    = _monthlyPts(diffRecs);
-    this._yearly     = _yearlyPts(diffRecs);
+    const diffRecs     = _diffRecords(qcuRecs, qcfRecs);
+    this._diffRecs     = diffRecs;
+    this._monthly      = _monthlyPts(diffRecs);
+    this._yearly       = _yearlyPts(diffRecs);
+    this._monthlyTrend = _adjTrendLine(this._monthly);
+    this._yearlyTrend  = _adjTrendLine(this._yearly);
 
     const allX = this._monthly.filter(Boolean).map(p => p.x);
     if (allX.length > 0) {
@@ -305,6 +332,9 @@ export class AdjChart {
     if (this._xMin === null) return null;
     return { min: this._xMin, max: this._xMax };
   }
+
+  /** Show or hide the trend line. @param {boolean} v */
+  setShowTrend(v) { this._showTrend = !!v; this._scheduleRender(); }
 
   /** Halve the x span centred on current view. */
   zoomIn()  { this._zoom(0.5); }
@@ -520,7 +550,40 @@ export class AdjChart {
       ctx.strokeStyle = colBg;  ctx.lineWidth = 1.5 * dpr; ctx.stroke();
     }
 
+    // Trend line (inside clip).
+    const _activeTrend = this._mode === 'monthly' ? this._monthlyTrend : this._yearlyTrend;
+    const colTrend     = isLight ? '#2060b0' : '#7fb2ff';
+    if (_activeTrend && this._showTrend) {
+      const trendStartY = _activeTrend.intercept + _activeTrend.slopePerYear * xMin;
+      const trendEndY   = _activeTrend.intercept + _activeTrend.slopePerYear * xMax;
+      ctx.strokeStyle = colTrend;
+      ctx.lineWidth   = 1.5 * dpr;
+      ctx.setLineDash([6 * dpr, 4 * dpr]);
+      ctx.beginPath();
+      ctx.moveTo(toX(xMin), toY(trendStartY));
+      ctx.lineTo(toX(xMax), toY(trendEndY));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     ctx.restore();
+
+    // Slope label (outside clip).
+    if (_activeTrend && this._showTrend) {
+      const slope = _activeTrend.slopePer100Years;
+      const sign  = slope < 0 ? '−' : '+';
+      const text  = `${sign}${Math.abs(slope).toFixed(2)}°C/100yr`;
+      ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
+      const textW = ctx.measureText(text).width;
+      const tx = ml + cw - textW - 6 * dpr;
+      const ty = mt + 6 * dpr;
+      ctx.fillStyle = colBg;
+      ctx.fillRect(tx - 4 * dpr, ty - 2 * dpr, textW + 8 * dpr, 14 * dpr);
+      ctx.fillStyle = colTrend;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(text, tx, ty);
+    }
 
     // Axis border.
     ctx.strokeStyle = colGrid; ctx.lineWidth = 1; ctx.setLineDash([]);

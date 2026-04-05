@@ -469,6 +469,9 @@ export class TempChart {
     this._annualSummaries  = null;
     this._anomaly          = null;
     this._anomalyTrend     = null;
+    this._monthlyTrend     = null;  // trend for monthly mode
+    this._yearlyTrend      = null;  // trend for yearly mode
+    this._byMonthTrends    = null;  // array of 12 trends for bymonth mode
     this._anomalyReferenceWindow = null;
     this._partialEstimates = null;  // [{year, estimate, se, ciLow, ciHigh, nMonths}]
     this._recordMap        = new Map();   // year → months[]
@@ -553,6 +556,9 @@ export class TempChart {
       this._annualSummaries  = null;
       this._anomaly          = null;
       this._anomalyTrend     = null;
+      this._monthlyTrend     = null;
+      this._yearlyTrend      = null;
+      this._byMonthTrends    = null;
       this._anomalyReferenceWindow = null;
       this._partialEstimates = null;
       this._recordMap        = new Map();
@@ -573,6 +579,9 @@ export class TempChart {
       this._useCenteredAnomalyReference,
     );
     this._anomalyTrend     = _trendLine(this._anomaly);
+    this._monthlyTrend     = _trendLine(this._monthly);
+    this._yearlyTrend      = _trendLine(this._yearly);
+    this._byMonthTrends    = this._byMonth.map(pts => _trendLine(pts));
     this._anomalyReferenceWindow = referenceYears.length
       ? { start: referenceYears[0].year, end: referenceYears[referenceYears.length - 1].year }
       : null;
@@ -1050,9 +1059,14 @@ export class TempChart {
       ctx.setLineDash([]);
     }
 
-    if (isAnomaly && this._showAnomalyTrend && this._anomalyTrend) {
-      const trendStartY = this._anomalyTrend.intercept + this._anomalyTrend.slopePerYear * xMin;
-      const trendEndY   = this._anomalyTrend.intercept + this._anomalyTrend.slopePerYear * xMax;
+    // Trend line — anomaly uses its own pre-computed trend; monthly/yearly compute on demand.
+    const _activeTrend = isAnomaly ? this._anomalyTrend
+      : this._mode === 'yearly'    ? this._yearlyTrend
+      : this._mode === 'monthly'   ? this._monthlyTrend
+      : null;
+    if (_activeTrend && this._showAnomalyTrend) {
+      const trendStartY = _activeTrend.intercept + _activeTrend.slopePerYear * xMin;
+      const trendEndY   = _activeTrend.intercept + _activeTrend.slopePerYear * xMax;
       ctx.strokeStyle = colTrend;
       ctx.lineWidth = 1.5 * dpr;
       ctx.setLineDash([6 * dpr, 4 * dpr]);
@@ -1178,8 +1192,8 @@ export class TempChart {
 
     ctx.restore();
 
-    if (isAnomaly && this._showAnomalyTrend && this._anomalyTrend) {
-      const slope = this._anomalyTrend.slopePer100Years;
+    if (_activeTrend && this._showAnomalyTrend) {
+      const slope = _activeTrend.slopePer100Years;
       const sign = slope < 0 ? '−' : '';
       const text = `${sign}${Math.abs(slope).toFixed(2)}°C/100yr`;
       ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
@@ -1319,6 +1333,24 @@ export class TempChart {
       if (open) ctx.stroke();
     }
     ctx.setLineDash([]);
+
+    // Trend lines for each selected month (when trend is enabled).
+    if (this._showAnomalyTrend && this._byMonthTrends) {
+      for (const m of selected) {
+        const trend = this._byMonthTrends[m];
+        if (!trend) continue;
+        const trendStartY = trend.intercept + trend.slopePerYear * xMin;
+        const trendEndY   = trend.intercept + trend.slopePerYear * xMax;
+        ctx.strokeStyle = colors[m];
+        ctx.lineWidth   = 1.5 * dpr;
+        ctx.setLineDash([6 * dpr, 4 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(toX(xMin), toY(trendStartY));
+        ctx.lineTo(toX(xMax), toY(trendEndY));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
 
     // Dots at inspector x for each selected month
     if (this._hoverX !== null) {

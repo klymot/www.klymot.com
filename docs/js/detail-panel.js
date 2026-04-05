@@ -264,6 +264,9 @@ function _applyChartModeUi(section, mode) {
   const anomalyControls = _panel.querySelector(`[data-section="${section}"] .chart-anomaly-controls`);
   if (anomalyControls) anomalyControls.hidden = mode !== 'anomaly';
 
+  const trendControls = _panel.querySelector(`[data-section="${section}"] .chart-trend-controls`);
+  if (trendControls) trendControls.hidden = mode === 'heatmap';
+
   const hint = _panel.querySelector(`[data-section="${section}"] .chart-hint`);
   if (hint) {
     hint.hidden = mode === 'bymonth';
@@ -349,6 +352,35 @@ function _initCharts() {
       if (action === 'zoom-reset') adjChart?.resetZoom();
     });
   });
+
+  // Apply initial trend state to adj chart.
+  adjChart?.setShowTrend(_sharedShowAnomalyTrend);
+  const adjTrendBtnInit = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
+  if (adjTrendBtnInit) {
+    adjTrendBtnInit.classList.toggle('active', _sharedShowAnomalyTrend);
+    adjTrendBtnInit.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+  }
+
+  // Wire adj trend toggle (clicking the adj trend button syncs all sections).
+  _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`)
+    ?.addEventListener('click', () => {
+      _sharedShowAnomalyTrend = !_sharedShowAnomalyTrend;
+      SECTIONS.forEach(s => {
+        _charts[s]?.setShowAnomalyTrend(_sharedShowAnomalyTrend);
+        const b = _panel.querySelector(`[data-section="${s}"] [data-action="trend-toggle"]`);
+        if (b) {
+          b.classList.toggle('active', _sharedShowAnomalyTrend);
+          b.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+        }
+      });
+      adjChart?.setShowTrend(_sharedShowAnomalyTrend);
+      const ab = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
+      if (ab) {
+        ab.classList.toggle('active', _sharedShowAnomalyTrend);
+        ab.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+      }
+      _updateStationUrl();
+    });
 
   // Propagate adj zoom changes to URL.
   adjWrap?.addEventListener('chart:zoom', () => _updateStationUrl());
@@ -443,7 +475,7 @@ function _initCharts() {
 
     const sparseBtn = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-sparse-toggle"]`);
     const refBtn    = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-ref-toggle"]`);
-    const trendBtn  = _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-trend-toggle"]`);
+    const trendBtn  = _panel.querySelector(`[data-section="${section}"] [data-action="trend-toggle"]`);
     if (sparseBtn) {
       sparseBtn.classList.toggle('active', _sharedExcludeSparseAnomalyYears);
       sparseBtn.setAttribute('aria-pressed', String(_sharedExcludeSparseAnomalyYears));
@@ -563,17 +595,25 @@ function _initCharts() {
         _updateStationUrl();
       });
 
-    _panel.querySelector(`[data-section="${section}"] [data-action="anomaly-trend-toggle"]`)
+    _panel.querySelector(`[data-section="${section}"] [data-action="trend-toggle"]`)
       ?.addEventListener('click', () => {
         _sharedShowAnomalyTrend = !_sharedShowAnomalyTrend;
         SECTIONS.forEach(s => {
           _charts[s]?.setShowAnomalyTrend(_sharedShowAnomalyTrend);
-          const b = _panel.querySelector(`[data-section="${s}"] [data-action="anomaly-trend-toggle"]`);
+          const b = _panel.querySelector(`[data-section="${s}"] [data-action="trend-toggle"]`);
           if (b) {
             b.classList.toggle('active', _sharedShowAnomalyTrend);
             b.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
           }
         });
+        // Also sync adj chart trend.
+        const adjChart = _charts['adj'];
+        adjChart?.setShowTrend(_sharedShowAnomalyTrend);
+        const adjTrendBtn = _panel.querySelector(`[data-section="adj"] [data-action="trend-toggle"]`);
+        if (adjTrendBtn) {
+          adjTrendBtn.classList.toggle('active', _sharedShowAnomalyTrend);
+          adjTrendBtn.setAttribute('aria-pressed', String(_sharedShowAnomalyTrend));
+        }
         _updateStationUrl();
       });
 
@@ -804,6 +844,9 @@ function _adjChartPanel() {
           <button class="chart-mode-btn active" data-adj-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-adj-mode="yearly" aria-pressed="false">Annual</button>
         </div>
+        <div class="chart-trend-controls" role="group" aria-label="Trend">
+          <button class="chart-ci-btn active" data-action="trend-toggle" title="Show or hide the trend line" aria-pressed="true">Trend</button>
+        </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
           <button class="chart-zoom-btn" data-action="zoom-reset" title="Reset zoom" aria-label="Reset zoom">⊙</button>
@@ -849,7 +892,9 @@ function _tempChartPanel() {
         <div class="chart-anomaly-controls" hidden role="group" aria-label="Annual anomaly options">
           <button class="chart-ci-btn active" data-action="anomaly-sparse-toggle" title="Exclude years with fewer than 9 months" aria-pressed="true">9+ mo</button>
           <button class="chart-ci-btn" data-action="anomaly-ref-toggle" title="Reference anomaly to the 30 full years nearest the record centre" aria-pressed="false">30 yr ref</button>
-          <button class="chart-ci-btn active" data-action="anomaly-trend-toggle" title="Show or hide the anomaly trend line" aria-pressed="true">Trend</button>
+        </div>
+        <div class="chart-trend-controls" role="group" aria-label="Trend">
+          <button class="chart-ci-btn active" data-action="trend-toggle" title="Show or hide the trend line" aria-pressed="true">Trend</button>
         </div>
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
