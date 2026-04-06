@@ -198,22 +198,18 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
     .then(data => {
       _panel.innerHTML = _renderDetail(locationId, data, indexEntry, buSprites);
       _attachHandlers();
-      // Render station QR code.
-      const qrContainer = _panel.querySelector('.detail-qr .qr-code');
+      // Render station QR code into all .qr-code containers (header + about tab).
       const stationUrl =
         `${window.location.origin}${window.location.pathname}#station=${encodeURIComponent(locationId)}`;
-      renderQR(stationUrl, qrContainer, 120);
+      _panel.querySelectorAll('.qr-code').forEach(el => renderQR(stationUrl, el, 100));
     })
     .catch(() => {
       // No detail JSON — show what we know from the index entry.
       _panel.innerHTML = _renderIndexDetail(locationId, indexEntry, buSprites);
       _attachHandlers();
-      const qrContainer = _panel.querySelector('.detail-qr .qr-code');
-      if (qrContainer) {
-        const stationUrl =
-          `${window.location.origin}${window.location.pathname}#station=${encodeURIComponent(locationId)}`;
-        renderQR(stationUrl, qrContainer, 120);
-      }
+      const stationUrl =
+        `${window.location.origin}${window.location.pathname}#station=${encodeURIComponent(locationId)}`;
+      _panel.querySelectorAll('.qr-code').forEach(el => renderQR(stationUrl, el, 100));
     });
 }
 
@@ -879,11 +875,8 @@ function _updateStationUrl() {
 
   pushState(serialiseStationState(_currentLocationId, detail));
 
-  // Keep the detail panel QR code in sync with the current shareable URL.
-  const qrContainer = _panel?.querySelector('.detail-qr .qr-code');
-  if (qrContainer) {
-    renderQR(window.location.href, qrContainer, 120);
-  }
+  // Keep all detail panel QR codes in sync with the current shareable URL.
+  _panel?.querySelectorAll('.qr-code').forEach(el => renderQR(window.location.href, el, 100));
 }
 
 // ── BU sprite tile helpers ────────────────────────────────────────────────────
@@ -1664,6 +1657,12 @@ function _detailHeader(category, name) {
         ${category ? `<div class="detail-category">${_esc(category)}</div>` : ''}
         <h2 class="detail-name">${_esc(name)}</h2>
       </div>
+      <div class="detail-header-qr">
+        <div class="detail-qr detail-qr-header">
+          <div class="qr-code"></div>
+          <span class="qr-label">Share</span>
+        </div>
+      </div>
       <div class="detail-header-actions">
         <button class="detail-action-btn detail-share-btn" title="Copy link to clipboard" aria-label="Copy link to clipboard">${shareSvg}</button>
         <button class="detail-action-btn detail-download-btn" title="Download" aria-label="Download report">${dlSvg}</button>
@@ -1701,13 +1700,30 @@ function _renderIndexDetail(locationId, indexEntry, buSprites) {
 
 async function _downloadPng() {
   if (typeof html2canvas === 'undefined') { alert('Screenshot library not loaded.'); return; }
+  // Resolve the panel's background from CSS custom properties so we always
+  // get a fully-opaque colour regardless of backdrop-filter on the overlay.
+  const panelBg = getComputedStyle(_panel).getPropertyValue('--bg-elevated').trim() || '#152c4a';
   try {
     const canvas = await html2canvas(_panel, {
       useCORS: true,
       allowTaint: true,
-      scale: window.devicePixelRatio || 1,
-      backgroundColor: getComputedStyle(_panel).backgroundColor || '#1a2332',
-      ignoreElements: el => el.classList.contains('detail-download-menu'),
+      scale: Math.max(2, window.devicePixelRatio || 2),
+      backgroundColor: panelBg,
+      ignoreElements: el =>
+        el.classList.contains('detail-download-menu') ||
+        el.id === 'detail-overlay' && el !== _panel,
+      onclone: (_doc, clonedPanel) => {
+        // Ensure the cloned panel has a solid opaque background.
+        clonedPanel.style.backgroundColor = panelBg;
+        clonedPanel.style.backdropFilter  = 'none';
+        // Also neutralise the overlay backdrop on the clone.
+        const overlay = clonedPanel.closest?.('#detail-overlay') ??
+                        _doc.getElementById('detail-overlay');
+        if (overlay) {
+          overlay.style.backdropFilter = 'none';
+          overlay.style.background     = 'transparent';
+        }
+      },
     });
     canvas.toBlob(blob => {
       const url = URL.createObjectURL(blob);
@@ -1723,14 +1739,29 @@ async function _downloadPng() {
 }
 
 function _printReport() {
-  // Reveal all hidden section panels and resize charts
+  // 1. Reveal all hidden section panels.
   const hiddenPanels = [..._panel.querySelectorAll('.section-panel[hidden]')];
   hiddenPanels.forEach(p => p.removeAttribute('hidden'));
-  for (const chart of Object.values(_charts)) chart?.resize();
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => hiddenPanels.forEach(p => p.setAttribute('hidden', '')), 500);
-  }, 300);
+
+  // 2. Apply print-mode layout so the panel becomes flow-based (height: auto)
+  //    before we call resize() — this ensures charts measure the correct 260 px
+  //    print height rather than their cramped flex-share of 780 px.
+  _panel.classList.add('print-mode');
+
+  // 3. Let the browser reflow, then resize every chart, then print.
+  requestAnimationFrame(() => {
+    for (const chart of Object.values(_charts)) chart?.resize();
+    requestAnimationFrame(() => {
+      window.print();
+      // 4. Restore interactive state after the print dialog closes.
+      setTimeout(() => {
+        _panel.classList.remove('print-mode');
+        hiddenPanels.forEach(p => p.setAttribute('hidden', ''));
+        // Resize charts back to their interactive size.
+        for (const chart of Object.values(_charts)) chart?.resize();
+      }, 500);
+    });
+  });
 }
 
 /** HTML-escape a value to prevent XSS when setting innerHTML. */
