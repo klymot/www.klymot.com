@@ -57,12 +57,8 @@ function _close() {
   _btn?.setAttribute('aria-expanded', 'false');
 }
 
-function _renderContent() {
-  return `
-    <div class="sources-header">
-      <h2 class="sources-title">Data Sources &amp; References</h2>
-      <button class="sources-close" aria-label="Close sources panel" title="Close">×</button>
-    </div>
+export function renderSourcesContent({ includeShell = true } = {}) {
+  const body = `
     <div class="sources-body">
       <section class="sources-section">
         <h3 class="sources-section-title">Observational Networks</h3>
@@ -128,6 +124,19 @@ function _renderContent() {
           </li>
         </ul>
       </section>
+    </div>`;
+
+  if (!includeShell) return body;
+
+  return `
+    <div class="sources-header">
+      <h2 class="sources-title">Data Sources &amp; References</h2>
+      <button class="sources-close" aria-label="Close sources panel" title="Close">×</button>
     </div>
+    ${body}
   `;
+}
+
+function _renderContent() {
+  return renderSourcesContent();
 }

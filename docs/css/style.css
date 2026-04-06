@@ -474,6 +474,7 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  margin: 0;
 }
 
 .detail-name-toggle {
@@ -483,7 +484,7 @@ body {
   background: none;
   border: none;
   padding: 0;
-  cursor: pointer;
+  cursor: default;
   text-align: left;
   width: 100%;
 }
@@ -493,6 +494,7 @@ body {
 }
 
 .detail-expand-chevron {
+  display: none;
   font-size: 1rem;
   color: var(--text-muted);
   transition: transform 0.2s ease, color 0.15s;
@@ -625,6 +627,11 @@ body {
   gap: 0.625rem 1.25rem;
 }
 
+.detail-header-meta {
+  margin-top: 0.75rem;
+  max-width: 42rem;
+}
+
 .meta-item {
   display: flex;
   flex-direction: column;
@@ -717,13 +724,6 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1.5rem;
-}
-/* QR in About tab — hidden on desktop, shown on mobile only */
-.about-qr {
-  display: none;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.375rem;
 }
 
 /* ── BU map tile ─────────────────────────────────────────────────── */
@@ -834,6 +834,61 @@ body {
 }
 .section-panel[hidden] { display: none; }
 
+.print-only-panel {
+  display: none;
+}
+
+.print-section-title {
+  display: none;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  margin: 0 0 1rem;
+  padding: 0 1.75rem;
+}
+
+.detail-print-brand {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 1rem;
+  margin: 0 1.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-print-root {
+  position: fixed;
+  left: -20000px;
+  top: 0;
+  width: 7.5in;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.detail-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.detail-pdf-page {
+  width: 7.5in;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.detail-report-map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.detail-report-map-grid .section-panel {
+  min-width: 0;
+}
+
 /* ── BU year tabs ─────────────────────────────────────────────────── */
 
 .bu-tabs {
@@ -934,6 +989,19 @@ body {
   border-radius: 0.375rem;
   border: 1px solid var(--border-strong);
   image-rendering: pixelated;
+}
+
+.detail-print-media {
+  display: none;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-strong);
+  image-rendering: pixelated;
+}
+
+.detail-chart-print-media {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* 1-px crosshair centred exactly at 50% of the tile */
@@ -1438,13 +1506,19 @@ body {
   cursor: not-allowed;
 }
 
-/* Canvas container: flex:1 to fill remaining panel height. */
+/* Canvas container: fixed chart height across live, export, and PDF renders. */
 .chart-canvas-wrap {
   position: relative;
   width: 100%;
-  flex: 1;
-  min-height: 160px;
+  flex: none;
+  height: 375px;
+  min-height: 375px;
   overflow: hidden;
+}
+
+.chart-canvas-wrap.heatmap {
+  height: 375px;
+  min-height: 375px;
 }
 
 .temp-chart-canvas {
@@ -1764,6 +1838,12 @@ body {
   .detail-name {
     font-size: 1.25rem;
   }
+  .detail-name-toggle {
+    cursor: pointer;
+  }
+  .detail-expand-chevron {
+    display: inline-block;
+  }
   .section-tab {
     font-size: 0.625rem;
     padding: 0.5rem 0.75rem;
@@ -1771,13 +1851,26 @@ body {
   .temp-chart-section {
     padding: 0.625rem 1rem 0.75rem;
   }
+  .chart-mode-row {
+    margin-bottom: 0.25rem;
+  }
+  .chart-controls-row {
+    margin-bottom: 0.375rem;
+    min-height: 1.5rem;
+  }
+  .chart-month-toggles,
+  .adj-series-toggles {
+    gap: 0.1875rem;
+    padding: 0.25rem 0.125rem 0;
+  }
+  .chart-footer {
+    min-height: 2rem;
+    padding-top: 0;
+  }
 
-  /* On mobile: hide the header QR, show the About-tab QR instead */
+  /* On mobile: hide the header QR */
   .detail-header-qr {
     display: none;
-  }
-  .about-qr {
-    display: flex;
   }
 }
 
@@ -2259,9 +2352,22 @@ body {
    correct print height (260px) before the @media print rules fire.         */
 
 .detail-panel.print-mode {
+  width: 7.5in !important;
+  max-width: 7.5in !important;
   height: auto !important;
   max-height: none !important;
   overflow: visible !important;
+  margin: 0 auto 2rem !important;
+  display: block !important;
+}
+.overlay-backdrop.print-mode {
+  position: static !important;
+  display: block !important;
+  background: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation: none !important;
+  padding: 0 !important;
 }
 .detail-panel.export-mode {
   width: 1490px !important;
@@ -2299,11 +2405,18 @@ body {
 .detail-panel.export-mode .detail-header-qr {
   display: flex !important;
 }
-.detail-panel.export-mode .about-qr {
-  display: none !important;
+.detail-panel.export-mode .detail-qr {
+  display: flex !important;
 }
 .detail-panel.export-mode .chart-hint {
   display: none !important;
+}
+.detail-panel.export-mode .detail-map-media,
+.detail-panel.export-mode .detail-map-loading {
+  display: none !important;
+}
+.detail-panel.export-mode .detail-print-media {
+  display: block !important;
 }
 .detail-panel.print-mode .detail-sections {
   display: block !important;
@@ -2314,24 +2427,100 @@ body {
   display: block !important;
   overflow: visible !important;
   height: auto !important;
+  page-break-before: always;
+  break-before: page;
+  page-break-after: always;
+  break-after: page;
+}
+.detail-panel.print-mode .section-panel:first-of-type {
+  page-break-before: auto;
+  break-before: auto;
+}
+.detail-panel.print-mode .section-panel:last-of-type {
+  page-break-after: auto;
+  break-after: auto;
+}
+.detail-panel.print-mode .print-only-panel {
+  display: block !important;
 }
 .detail-panel.print-mode .temp-chart-section {
   height: auto !important;
   overflow: visible !important;
 }
-.detail-panel.print-mode .chart-canvas-wrap {
-  height: 260px !important;
-  flex: none !important;
+.detail-panel.print-mode .print-section-title {
+  display: block !important;
+}
+.detail-panel.print-mode .detail-print-brand {
+  display: flex !important;
+}
+.detail-panel.print-mode .section-tabs-wrap {
+  display: none !important;
+}
+.detail-panel.print-mode .detail-header-actions,
+.detail-panel.print-mode .detail-download-menu,
+.detail-panel.print-mode .detail-header-tooltip {
+  display: none !important;
+}
+.detail-panel.print-mode .detail-header-qr {
+  display: flex !important;
+}
+.detail-panel.print-mode .detail-qr {
+  display: flex !important;
+}
+.detail-panel.print-mode .detail-header-meta {
+  grid-template-columns: 1fr 1fr !important;
+  gap: 0.375rem 1rem !important;
+}
+.detail-panel.print-mode .detail-header-meta .meta-item {
+  flex-direction: row !important;
+  align-items: baseline !important;
+  gap: 0.375rem !important;
+}
+.detail-panel.print-mode .chart-canvas-wrap,
+.detail-panel.print-mode .chart-canvas-wrap.heatmap {
+  height: 275px !important;
+  min-height: 275px !important;
+}
+.detail-panel.print-mode .detail-map-media,
+.detail-panel.print-mode .detail-map-loading {
+  display: none !important;
+}
+.detail-panel.print-mode .detail-print-media {
+  display: block !important;
+}
+.detail-panel.print-mode .detail-bu-map,
+.detail-panel.print-mode .detail-bu-change-canvas,
+.detail-panel.print-mode .detail-print-media {
+  width: 150px !important;
+  height: 150px !important;
+}
+.detail-panel.print-mode .chart-footer {
+  min-height: 0 !important;
+}
+.detail-panel.print-mode .chart-hint {
+  display: none !important;
+}
+.detail-panel.print-mode .chart-mode-row,
+.detail-panel.print-mode .chart-controls-row {
+  display: none !important;
+}
+.detail-panel.print-mode .chart-loess-controls {
+  display: block !important;
 }
 
 @media print {
-  body > *:not(#detail-overlay) { display: none !important; }
-  #detail-overlay {
+  @page {
+    size: portrait;
+    margin: 0.5in;
+  }
+
+  body > * { display: none !important; }
+  #detail-print-root {
     display: block !important;
     position: static !important;
-    backdrop-filter: none !important;
-    background: none !important;
-    z-index: auto !important;
+    width: auto !important;
+    opacity: 1 !important;
+    pointer-events: none !important;
   }
   .detail-panel {
     height: auto !important;
@@ -2340,14 +2529,17 @@ body {
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
+    width: 7.5in !important;
+    max-width: 7.5in !important;
+    margin: 0 auto !important;
     animation: none !important;
     display: block !important;
   }
+  .detail-print-brand { display: flex !important; }
   .detail-header-actions { display: none !important; }
   /* Show the header QR in print */
   .detail-header-qr { display: flex !important; }
+  .detail-qr { display: flex !important; }
   .detail-download-menu { display: none !important; }
   .detail-sections {
     display: block !important;
@@ -2355,6 +2547,8 @@ body {
     height: auto !important;
   }
   .section-tabs-wrap { display: none !important; }
+  .print-only-panel { display: block !important; }
+  .print-section-title { display: block !important; }
   /* Override both the [hidden] attribute and the active-class hide logic */
   .section-panel,
   .section-panel[hidden] {
@@ -2363,20 +2557,32 @@ body {
     height: auto !important;
     page-break-before: always;
     break-before: page;
+    page-break-after: always;
+    break-after: page;
   }
   .section-panel:first-of-type { page-break-before: auto; break-before: auto; }
-  .chart-canvas-wrap {
-    height: 260px !important;
-    flex: none !important;
-  }
+  .section-panel:last-of-type { page-break-after: auto; break-after: auto; }
   .temp-chart-section {
     height: auto !important;
     overflow: visible !important;
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  /* Show About-tab QR in print output */
-  .about-qr { display: flex !important; }
+  .detail-map-media,
+  .detail-map-loading {
+    display: none !important;
+  }
+  .detail-print-media {
+    display: block !important;
+  }
+  .chart-hint,
+  .chart-loess-controls,
+  .chart-mode-row,
+  .chart-controls-row,
+  .chart-month-toggles,
+  .adj-series-toggles {
+    display: none !important;
+  }
 }
 
 /* ── Mapbox GL overrides ─────────────────────────────────────────── */

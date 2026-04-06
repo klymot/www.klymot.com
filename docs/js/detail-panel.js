@@ -14,6 +14,7 @@ import { serialiseStationState, pushState } from './url-state.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
 import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js?v=20260406';
 import { AdjChart } from './adj-chart.js?v=20260406';
+import { renderSourcesContent } from './sources-panel.js?v=20260406';
 
 /**
  * State to restore when the next detail panel opens (set by setRestoreState).
@@ -51,11 +52,16 @@ let _panel      = null;
 /** Element focused before the panel opened — restored on close. */
 let _lastFocused = null;
 let _headerTooltipResizeHandler = null;
+let _printRoot = null;
+let _printCharts = [];
+let _detailRawCsv = { qcu: null, qcf: null };
 
 /** Current index entry and sprite descriptors, used by the change-canvas renderer. */
 let _currentIndexEntry = null;
 let _currentBuSprites  = null;
 let _currentLocationId = null;
+let _headerMetaMediaQuery = null;
+let _headerMetaMediaHandler = null;
 
 /** Active TempChart instances keyed by section name. Destroyed on panel close. */
 let _charts = {};
@@ -225,6 +231,11 @@ export function closeDetail() {
     window.removeEventListener('resize', _headerTooltipResizeHandler);
     _headerTooltipResizeHandler = null;
   }
+  if (_headerMetaMediaQuery && _headerMetaMediaHandler) {
+    _headerMetaMediaQuery.removeEventListener('change', _headerMetaMediaHandler);
+    _headerMetaMediaQuery = null;
+    _headerMetaMediaHandler = null;
+  }
   _overlay.hidden = true;
   _panel.innerHTML = '';
 
@@ -253,6 +264,7 @@ export function closeDetail() {
 function _destroyCharts() {
   for (const chart of Object.values(_charts)) chart?.destroy();
   _charts = {};
+  _detailRawCsv = { qcu: null, qcf: null };
 }
 
 function _applyChartModeUi(section, mode) {
@@ -381,7 +393,7 @@ function _initCharts() {
 
   // Track data-load completion so we can compute the cross-chart union range.
   // Raw CSV texts are stored so we can feed both to AdjChart once both have loaded.
-  const _rawCsv = { qcu: null, qcf: null };
+  _detailRawCsv = { qcu: null, qcf: null };
   let loadsRemaining = SECTIONS.length;
   function _onChartDataLoaded() {
     loadsRemaining--;
@@ -409,8 +421,8 @@ function _initCharts() {
     }
 
     // Feed both datasets to the adj chart and give it the same x range.
-    if (adjChart && _rawCsv.qcu !== null && _rawCsv.qcf !== null) {
-      adjChart.load(_rawCsv.qcu, _rawCsv.qcf);
+    if (adjChart && _detailRawCsv.qcu !== null && _detailRawCsv.qcf !== null) {
+      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf);
       adjChart.setGlobalRange(globalMin, globalMax);
     }
 
@@ -506,7 +518,7 @@ function _initCharts() {
       .catch(() => '')
       .then(text => {
         chart.load(text);
-        _rawCsv[PATHS[i]] = text;
+        _detailRawCsv[PATHS[i]] = text;
         _onChartDataLoaded();
       });
 
@@ -750,6 +762,26 @@ function _attachHandlers() {
     }
   };
   window.addEventListener('resize', _headerTooltipResizeHandler);
+
+  const nameToggle = _panel.querySelector('.detail-name-toggle');
+  const headerMeta = _panel.querySelector('.detail-header-meta');
+  const setHeaderMetaExpanded = expanded => {
+    if (!nameToggle || !headerMeta) return;
+    nameToggle.setAttribute('aria-expanded', String(expanded));
+    if (expanded) headerMeta.removeAttribute('hidden');
+    else headerMeta.setAttribute('hidden', '');
+  };
+  if (nameToggle && headerMeta) {
+    _headerMetaMediaQuery = window.matchMedia('(max-width: 834px)');
+    _headerMetaMediaHandler = e => setHeaderMetaExpanded(!e.matches);
+    setHeaderMetaExpanded(!_headerMetaMediaQuery.matches);
+    _headerMetaMediaQuery.addEventListener('change', _headerMetaMediaHandler);
+    nameToggle.addEventListener('click', () => {
+      if (!_headerMetaMediaQuery?.matches) return;
+      const expanded = nameToggle.getAttribute('aria-expanded') === 'true';
+      setHeaderMetaExpanded(!expanded);
+    });
+  }
 
   // Share button — copy current URL to clipboard.
   shareBtn?.addEventListener('click', async (e) => {
@@ -1054,11 +1086,6 @@ function _buMapWrap(mapDiv, ariaLabel) {
 }
 
 function _aboutPanel(data, indexEntry, locationId) {
-  const elevStr = data?.elevation
-    ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : null);
-  const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : null;
-  const lngStr  = indexEntry?.lng  != null ? indexEntry.lng.toFixed(4)  : null;
-
   const description = data?.description ?? '';
   const vars = (data?.variables ?? [])
     .map(v => `<span class="variable-tag">${_esc(v)}</span>`)
@@ -1068,10 +1095,6 @@ function _aboutPanel(data, indexEntry, locationId) {
   if (data?.country)     metaItems.push({ label: 'Country',     value: data.country });
   if (data?.established) metaItems.push({ label: 'Established', value: data.established });
   if (data?.network)     metaItems.push({ label: 'Network',     value: data.network });
-  metaItems.push({ label: 'Station ID', value: locationId });
-  if (elevStr) metaItems.push({ label: 'Elevation', value: elevStr });
-  if (latStr)  metaItems.push({ label: 'Latitude',  value: latStr });
-  if (lngStr)  metaItems.push({ label: 'Longitude', value: lngStr });
 
   const metaHtml = metaItems.map(m => `
     <div class="meta-item">
@@ -1079,18 +1102,22 @@ function _aboutPanel(data, indexEntry, locationId) {
       <span class="meta-value">${_esc(m.value)}</span>
     </div>`).join('');
 
+  if (!description && !vars && !metaHtml) return '';
+
   return `
     <div class="about-section">
       ${description ? `<p class="about-description">${_esc(description)}</p>` : ''}
       ${vars ? `<div class="about-variables">${vars}</div>` : ''}
       ${metaHtml ? `<div class="detail-meta about-meta">${metaHtml}</div>` : ''}
-      <div class="about-qr">
-        <div class="detail-qr">
-          <div class="qr-code"></div>
-          <span class="qr-label">Share this station</span>
-        </div>
-      </div>
     </div>`;
+}
+
+function _printSectionHeading(title) {
+  return `<h2 class="print-section-title">${_esc(title)}</h2>`;
+}
+
+function _sectionPanel(section, title, content, { hidden = false, printOnly = false } = {}) {
+  return `<div class="section-panel${printOnly ? ' print-only-panel' : ''}" data-section="${section}"${hidden ? ' hidden' : ''}>${_printSectionHeading(title)}${content}</div>`;
 }
 
 /**
@@ -1098,32 +1125,41 @@ function _aboutPanel(data, indexEntry, locationId) {
  * Temperature sections are always rendered. BU/Pop are omitted when no sprites are available.
  */
 function _renderDataSections(data, indexEntry, locationId, sprites) {
+  const aboutContent = _aboutPanel(data, indexEntry, locationId);
   const buContent  = _buSectionContent(indexEntry, sprites);
   const popContent = _popSectionContent(indexEntry, sprites);
 
   const tabs   = [];
   const panels = [];
 
-  // About tab first (not active by default)
-  tabs.push(`<button class="section-tab" role="tab" data-section="about" aria-selected="false">About</button>`);
-  panels.push(`<div class="section-panel" data-section="about" hidden>${_aboutPanel(data, indexEntry, locationId)}</div>`);
+  if (aboutContent) {
+    tabs.push(`<button class="section-tab" role="tab" data-section="about" aria-selected="false">About</button>`);
+    panels.push(_sectionPanel('about', 'About', aboutContent, { hidden: true }));
+  }
 
   // Temperature charts — active by default
   tabs.push(`<button class="section-tab active" role="tab" data-section="temp-qcu" aria-selected="true">Unadjusted</button>`);
   tabs.push(`<button class="section-tab" role="tab" data-section="temp-qcf" aria-selected="false">Adjusted</button>`);
   tabs.push(`<button class="section-tab" role="tab" data-section="adj" aria-selected="false">Adjustments</button>`);
-  panels.push(`<div class="section-panel" data-section="temp-qcu">${_tempChartPanel()}</div>`);
-  panels.push(`<div class="section-panel" data-section="temp-qcf" hidden>${_tempChartPanel()}</div>`);
-  panels.push(`<div class="section-panel" data-section="adj" hidden>${_adjChartPanel()}</div>`);
+  panels.push(_sectionPanel('temp-qcu', 'Unadjusted', _tempChartPanel()));
+  panels.push(_sectionPanel('temp-qcf', 'Adjusted', _tempChartPanel(), { hidden: true }));
+  panels.push(_sectionPanel('adj', 'Adjustments', _adjChartPanel(), { hidden: true }));
 
   if (buContent) {
     tabs.push(`<button class="section-tab" role="tab" data-section="bu-surface" aria-selected="false">Built-Up</button>`);
-    panels.push(`<div class="section-panel" data-section="bu-surface" hidden>${buContent}</div>`);
+    panels.push(_sectionPanel('bu-surface', 'Built-Up', buContent, { hidden: true }));
   }
   if (popContent) {
     tabs.push(`<button class="section-tab" role="tab" data-section="population" aria-selected="false">Population</button>`);
-    panels.push(`<div class="section-panel" data-section="population" hidden>${popContent}</div>`);
+    panels.push(_sectionPanel('population', 'Population', popContent, { hidden: true }));
   }
+
+  panels.push(_sectionPanel(
+    'sources-methods',
+    'Data Sources / Methods',
+    `<div class="detail-print-sources">${renderSourcesContent({ includeShell: false })}</div>`,
+    { hidden: true, printOnly: true }
+  ));
 
   return `
     <div class="detail-sections">
@@ -1581,6 +1617,350 @@ function _renderDetailMapCanvas(canvas, renderFn) {
   return canvas._renderPromise;
 }
 
+async function _preparePrintMediaSnapshots() {
+  if (!_panel) return;
+
+  const spriteMaps = [..._panel.querySelectorAll('.detail-map-media[data-sprite-src]')];
+  const changeCanvases = [..._panel.querySelectorAll('canvas.detail-map-media[data-renderer]')];
+
+  await Promise.all([
+    ...spriteMaps.map(el => _loadImg(el.dataset.spriteSrc).catch(() => null)),
+    ...changeCanvases.map(canvas => {
+      const renderFn = canvas.dataset.renderer === 'pop-change'
+        ? _renderPopChangeCanvas
+        : _renderChangeCanvas;
+      return _renderDetailMapCanvas(canvas, renderFn);
+    }),
+  ]);
+
+  for (const el of spriteMaps) {
+    try {
+      const dataUrl = await _rasterizeSpriteTile(el);
+      _setPrintMediaSnapshot(el, dataUrl);
+    } catch {}
+  }
+
+  for (const canvas of changeCanvases) {
+    try {
+      _setPrintMediaSnapshot(canvas, canvas.toDataURL('image/png'));
+    } catch {}
+  }
+}
+
+async function _rasterizeSpriteTile(el) {
+  const src = el?.dataset?.spriteSrc;
+  if (!src) return null;
+
+  const img = await _loadImg(src);
+  const cs = getComputedStyle(el);
+  const width = parseFloat(cs.width);
+  const height = parseFloat(cs.height);
+  const [bgW, bgH] = cs.backgroundSize.split(' ').map(v => parseFloat(v));
+  const [posX, posY] = cs.backgroundPosition.split(' ').map(v => parseFloat(v));
+  if (!width || !height || !bgW || !bgH || !isFinite(posX) || !isFinite(posY)) return null;
+
+  const scaleX = bgW / img.naturalWidth;
+  const scaleY = bgH / img.naturalHeight;
+  if (!scaleX || !scaleY) return null;
+
+  const sx = -posX / scaleX;
+  const sy = -posY / scaleY;
+  const sw = width / scaleX;
+  const sh = height / scaleY;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width);
+  canvas.height = Math.round(height);
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/png');
+}
+
+function _setPrintMediaSnapshot(sourceEl, dataUrl) {
+  const wrap = sourceEl.closest('.detail-bu-wrap');
+  if (!wrap || !dataUrl) return;
+  let img = wrap.querySelector('.detail-print-media');
+  if (!img) {
+    img = document.createElement('img');
+    img.className = 'detail-print-media';
+    img.alt = sourceEl.getAttribute('aria-label') || '';
+    wrap.insertBefore(img, wrap.firstChild);
+  }
+  img.src = dataUrl;
+  img.style.width = sourceEl.style.width || `${sourceEl.clientWidth}px`;
+  img.style.height = sourceEl.style.height || `${sourceEl.clientHeight}px`;
+}
+
+function _replaceChartCanvasWithSnapshot(canvas) {
+  if (!canvas) return;
+  let dataUrl = null;
+  try {
+    dataUrl = canvas.toDataURL('image/png');
+  } catch {
+    return;
+  }
+  if (!dataUrl) return;
+  const img = document.createElement('img');
+  img.className = 'detail-chart-print-media';
+  img.alt = '';
+  img.src = dataUrl;
+  img.style.width = canvas.style.width || `${canvas.clientWidth}px`;
+  img.style.height = canvas.style.height || `${canvas.clientHeight}px`;
+  canvas.replaceWith(img);
+}
+
+function _clearPrintMediaSnapshots() {
+  _panel?.querySelectorAll('.detail-print-media').forEach(img => img.remove());
+}
+
+function _ensurePrintRoot() {
+  if (_printRoot?.isConnected) return _printRoot;
+  _printRoot = document.createElement('div');
+  _printRoot.id = 'detail-print-root';
+  _printRoot.className = 'detail-print-root';
+  document.body.appendChild(_printRoot);
+  return _printRoot;
+}
+
+async function _populatePrintRoot() {
+  const root = _ensurePrintRoot();
+  for (const chart of _printCharts) chart?.destroy();
+  _printCharts = [];
+  root.innerHTML = '';
+
+  const clone = _panel.cloneNode(true);
+  clone.classList.add('print-mode');
+  clone.querySelectorAll('.section-panel[hidden]').forEach(p => p.removeAttribute('hidden'));
+  clone.querySelector('.detail-name-toggle')?.setAttribute('aria-expanded', 'true');
+  clone.querySelector('.detail-header-meta')?.removeAttribute('hidden');
+  root.appendChild(clone);
+
+  const stationUrl =
+    `${window.location.origin}${window.location.pathname}#station=${encodeURIComponent(_currentLocationId)}`;
+  clone.querySelectorAll('.qr-code').forEach(el => renderQR(stationUrl, el, 100));
+
+  await new Promise(resolve => requestAnimationFrame(resolve));
+
+  const qcuWrap = clone.querySelector('[data-section="temp-qcu"] .chart-canvas-wrap');
+  const qcfWrap = clone.querySelector('[data-section="temp-qcf"] .chart-canvas-wrap');
+  const adjWrap = clone.querySelector('[data-section="adj"] .chart-canvas-wrap');
+  [qcuWrap, qcfWrap, adjWrap].forEach(wrap => { if (wrap) wrap.innerHTML = ''; });
+
+  for (const section of ['temp-qcu', 'temp-qcf']) {
+    const monthToggles = clone.querySelector(`[data-section="${section}"] .chart-month-toggles`);
+    if (monthToggles) {
+      if (_sharedChartMode === 'bymonth') monthToggles.removeAttribute('hidden');
+      else monthToggles.setAttribute('hidden', '');
+    }
+  }
+
+  const qcuChart = qcuWrap ? new TempChart(qcuWrap) : null;
+  const qcfChart = qcfWrap ? new TempChart(qcfWrap) : null;
+  const adjChart = adjWrap ? new AdjChart(adjWrap) : null;
+  _printCharts = [qcuChart, qcfChart, adjChart].filter(Boolean);
+
+  for (const chart of [qcuChart, qcfChart]) {
+    if (!chart) continue;
+    chart.setMode(_sharedChartMode);
+    chart.setShowEst(_sharedShowEst);
+    chart.setShowCI(_sharedShowCI);
+    chart.setSelectedMonths(new Set(_sharedSelectedMonths));
+    chart.setExcludeSparseAnomalyYears(_sharedExcludeSparseAnomalyYears);
+    chart.setUseCenteredAnomalyReference(_sharedUseCenteredAnomalyReference);
+    chart.setShowAnomalyTrend(_sharedShowAnomalyTrend);
+    chart.setShowLoess(_sharedShowLoess);
+    chart.setLoessSpan(_sharedLoessSpan);
+  }
+  if (adjChart) adjChart.setMode(_adjMode);
+
+  if (qcuChart) qcuChart.load(_detailRawCsv.qcu || '');
+  if (qcfChart) qcfChart.load(_detailRawCsv.qcf || '');
+
+  const ranges = [qcuChart, qcfChart]
+    .map(chart => chart?.getDataRange())
+    .filter(Boolean);
+  if (ranges.length > 0) {
+    const globalMin = Math.min(...ranges.map(r => r.min));
+    const globalMax = Math.max(...ranges.map(r => r.max));
+    qcuChart?.setGlobalRange(globalMin, globalMax);
+    qcfChart?.setGlobalRange(globalMin, globalMax);
+    qcuChart?.resetZoom();
+    qcfChart?.resetZoom();
+    if (adjChart && _detailRawCsv.qcu != null && _detailRawCsv.qcf != null) {
+      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf);
+      adjChart.setGlobalRange(globalMin, globalMax);
+      adjChart.resetZoom();
+    }
+  }
+
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  for (const chart of _printCharts) chart?.resize();
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  clone.querySelectorAll('canvas.temp-chart-canvas').forEach(_replaceChartCanvasWithSnapshot);
+
+  const brand = clone.querySelector('.detail-print-brand');
+  const header = clone.querySelector('.detail-header');
+  const sectionsByName = new Map(
+    [...clone.querySelectorAll('.section-panel')].map(section => [section.dataset.section, section])
+  );
+  const pagesWrap = document.createElement('div');
+  pagesWrap.className = 'detail-pdf-pages';
+  const addPage = (sectionNames, { includeHeader = false } = {}) => {
+    const page = document.createElement('section');
+    page.className = 'detail-pdf-page';
+    if (includeHeader) {
+      if (brand) page.appendChild(brand);
+      if (header) page.appendChild(header);
+    }
+    for (const name of sectionNames) {
+      const section = sectionsByName.get(name);
+      if (section) page.appendChild(section);
+    }
+    if (page.children.length > 0) {
+      pagesWrap.appendChild(page);
+    }
+  };
+
+  const addMapGridPage = (sectionNames) => {
+    const sections = sectionNames
+      .map(name => sectionsByName.get(name))
+      .filter(Boolean);
+    if (!sections.length) return;
+    const page = document.createElement('section');
+    page.className = 'detail-pdf-page';
+    const grid = document.createElement('div');
+    grid.className = 'detail-report-map-grid';
+    sections.forEach(section => grid.appendChild(section));
+    page.appendChild(grid);
+    pagesWrap.appendChild(page);
+  };
+
+  const addCombinedAdjAndMapPage = () => {
+    const adj = sectionsByName.get('adj');
+    const mapSections = ['bu-surface', 'population']
+      .map(name => sectionsByName.get(name))
+      .filter(Boolean);
+    if (!adj && !mapSections.length) return;
+    const page = document.createElement('section');
+    page.className = 'detail-pdf-page';
+    if (adj) page.appendChild(adj);
+    if (mapSections.length) {
+      const grid = document.createElement('div');
+      grid.className = 'detail-report-map-grid';
+      mapSections.forEach(section => grid.appendChild(section));
+      page.appendChild(grid);
+    }
+    pagesWrap.appendChild(page);
+  };
+
+  addPage(['temp-qcu', 'temp-qcf'], { includeHeader: true });
+  addCombinedAdjAndMapPage();
+  addPage(['about', 'sources-methods']);
+
+  clone.innerHTML = '';
+  clone.appendChild(pagesWrap);
+
+  return root;
+}
+
+function _clearPrintRoot() {
+  for (const chart of _printCharts) chart?.destroy();
+  _printCharts = [];
+  if (_printRoot) _printRoot.innerHTML = '';
+}
+
+async function _downloadPdfFromPrintRoot() {
+  if (typeof html2canvas === 'undefined' || !window.jspdf?.jsPDF) {
+    alert('PDF export library not loaded.');
+    return;
+  }
+
+  const root = _printRoot;
+  const pages = [...root.querySelectorAll('.detail-pdf-page')];
+  if (!pages.length) throw new Error('No print pages were generated.');
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'letter' });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 0.5;
+  const footerReserve = 0.35;
+  const usableWidth = pageWidth - margin * 2;
+  const usableHeight = pageHeight - margin * 2 - footerReserve;
+  const stationUrl = window.location.href;
+  let firstOutputPage = true;
+
+  for (const pageEl of pages) {
+    const canvas = await html2canvas(pageEl, {
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      scale: 2,
+      ignoreElements: el =>
+        el.classList?.contains('detail-map-loading') ||
+        el.classList?.contains('mapboxgl-canvas') ||
+        el.classList?.contains('maplibregl-canvas'),
+      onclone: (doc) => {
+        doc.querySelectorAll(
+          '#map, .map-wrapper, .mapboxgl-canvas, .mapboxgl-canvas-container, .mapboxgl-control-container, .detail-map-loading'
+        ).forEach(el => el.remove());
+        doc.querySelectorAll('.detail-bu-wrap').forEach(wrap => {
+          const loader = wrap.querySelector('.detail-map-loading');
+          if (loader) loader.remove();
+        });
+      },
+    });
+
+    const hasVisualPanel = !!pageEl.querySelector('.chart-canvas-wrap, .detail-bu-wrap');
+    if (hasVisualPanel) {
+      const imgAspect = canvas.height / canvas.width;
+      let renderWidth = usableWidth;
+      let renderHeight = renderWidth * imgAspect;
+      if (renderHeight > usableHeight) {
+        renderHeight = usableHeight;
+        renderWidth = renderHeight / imgAspect;
+      }
+      const imgData = canvas.toDataURL('image/png');
+      if (!firstOutputPage) pdf.addPage();
+      firstOutputPage = false;
+      pdf.addImage(imgData, 'PNG', margin + (usableWidth - renderWidth) / 2, margin, renderWidth, renderHeight, undefined, 'FAST');
+      continue;
+    }
+
+    const sliceHeightPx = Math.floor(canvas.width * (usableHeight / usableWidth));
+    let offsetY = 0;
+    while (offsetY < canvas.height) {
+      const h = Math.min(sliceHeightPx, canvas.height - offsetY);
+      const slice = document.createElement('canvas');
+      slice.width = canvas.width;
+      slice.height = h;
+      const ctx = slice.getContext('2d');
+      ctx.drawImage(canvas, 0, offsetY, canvas.width, h, 0, 0, canvas.width, h);
+      const imgData = slice.toDataURL('image/png');
+      const imgHeight = (h / canvas.width) * usableWidth;
+
+      if (!firstOutputPage) pdf.addPage();
+      firstOutputPage = false;
+      pdf.addImage(imgData, 'PNG', margin, margin, usableWidth, imgHeight, undefined, 'FAST');
+      offsetY += h;
+    }
+  }
+
+  const footerY = pageHeight - 0.22;
+  const pageCount = pdf.getNumberOfPages();
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(8);
+  pdf.setTextColor(90, 98, 109);
+  for (let i = 1; i <= pageCount; i++) {
+    pdf.setPage(i);
+    pdf.text(stationUrl, margin, footerY, { baseline: 'bottom' });
+    pdf.text(`Page ${i}`, pageWidth - margin, footerY, { align: 'right', baseline: 'bottom' });
+  }
+
+  pdf.save(`meridian-${_currentLocationId}.pdf`);
+}
+
 async function _renderChangeCanvas(canvas) {
   if (!canvas || !_currentIndexEntry || !_currentBuSprites) return;
   const { bu2020, bu1975 } = _currentBuSprites;
@@ -1781,14 +2161,38 @@ function _renderShimmer() {
 }
 
 /** Shared header HTML for both detail and index-only panels. */
-function _detailHeader(category, name) {
+function _detailHeader(category, name, data, indexEntry, locationId) {
   const shareSvg = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="7" height="9" rx="1.25"/><path d="M3.5 9.5H3A1.5 1.5 0 0 1 1.5 8V4A1.5 1.5 0 0 1 3 2h4A1.5 1.5 0 0 1 8.5 3.5V4"/></svg>`;
   const dlSvg    = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M7.5 2v8M4.5 7.5l3 3 3-3M2 13h11"/></svg>`;
+  const elevStr = data?.elevation
+    ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : null);
+  const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : null;
+  const lngStr  = indexEntry?.lng  != null ? indexEntry.lng.toFixed(4)  : null;
+  const metaItems = [
+    { label: 'Station ID', value: locationId },
+    elevStr ? { label: 'Elevation', value: elevStr } : null,
+    latStr ? { label: 'Latitude', value: latStr } : null,
+    lngStr ? { label: 'Longitude', value: lngStr } : null,
+  ].filter(Boolean);
+  const metaHtml = metaItems.map(m => `
+    <div class="meta-item">
+      <span class="meta-label">${_esc(m.label)}</span>
+      <span class="meta-value">${_esc(m.value)}</span>
+    </div>`).join('');
   return `
+    <div class="detail-print-brand">
+      <span class="header-logo" aria-hidden="true">◎</span>
+      <span class="header-title">Meridian</span>
+      <span class="header-subtitle">Global Observatory Network</span>
+    </div>
     <div class="detail-header">
       <div class="detail-header-left">
         ${category ? `<div class="detail-category">${_esc(category)}</div>` : ''}
-        <h2 class="detail-name">${_esc(name)}</h2>
+        <button class="detail-name-toggle" type="button" aria-expanded="true" aria-controls="detail-header-meta">
+          <h2 class="detail-name">${_esc(name)}</h2>
+          <span class="detail-expand-chevron" aria-hidden="true">›</span>
+        </button>
+        ${metaHtml ? `<div class="detail-meta detail-header-meta" id="detail-header-meta">${metaHtml}</div>` : ''}
       </div>
       <div class="detail-header-qr">
         <div class="detail-qr detail-qr-header">
@@ -1808,10 +2212,10 @@ function _renderDetail(locationId, data, indexEntry, buSprites) {
   const category = data.type ?? indexEntry?.category ?? '';
   const name     = data.name ?? locationId;
   return `
-    ${_detailHeader(category, name)}
+    ${_detailHeader(category, name, data, indexEntry, locationId)}
     <div class="detail-download-menu" hidden role="menu">
       <button class="detail-download-opt" data-dl="png" role="menuitem">Image (PNG)</button>
-      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Print / PDF</button>
+      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Report (PDF)</button>
     </div>
     ${_renderDataSections(data, indexEntry, locationId, buSprites)}`;
 }
@@ -1823,10 +2227,10 @@ function _renderIndexDetail(locationId, indexEntry, buSprites) {
   const name     = indexEntry?.name ?? locationId;
   const category = indexEntry?.category ?? '';
   return `
-    ${_detailHeader(category, name)}
+    ${_detailHeader(category, name, null, indexEntry, locationId)}
     <div class="detail-download-menu" hidden role="menu">
       <button class="detail-download-opt" data-dl="png" role="menuitem">Image (PNG)</button>
-      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Print / PDF</button>
+      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Report (PDF)</button>
     </div>
     ${_renderDataSections(null, indexEntry, locationId, buSprites)}`;
 }
@@ -1841,6 +2245,7 @@ async function _downloadPng() {
   const exportHost = document.createElement('div');
 
   try {
+    await _preparePrintMediaSnapshots();
     dlMenu && (dlMenu.hidden = true);
     _panel.classList.add('export-mode');
     await nextFrame();
@@ -1879,7 +2284,14 @@ async function _downloadPng() {
       allowTaint: true,
       scale: Math.max(2, window.devicePixelRatio || 2),
       backgroundColor: panelBg,
-      ignoreElements: el => el.classList.contains('detail-download-menu'),
+      ignoreElements: el =>
+        el.classList.contains('detail-download-menu') ||
+        el.classList.contains('detail-map-loading') ||
+        el.classList.contains('mapboxgl-canvas') ||
+        el.classList.contains('maplibregl-canvas'),
+      onclone: (doc) => {
+        doc.querySelectorAll('.detail-map-loading, .mapboxgl-canvas, .maplibregl-canvas').forEach(el => el.remove());
+      },
     });
     const blob = await new Promise(resolve => canvas.toBlob(resolve));
     if (!blob) throw new Error('Canvas export returned no blob');
@@ -1894,34 +2306,31 @@ async function _downloadPng() {
   } finally {
     exportHost.remove();
     _panel.classList.remove('export-mode');
+    _clearPrintMediaSnapshots();
     await nextFrame();
     for (const chart of Object.values(_charts)) chart?.resize();
   }
 }
 
 function _printReport() {
-  // 1. Reveal all hidden section panels.
-  const hiddenPanels = [..._panel.querySelectorAll('.section-panel[hidden]')];
+  // 1. Reveal all hidden content sections and the print-only sources section.
+  const hiddenPanels = [..._panel.querySelectorAll('.section-panel[hidden]:not(.print-only-panel)')];
+  const printOnlyPanels = [..._panel.querySelectorAll('.print-only-panel[hidden]')];
   hiddenPanels.forEach(p => p.removeAttribute('hidden'));
+  printOnlyPanels.forEach(p => p.removeAttribute('hidden'));
 
-  // 2. Apply print-mode layout so the panel becomes flow-based (height: auto)
-  //    before we call resize() — this ensures charts measure the correct 260 px
-  //    print height rather than their cramped flex-share of 780 px.
-  _panel.classList.add('print-mode');
-
-  // 3. Let the browser reflow, then resize every chart, then print.
-  requestAnimationFrame(() => {
-    for (const chart of Object.values(_charts)) chart?.resize();
-    requestAnimationFrame(() => {
-      window.print();
-      // 4. Restore interactive state after the print dialog closes.
-      setTimeout(() => {
-        _panel.classList.remove('print-mode');
-        hiddenPanels.forEach(p => p.setAttribute('hidden', ''));
-        // Resize charts back to their interactive size.
-        for (const chart of Object.values(_charts)) chart?.resize();
-      }, 500);
-    });
+  // 2. Prepare printable media and build a dedicated print root outside the modal.
+  requestAnimationFrame(async () => {
+    await _preparePrintMediaSnapshots();
+    await _populatePrintRoot();
+    try {
+      await _downloadPdfFromPrintRoot();
+    } finally {
+      hiddenPanels.forEach(p => p.setAttribute('hidden', ''));
+      printOnlyPanels.forEach(p => p.setAttribute('hidden', ''));
+      _clearPrintMediaSnapshots();
+      _clearPrintRoot();
+    }
   });
 }
 
