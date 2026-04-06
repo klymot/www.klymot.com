@@ -419,7 +419,7 @@ body {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 1rem;
-  width: 800px;
+  width: 1490px;
   max-width: 96vw;
   height: min(92vh, 780px);
   display: flex;
@@ -568,6 +568,28 @@ body {
 }
 .detail-close {
   font-size: 1.25rem;
+}
+
+.detail-header-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  max-width: min(14rem, calc(100vw - 1rem));
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.detail-header-tooltip[hidden] {
+  display: none;
 }
 
 .detail-download-menu {
@@ -2240,6 +2262,48 @@ body {
   height: auto !important;
   max-height: none !important;
   overflow: visible !important;
+}
+.detail-panel.export-mode {
+  width: 1490px !important;
+  max-width: 1490px !important;
+  height: 780px !important;
+  max-height: 780px !important;
+  flex-shrink: 0 !important;
+  border: none !important;
+  border-radius: 1rem !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
+.detail-panel.export-mode .detail-header {
+  padding: 1rem 1rem 0.875rem 1.75rem !important;
+}
+.detail-panel.export-mode .detail-header-actions {
+  display: none !important;
+}
+.detail-panel.export-mode .detail-download-menu {
+  display: none !important;
+}
+.detail-panel.export-mode .detail-header-tooltip {
+  display: none !important;
+}
+.detail-panel.export-mode .detail-name {
+  font-size: 1.625rem !important;
+}
+.detail-panel.export-mode .section-tab {
+  font-size: 0.6875rem !important;
+  padding: 0.75rem 1rem !important;
+}
+.detail-panel.export-mode .temp-chart-section {
+  padding: 1rem 1.25rem 1.25rem !important;
+}
+.detail-panel.export-mode .detail-header-qr {
+  display: flex !important;
+}
+.detail-panel.export-mode .about-qr {
+  display: none !important;
+}
+.detail-panel.export-mode .chart-hint {
+  display: none !important;
 }
 .detail-panel.print-mode .detail-sections {
   display: block !important;

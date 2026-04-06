@@ -50,6 +50,7 @@ let _overlay    = null;
 let _panel      = null;
 /** Element focused before the panel opened — restored on close. */
 let _lastFocused = null;
+let _headerTooltipResizeHandler = null;
 
 /** Current index entry and sprite descriptors, used by the change-canvas renderer. */
 let _currentIndexEntry = null;
@@ -220,6 +221,10 @@ export function openDetail(locationId, indexEntry = null, buSprites = null) {
 export function closeDetail() {
   if (!_overlay) return;
   _destroyCharts();
+  if (_headerTooltipResizeHandler) {
+    window.removeEventListener('resize', _headerTooltipResizeHandler);
+    _headerTooltipResizeHandler = null;
+  }
   _overlay.hidden = true;
   _panel.innerHTML = '';
 
@@ -657,12 +662,100 @@ function _initCharts() {
 
 function _attachHandlers() {
   const closeBtn = _panel.querySelector('.detail-close');
+  const headerTooltip = _panel.querySelector('.detail-header-tooltip');
+  let headerTooltipTimer = null;
+  let headerStatusVisible = false;
+
+  function setHeaderTooltipMessage(message) {
+    if (headerTooltip) headerTooltip.textContent = message;
+  }
+
+  function positionHeaderTooltip(target) {
+    if (!headerTooltip || !target) return;
+    const rect = target.getBoundingClientRect();
+    const ttW = headerTooltip.offsetWidth || 140;
+    const ttH = headerTooltip.offsetHeight || 32;
+    const left = Math.max(8, Math.min(rect.left + rect.width / 2 - ttW / 2, window.innerWidth - ttW - 8));
+    const top = Math.max(8, rect.bottom + 8);
+    headerTooltip.style.left = `${left}px`;
+    headerTooltip.style.top = `${Math.min(top, window.innerHeight - ttH - 8)}px`;
+  }
+
+  function showHeaderTooltip(target, duration = null) {
+    if (!headerTooltip || !target) return;
+    globalThis.clearTimeout(headerTooltipTimer);
+    headerTooltip.hidden = false;
+    positionHeaderTooltip(target);
+    if (duration != null) {
+      headerTooltipTimer = globalThis.setTimeout(() => {
+        headerTooltip.hidden = true;
+        headerStatusVisible = false;
+      }, duration);
+    }
+  }
+
+  function hideHeaderTooltip() {
+    if (!headerTooltip) return;
+    globalThis.clearTimeout(headerTooltipTimer);
+    headerTooltip.hidden = true;
+    headerStatusVisible = false;
+  }
+
+  function showHeaderStatus(target, message, duration = 1600) {
+    headerStatusVisible = true;
+    setHeaderTooltipMessage(message);
+    showHeaderTooltip(target, duration);
+  }
+
+  function bindHeaderTooltip(selector, message) {
+    const btn = _panel.querySelector(selector);
+    if (!btn) return null;
+    btn.addEventListener('mouseenter', () => {
+      if (headerStatusVisible) return;
+      setHeaderTooltipMessage(message);
+      showHeaderTooltip(btn);
+    });
+    btn.addEventListener('mouseleave', () => {
+      if (headerStatusVisible) return;
+      hideHeaderTooltip();
+    });
+    btn.addEventListener('focus', () => {
+      if (headerStatusVisible) return;
+      setHeaderTooltipMessage(message);
+      showHeaderTooltip(btn);
+    });
+    btn.addEventListener('blur', () => {
+      if (headerStatusVisible) return;
+      hideHeaderTooltip();
+    });
+    btn.addEventListener('touchstart', () => {
+      if (headerStatusVisible) return;
+      setHeaderTooltipMessage(message);
+      showHeaderTooltip(btn, 1800);
+    }, { passive: true });
+    return btn;
+  }
+
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
 
+  const shareBtn = bindHeaderTooltip('.detail-share-btn', 'Copy link to clipboard');
+  bindHeaderTooltip('.detail-download-btn', 'Download');
+  bindHeaderTooltip('.detail-close', 'Close');
+  if (_headerTooltipResizeHandler) window.removeEventListener('resize', _headerTooltipResizeHandler);
+  _headerTooltipResizeHandler = () => {
+    const active = document.activeElement;
+    if (!headerTooltip?.hidden && active?.classList?.contains('detail-action-btn')) {
+      positionHeaderTooltip(active);
+    }
+  };
+  window.addEventListener('resize', _headerTooltipResizeHandler);
+
   // Share button — copy current URL to clipboard.
-  _panel.querySelector('.detail-share-btn')?.addEventListener('click', () => {
-    navigator.clipboard?.writeText(window.location.href).catch(() => {});
+  shareBtn?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const result = await _copyText(window.location.href);
+    showHeaderStatus(btn, result.ok ? 'Copied link' : result.message, result.ok ? 1600 : 2600);
   });
 
   // Download button — toggle the download menu.
@@ -714,6 +807,46 @@ function _attachHandlers() {
 
   // Initialize temperature charts (must be after DOM is ready).
   _initCharts();
+}
+
+async function _copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return { ok: true, message: 'Copied link' };
+    }
+  } catch (err) {
+    const msg = err?.name === 'NotAllowedError'
+      ? 'Clipboard permission was denied.'
+      : 'Clipboard API copy failed.';
+    return _legacyCopyText(text, msg);
+  }
+
+  return _legacyCopyText(text, 'Clipboard API unavailable.');
+}
+
+function _legacyCopyText(text, fallbackReason) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '-9999px';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {}
+
+  ta.remove();
+  return copied
+    ? { ok: true, message: 'Copied link' }
+    : { ok: false, message: fallbackReason === 'Clipboard API unavailable.'
+      ? 'Copy is not supported in this browser.'
+      : 'Copy failed. Browser blocked clipboard access.' };
 }
 
 function _initTabScrollArrows() {
@@ -1649,7 +1782,7 @@ function _renderShimmer() {
 
 /** Shared header HTML for both detail and index-only panels. */
 function _detailHeader(category, name) {
-  const shareSvg = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2l3 3-3 3M13 5H6C4.3 5 3 6.3 3 8v3"/></svg>`;
+  const shareSvg = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="7" height="9" rx="1.25"/><path d="M3.5 9.5H3A1.5 1.5 0 0 1 1.5 8V4A1.5 1.5 0 0 1 3 2h4A1.5 1.5 0 0 1 8.5 3.5V4"/></svg>`;
   const dlSvg    = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M7.5 2v8M4.5 7.5l3 3 3-3M2 13h11"/></svg>`;
   return `
     <div class="detail-header">
@@ -1660,14 +1793,14 @@ function _detailHeader(category, name) {
       <div class="detail-header-qr">
         <div class="detail-qr detail-qr-header">
           <div class="qr-code"></div>
-          <span class="qr-label">Share</span>
         </div>
       </div>
       <div class="detail-header-actions">
-        <button class="detail-action-btn detail-share-btn" title="Copy link to clipboard" aria-label="Copy link to clipboard">${shareSvg}</button>
-        <button class="detail-action-btn detail-download-btn" title="Download" aria-label="Download report">${dlSvg}</button>
-        <button class="detail-action-btn detail-close" aria-label="Close panel" title="Close">×</button>
+        <button class="detail-action-btn detail-share-btn" aria-label="Copy link to clipboard">${shareSvg}</button>
+        <button class="detail-action-btn detail-download-btn" aria-label="Download report">${dlSvg}</button>
+        <button class="detail-action-btn detail-close" aria-label="Close panel">×</button>
       </div>
+      <div class="detail-header-tooltip" hidden></div>
     </div>`;
 }
 
@@ -1703,38 +1836,66 @@ async function _downloadPng() {
   // Resolve the panel's background from CSS custom properties so we always
   // get a fully-opaque colour regardless of backdrop-filter on the overlay.
   const panelBg = getComputedStyle(_panel).getPropertyValue('--bg-elevated').trim() || '#152c4a';
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+  const dlMenu = _panel.querySelector('.detail-download-menu');
+  const exportHost = document.createElement('div');
+
   try {
-    const canvas = await html2canvas(_panel, {
+    dlMenu && (dlMenu.hidden = true);
+    _panel.classList.add('export-mode');
+    await nextFrame();
+    for (const chart of Object.values(_charts)) chart?.resize();
+    await nextFrame();
+
+    const exportPanel = _panel.cloneNode(true);
+    exportHost.style.position = 'fixed';
+    exportHost.style.left = '-20000px';
+    exportHost.style.top = '0';
+    exportHost.style.pointerEvents = 'none';
+    exportHost.style.opacity = '0';
+    exportHost.style.background = 'transparent';
+    exportPanel.style.backgroundColor = panelBg;
+    exportPanel.style.backdropFilter = 'none';
+    exportHost.appendChild(exportPanel);
+    document.body.appendChild(exportHost);
+
+    // cloneNode() does not preserve canvas pixels, so copy them across after
+    // the charts have been resized into the fixed export layout.
+    const srcCanvases = _panel.querySelectorAll('canvas');
+    const dstCanvases = exportPanel.querySelectorAll('canvas');
+    srcCanvases.forEach((src, i) => {
+      const dst = dstCanvases[i];
+      if (!dst) return;
+      dst.width = src.width;
+      dst.height = src.height;
+      dst.style.width = src.style.width;
+      dst.style.height = src.style.height;
+      const ctx = dst.getContext('2d');
+      if (ctx) ctx.drawImage(src, 0, 0);
+    });
+
+    const canvas = await html2canvas(exportPanel, {
       useCORS: true,
       allowTaint: true,
       scale: Math.max(2, window.devicePixelRatio || 2),
       backgroundColor: panelBg,
-      ignoreElements: el =>
-        el.classList.contains('detail-download-menu') ||
-        el.id === 'detail-overlay' && el !== _panel,
-      onclone: (_doc, clonedPanel) => {
-        // Ensure the cloned panel has a solid opaque background.
-        clonedPanel.style.backgroundColor = panelBg;
-        clonedPanel.style.backdropFilter  = 'none';
-        // Also neutralise the overlay backdrop on the clone.
-        const overlay = clonedPanel.closest?.('#detail-overlay') ??
-                        _doc.getElementById('detail-overlay');
-        if (overlay) {
-          overlay.style.backdropFilter = 'none';
-          overlay.style.background     = 'transparent';
-        }
-      },
+      ignoreElements: el => el.classList.contains('detail-download-menu'),
     });
-    canvas.toBlob(blob => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `meridian-${_currentLocationId}.png`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve));
+    if (!blob) throw new Error('Canvas export returned no blob');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meridian-${_currentLocationId}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) {
     console.error('PNG download failed:', e);
+  } finally {
+    exportHost.remove();
+    _panel.classList.remove('export-mode');
+    await nextFrame();
+    for (const chart of Object.values(_charts)) chart?.resize();
   }
 }
 
