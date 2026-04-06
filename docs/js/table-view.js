@@ -9,7 +9,7 @@
  *   getCurrentTableHash()  → string       — e.g. 'table=name/asc'
  */
 
-import { serialiseTableState, pushState } from './url-state.js?v=20260405';
+import { serialiseTableState, pushState } from './url-state.js?v=20260406';
 
 const ROW_HEIGHT  = 44;
 const BUFFER_ROWS = 10;

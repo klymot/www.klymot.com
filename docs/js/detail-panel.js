@@ -9,11 +9,11 @@
  * sprites: { bu2020, bu1975, pop2020, pop1975 } — any may be null if not yet generated
  */
 
-import { renderQR } from './qr.js?v=20260405';
-import { serialiseStationState, pushState } from './url-state.js?v=20260405';
-import { trackEvent } from './analytics.js?v=20260405';
-import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js?v=20260405';
-import { AdjChart } from './adj-chart.js?v=20260405';
+import { renderQR } from './qr.js?v=20260406';
+import { serialiseStationState, pushState } from './url-state.js?v=20260406';
+import { trackEvent } from './analytics.js?v=20260406';
+import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js?v=20260406';
+import { AdjChart } from './adj-chart.js?v=20260406';
 
 /**
  * State to restore when the next detail panel opens (set by setRestoreState).
@@ -260,6 +260,8 @@ function _applyChartModeUi(section, mode) {
     b.classList.toggle('active', active);
     b.setAttribute('aria-pressed', String(active));
   });
+  const modeRow = _panel.querySelector(`[data-section="${section}"] .chart-mode-row`);
+  modeRow?._updateArrows?.();
 
   const partialControls = _panel.querySelector(`[data-section="${section}"] .chart-partial-controls`);
   if (partialControls) partialControls.hidden = mode !== 'yearly';
@@ -345,6 +347,7 @@ function _initCharts() {
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', String(active));
     });
+    _panel.querySelector('[data-section="adj"] .chart-mode-row')?._updateArrows?.();
   }
 
   // Wire adj mode buttons.
@@ -357,6 +360,7 @@ function _initCharts() {
         b.classList.toggle('active', active);
         b.setAttribute('aria-pressed', String(active));
       });
+      _panel.querySelector('[data-section="adj"] .chart-mode-row')?._updateArrows?.();
       _updateStationUrl();
     });
   });
@@ -660,19 +664,31 @@ function _attachHandlers() {
   closeBtn?.addEventListener('click', closeDetail);
   closeBtn?.focus();
 
-  // Station meta toggle — collapsed by default on narrow viewports, expanded on wide.
-  const metaToggle = _panel.querySelector('.detail-name-toggle');
-  const metaPanel  = metaToggle ? document.getElementById(metaToggle.getAttribute('aria-controls')) : null;
-  if (metaToggle && metaPanel) {
-    const startExpanded = window.innerWidth > 834;
-    if (startExpanded) {
-      metaPanel.hidden = false;
-      metaToggle.setAttribute('aria-expanded', 'true');
-    }
-    metaToggle.addEventListener('click', () => {
-      const expanded = metaToggle.getAttribute('aria-expanded') === 'true';
-      metaToggle.setAttribute('aria-expanded', String(!expanded));
-      metaPanel.hidden = expanded;
+  // Share button — copy current URL to clipboard.
+  _panel.querySelector('.detail-share-btn')?.addEventListener('click', () => {
+    navigator.clipboard?.writeText(window.location.href).catch(() => {});
+  });
+
+  // Download button — toggle the download menu.
+  const dlBtn  = _panel.querySelector('.detail-download-btn');
+  const dlMenu = _panel.querySelector('.detail-download-menu');
+  if (dlBtn && dlMenu) {
+    dlBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dlMenu.hidden = !dlMenu.hidden;
+    });
+    dlMenu.addEventListener('click', (e) => {
+      const opt = e.target.closest('[data-dl]');
+      if (!opt) return;
+      dlMenu.hidden = true;
+      if (opt.dataset.dl === 'png') _downloadPng();
+      if (opt.dataset.dl === 'pdf') _printReport();
+    });
+    document.addEventListener('click', () => { dlMenu.hidden = true; }, { once: false, capture: false });
+    _panel.addEventListener('click', (e) => {
+      if (!e.target.closest('.detail-download-btn') && !e.target.closest('.detail-download-menu')) {
+        dlMenu.hidden = true;
+      }
     });
   }
 
@@ -698,6 +714,7 @@ function _attachHandlers() {
 
   _initDetailMapMedia();
   _initTabScrollArrows();
+  _initModeArrows();
 
   // Initialize temperature charts (must be after DOM is ready).
   _initCharts();
@@ -711,18 +728,61 @@ function _initTabScrollArrows() {
   const btnR = wrap.querySelector('.tabs-scroll-right');
   if (!tabs || !btnL || !btnR) return;
 
+  function getTabBtns() { return [...tabs.querySelectorAll('.section-tab')]; }
+  function getActiveIdx() { return getTabBtns().findIndex(t => t.classList.contains('active')); }
+
   function updateArrows() {
-    const atStart = tabs.scrollLeft <= 2;
-    const atEnd   = tabs.scrollLeft >= tabs.scrollWidth - tabs.clientWidth - 2;
-    const hasOverflow = tabs.scrollWidth > tabs.clientWidth + 4;
-    btnL.hidden = !hasOverflow || atStart;
-    btnR.hidden = !hasOverflow || atEnd;
+    const idx   = getActiveIdx();
+    const total = getTabBtns().length;
+    btnL.hidden = idx <= 0;
+    btnR.hidden = idx >= total - 1;
+    tabs.querySelector('.section-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }
 
-  tabs.addEventListener('scroll', updateArrows, { passive: true });
-  btnL.addEventListener('click', () => tabs.scrollBy({ left: -120, behavior: 'smooth' }));
-  btnR.addEventListener('click', () => tabs.scrollBy({ left:  120, behavior: 'smooth' }));
+  btnL.addEventListener('click', () => {
+    const idx = getActiveIdx();
+    if (idx > 0) _switchSectionTab(getTabBtns()[idx - 1].dataset.section);
+  });
+  btnR.addEventListener('click', () => {
+    const idx = getActiveIdx();
+    const btns = getTabBtns();
+    if (idx < btns.length - 1) _switchSectionTab(btns[idx + 1].dataset.section);
+  });
+
+  _panel._updateTabArrows = updateArrows;
   requestAnimationFrame(updateArrows);
+}
+
+function _initModeArrows() {
+  _panel.querySelectorAll('.chart-mode-row').forEach(modeRow => {
+    const toggle  = modeRow.querySelector('.chart-mode-toggle');
+    const prevBtn = modeRow.querySelector('.chart-mode-prev');
+    const nextBtn = modeRow.querySelector('.chart-mode-next');
+    if (!toggle || !prevBtn || !nextBtn) return;
+
+    function getModeBtns() { return [...toggle.querySelectorAll('.chart-mode-btn')]; }
+    function getActiveIdx() { return getModeBtns().findIndex(b => b.classList.contains('active')); }
+
+    function updateArrows() {
+      const idx   = getActiveIdx();
+      const total = getModeBtns().length;
+      prevBtn.hidden = idx <= 0;
+      nextBtn.hidden = idx >= total - 1;
+    }
+
+    prevBtn.addEventListener('click', () => {
+      const idx = getActiveIdx();
+      if (idx > 0) getModeBtns()[idx - 1].click();
+    });
+    nextBtn.addEventListener('click', () => {
+      const idx = getActiveIdx();
+      const btns = getModeBtns();
+      if (idx < btns.length - 1) btns[idx + 1].click();
+    });
+
+    modeRow._updateArrows = updateArrows;
+    requestAnimationFrame(updateArrows);
+  });
 }
 
 function _switchSectionTab(sectionName) {
@@ -747,6 +807,7 @@ function _switchSectionTab(sectionName) {
     to_tab: sectionName,
   });
 
+  _panel._updateTabArrows?.();
   _updateStationUrl();
 }
 
@@ -866,18 +927,62 @@ function _buMapWrap(mapDiv, ariaLabel) {
   </div>`;
 }
 
+function _aboutPanel(data, indexEntry, locationId) {
+  const elevStr = data?.elevation
+    ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : null);
+  const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : null;
+  const lngStr  = indexEntry?.lng  != null ? indexEntry.lng.toFixed(4)  : null;
+
+  const description = data?.description ?? '';
+  const vars = (data?.variables ?? [])
+    .map(v => `<span class="variable-tag">${_esc(v)}</span>`)
+    .join('');
+
+  const metaItems = [];
+  if (data?.country)     metaItems.push({ label: 'Country',     value: data.country });
+  if (data?.established) metaItems.push({ label: 'Established', value: data.established });
+  if (data?.network)     metaItems.push({ label: 'Network',     value: data.network });
+  metaItems.push({ label: 'Station ID', value: locationId });
+  if (elevStr) metaItems.push({ label: 'Elevation', value: elevStr });
+  if (latStr)  metaItems.push({ label: 'Latitude',  value: latStr });
+  if (lngStr)  metaItems.push({ label: 'Longitude', value: lngStr });
+
+  const metaHtml = metaItems.map(m => `
+    <div class="meta-item">
+      <span class="meta-label">${_esc(m.label)}</span>
+      <span class="meta-value">${_esc(m.value)}</span>
+    </div>`).join('');
+
+  return `
+    <div class="about-section">
+      ${description ? `<p class="about-description">${_esc(description)}</p>` : ''}
+      ${vars ? `<div class="about-variables">${vars}</div>` : ''}
+      ${metaHtml ? `<div class="detail-meta about-meta">${metaHtml}</div>` : ''}
+      <div class="about-qr">
+        <div class="detail-qr">
+          <div class="qr-code"></div>
+          <span class="qr-label">Share this station</span>
+        </div>
+      </div>
+    </div>`;
+}
+
 /**
  * Build the combined detail-sections block (temperature charts + Built-Up Surface + Population).
  * Temperature sections are always rendered. BU/Pop are omitted when no sprites are available.
  */
-function _renderDataSections(indexEntry, sprites) {
+function _renderDataSections(data, indexEntry, locationId, sprites) {
   const buContent  = _buSectionContent(indexEntry, sprites);
   const popContent = _popSectionContent(indexEntry, sprites);
 
   const tabs   = [];
   const panels = [];
 
-  // Temperature charts — always shown (chart handles no-data state internally)
+  // About tab first (not active by default)
+  tabs.push(`<button class="section-tab" role="tab" data-section="about" aria-selected="false">About</button>`);
+  panels.push(`<div class="section-panel" data-section="about" hidden>${_aboutPanel(data, indexEntry, locationId)}</div>`);
+
+  // Temperature charts — active by default
   tabs.push(`<button class="section-tab active" role="tab" data-section="temp-qcu" aria-selected="true">Unadjusted</button>`);
   tabs.push(`<button class="section-tab" role="tab" data-section="temp-qcf" aria-selected="false">Adjusted</button>`);
   tabs.push(`<button class="section-tab" role="tab" data-section="adj" aria-selected="false">Adjustments</button>`);
@@ -886,7 +991,7 @@ function _renderDataSections(indexEntry, sprites) {
   panels.push(`<div class="section-panel" data-section="adj" hidden>${_adjChartPanel()}</div>`);
 
   if (buContent) {
-    tabs.push(`<button class="section-tab" role="tab" data-section="bu-surface" aria-selected="false">Built-Up Surface</button>`);
+    tabs.push(`<button class="section-tab" role="tab" data-section="bu-surface" aria-selected="false">Built-Up</button>`);
     panels.push(`<div class="section-panel" data-section="bu-surface" hidden>${buContent}</div>`);
   }
   if (popContent) {
@@ -897,11 +1002,11 @@ function _renderDataSections(indexEntry, sprites) {
   return `
     <div class="detail-sections">
       <div class="section-tabs-wrap">
-        <button class="tabs-scroll-btn tabs-scroll-left" aria-label="Scroll tabs left" hidden>‹</button>
+        <button class="tabs-scroll-btn tabs-scroll-left" aria-label="Previous section" hidden>‹</button>
         <div class="section-tabs" role="tablist" aria-label="Detail sections">
           ${tabs.join('')}
         </div>
-        <button class="tabs-scroll-btn tabs-scroll-right" aria-label="Scroll tabs right" hidden>›</button>
+        <button class="tabs-scroll-btn tabs-scroll-right" aria-label="Next section" hidden>›</button>
       </div>
       ${panels.join('')}
     </div>`;
@@ -911,11 +1016,15 @@ function _renderDataSections(indexEntry, sprites) {
 function _adjChartPanel() {
   return `
     <div class="temp-chart-section">
-      <div class="chart-controls">
+      <div class="chart-mode-row">
+        <button class="chart-mode-arrow chart-mode-prev" aria-label="Previous chart mode" hidden>‹</button>
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
           <button class="chart-mode-btn active" data-adj-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-adj-mode="yearly" aria-pressed="false">Annual</button>
         </div>
+        <button class="chart-mode-arrow chart-mode-next" aria-label="Next chart mode" hidden>›</button>
+      </div>
+      <div class="chart-controls-row">
         <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
           <button class="chart-zoom-btn" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
           <button class="chart-zoom-btn" data-action="zoom-reset" title="Reset zoom" aria-label="Reset zoom">⊙</button>
@@ -946,7 +1055,8 @@ function _monthToggleButtons() {
 function _tempChartPanel() {
   return `
     <div class="temp-chart-section">
-      <div class="chart-controls">
+      <div class="chart-mode-row">
+        <button class="chart-mode-arrow chart-mode-prev" aria-label="Previous chart mode" hidden>‹</button>
         <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
           <button class="chart-mode-btn active" data-mode="monthly" aria-pressed="true">Monthly</button>
           <button class="chart-mode-btn" data-mode="bymonth" aria-pressed="false">By Month</button>
@@ -954,6 +1064,9 @@ function _tempChartPanel() {
           <button class="chart-mode-btn" data-mode="heatmap" aria-pressed="false">Heatmap</button>
           <button class="chart-mode-btn" data-mode="anomaly" aria-pressed="false">Anomaly</button>
         </div>
+        <button class="chart-mode-arrow chart-mode-next" aria-label="Next chart mode" hidden>›</button>
+      </div>
+      <div class="chart-controls-row">
         <div class="chart-partial-controls" hidden role="group" aria-label="Partial year options">
           <button class="chart-ci-btn active" data-action="est-toggle" title="Show/hide partial-year estimates" aria-pressed="true">Est.</button>
           <button class="chart-ci-btn active" data-action="ci-toggle" title="Show/hide 95% CI error bars" aria-pressed="true">95% CI</button>
@@ -1541,108 +1654,83 @@ function _renderShimmer() {
   `;
 }
 
-function _renderDetail(locationId, data, indexEntry, buSprites) {
-  const vars = (data.variables ?? [])
-    .map(v => `<span class="variable-tag">${_esc(v)}</span>`)
-    .join('');
-
-  // Merge index entry for elevation/coords if detail JSON lacks them
-  const elevStr = data.elevation
-    ?? (indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—');
-
+/** Shared header HTML for both detail and index-only panels. */
+function _detailHeader(category, name) {
+  const shareSvg = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2l3 3-3 3M13 5H6C4.3 5 3 6.3 3 8v3"/></svg>`;
+  const dlSvg    = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M7.5 2v8M4.5 7.5l3 3 3-3M2 13h11"/></svg>`;
   return `
-    <div class="detail-top">
-      <div class="detail-top-main">
-        <div class="detail-header-text">
-          <div class="detail-category">${_esc(data.type ?? '')}</div>
-          <button class="detail-name-toggle" aria-expanded="false" aria-controls="detail-meta-main">
-            <h2 class="detail-name">${_esc(data.name ?? locationId)}</h2>
-            <span class="detail-expand-chevron" aria-hidden="true">›</span>
-          </button>
-        </div>
-        <div class="detail-meta" id="detail-meta-main" hidden>
-          <div class="meta-item">
-            <span class="meta-label">Country</span>
-            <span class="meta-value">${_esc(data.country ?? '—')}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Elevation</span>
-            <span class="meta-value">${_esc(elevStr)}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Established</span>
-            <span class="meta-value">${_esc(data.established ?? '—')}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Network</span>
-            <span class="meta-value">${_esc(data.network ?? '—')}</span>
-          </div>
-        </div>
+    <div class="detail-header">
+      <div class="detail-header-left">
+        ${category ? `<div class="detail-category">${_esc(category)}</div>` : ''}
+        <h2 class="detail-name">${_esc(name)}</h2>
       </div>
-      <div class="detail-top-aside">
-        <div class="detail-qr">
-          <div class="qr-code"></div>
-          <span class="qr-label">Share this station</span>
-        </div>
+      <div class="detail-header-actions">
+        <button class="detail-action-btn detail-share-btn" title="Copy link to clipboard" aria-label="Copy link to clipboard">${shareSvg}</button>
+        <button class="detail-action-btn detail-download-btn" title="Download" aria-label="Download report">${dlSvg}</button>
+        <button class="detail-action-btn detail-close" aria-label="Close panel" title="Close">×</button>
       </div>
-      <button class="detail-close" aria-label="Close panel" title="Close">×</button>
+    </div>`;
+}
+
+function _renderDetail(locationId, data, indexEntry, buSprites) {
+  const category = data.type ?? indexEntry?.category ?? '';
+  const name     = data.name ?? locationId;
+  return `
+    ${_detailHeader(category, name)}
+    <div class="detail-download-menu" hidden role="menu">
+      <button class="detail-download-opt" data-dl="png" role="menuitem">Image (PNG)</button>
+      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Print / PDF</button>
     </div>
-    <div class="detail-divider"></div>
-    <div class="detail-description">${_esc(data.description ?? '')}</div>
-    ${vars ? `<div class="detail-variables">${vars}</div>` : ''}
-    ${_renderDataSections(indexEntry, buSprites)}
-  `;
+    ${_renderDataSections(data, indexEntry, locationId, buSprites)}`;
 }
 
 /**
  * Render a panel from index-only data (no detail JSON available).
  */
 function _renderIndexDetail(locationId, indexEntry, buSprites) {
-  const name    = indexEntry?.name ?? locationId;
-  const elevStr = indexEntry?.elevation_m != null ? `${indexEntry.elevation_m} m` : '—';
-  const latStr  = indexEntry?.lat  != null ? indexEntry.lat.toFixed(4)  : '—';
-  const lngStr  = indexEntry?.lng  != null ? indexEntry.lng.toFixed(4)  : '—';
-  const catStr  = indexEntry?.category ?? '';
-
+  const name     = indexEntry?.name ?? locationId;
+  const category = indexEntry?.category ?? '';
   return `
-    <div class="detail-top">
-      <div class="detail-top-main">
-        <div class="detail-header-text">
-          <div class="detail-category">${_esc(catStr)}</div>
-          <button class="detail-name-toggle" aria-expanded="false" aria-controls="detail-meta-index">
-            <h2 class="detail-name">${_esc(name)}</h2>
-            <span class="detail-expand-chevron" aria-hidden="true">›</span>
-          </button>
-        </div>
-        <div class="detail-meta" id="detail-meta-index" hidden>
-          <div class="meta-item">
-            <span class="meta-label">Station ID</span>
-            <span class="meta-value">${_esc(locationId)}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Elevation</span>
-            <span class="meta-value">${_esc(elevStr)}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Latitude</span>
-            <span class="meta-value">${_esc(latStr)}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Longitude</span>
-            <span class="meta-value">${_esc(lngStr)}</span>
-          </div>
-        </div>
-      </div>
-      <div class="detail-top-aside">
-        <div class="detail-qr">
-          <div class="qr-code"></div>
-          <span class="qr-label">Share this station</span>
-        </div>
-      </div>
-      <button class="detail-close" aria-label="Close panel" title="Close">×</button>
+    ${_detailHeader(category, name)}
+    <div class="detail-download-menu" hidden role="menu">
+      <button class="detail-download-opt" data-dl="png" role="menuitem">Image (PNG)</button>
+      <button class="detail-download-opt" data-dl="pdf" role="menuitem">Print / PDF</button>
     </div>
-    ${_renderDataSections(indexEntry, buSprites)}
-  `;
+    ${_renderDataSections(null, indexEntry, locationId, buSprites)}`;
+}
+
+async function _downloadPng() {
+  if (typeof html2canvas === 'undefined') { alert('Screenshot library not loaded.'); return; }
+  try {
+    const canvas = await html2canvas(_panel, {
+      useCORS: true,
+      allowTaint: true,
+      scale: window.devicePixelRatio || 1,
+      backgroundColor: getComputedStyle(_panel).backgroundColor || '#1a2332',
+      ignoreElements: el => el.classList.contains('detail-download-menu'),
+    });
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meridian-${_currentLocationId}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    });
+  } catch (e) {
+    console.error('PNG download failed:', e);
+  }
+}
+
+function _printReport() {
+  // Reveal all hidden section panels and resize charts
+  const hiddenPanels = [..._panel.querySelectorAll('.section-panel[hidden]')];
+  hiddenPanels.forEach(p => p.removeAttribute('hidden'));
+  for (const chart of Object.values(_charts)) chart?.resize();
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => hiddenPanels.forEach(p => p.setAttribute('hidden', '')), 500);
+  }, 300);
 }
 
 /** HTML-escape a value to prevent XSS when setting innerHTML. */

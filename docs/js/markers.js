@@ -1,4 +1,4 @@
-import { getMap } from './map.js?v=20260405';
+import { getMap } from './map.js?v=20260406';
 
 // ── Module state ─────────────────────────────────────────────────────────────
 let _locations       = [];

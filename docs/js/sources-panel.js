@@ -6,7 +6,7 @@
  *   toggleSources()     — open or close the panel
  */
 
-import { trackEvent } from './analytics.js?v=20260405';
+import { trackEvent } from './analytics.js?v=20260406';
 
 let _panel = null;
 let _btn   = null;
