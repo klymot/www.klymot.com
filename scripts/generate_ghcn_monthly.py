@@ -44,6 +44,10 @@ MONTH_QCFLAG = slice(6, 7)
 MISSING_VALUE = -9999
 
 
+def normalize_station_name(raw_name: str) -> str:
+    return raw_name.rstrip().replace('_', ' ')
+
+
 def count_valid_months(line: str) -> int:
     valid_months = 0
     for month_index in range(12):
@@ -142,7 +146,7 @@ def read_inventory(archive_path: Path) -> dict[str, dict[str, object]]:
 
             stations[station_id] = {
                 'id': station_id,
-                'name': line[INVENTORY_NAME].rstrip(),
+                'name': normalize_station_name(line[INVENTORY_NAME]),
                 'lat': float(line[INVENTORY_LAT]),
                 'lng': float(line[INVENTORY_LNG]),
                 'category': 'station',
@@ -180,6 +184,11 @@ def merge_inventory(index_path: Path, inventories: list[dict[str, dict[str, obje
             for key, value in station.items():
                 if key == 'category':
                     existing.setdefault('category', value)
+                elif key == 'name':
+                    if value is None:
+                        continue
+                    if existing.get(key) == value.replace(' ', '_') or not existing.get(key):
+                        existing[key] = value
                 elif value is not None:
                     existing.setdefault(key, value)
 
