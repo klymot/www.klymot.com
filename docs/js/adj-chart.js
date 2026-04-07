@@ -212,6 +212,130 @@ function _adjLoess(pts, span) {
   return result;
 }
 
+// ── TOB helpers ───────────────────────────────────────────────────────────────
+
+/** Days in a given month (month1 = 1–12). */
+function _daysInMonth(year, month1) {
+  return new Date(year, month1, 0).getDate();
+}
+
+/**
+ * Parse a TOB CSV text file.
+ * Format: YYYY-MM-DD,Code,Jan,Feb,...,Dec  (one row per TOB-code period)
+ * Values are signed integers in 0.01°C.
+ * Returns a date-sorted array of {year,month,day,code,adj:[12 ints]} or null if empty.
+ */
+function _parseTobCsv(text) {
+  if (!text || !text.trim()) return null;
+  const rows = [];
+  for (const line of text.trim().split('\n')) {
+    const cols = line.trim().split(',');
+    if (cols.length < 14) continue;
+    const dp = cols[0].trim().split('-');
+    if (dp.length !== 3) continue;
+    const year = parseInt(dp[0], 10), month = parseInt(dp[1], 10), day = parseInt(dp[2], 10);
+    if (!isFinite(year) || !isFinite(month) || !isFinite(day)) continue;
+    const code = cols[1].trim() || '?';
+    const adj  = [];
+    for (let m = 0; m < 12; m++) {
+      const v = parseInt(cols[m + 2], 10);
+      adj.push(isFinite(v) ? v : 0);
+    }
+    rows.push({ year, month, day, code, adj });
+  }
+  rows.sort((a, b) =>
+    a.year !== b.year ? a.year - b.year :
+    a.month !== b.month ? a.month - b.month : a.day - b.day
+  );
+  return rows.length ? rows : null;
+}
+
+/**
+ * For every (year, month) in diffRecs build the TOB adjustment value (0.01°C integer).
+ * When a TOB-code transition falls mid-month the adjustment is the day-weighted mean,
+ * rounded to the nearest 0.01°C integer.
+ * Returns a Map keyed by `"${year}/${m0}"` (m0 = 0–11).
+ * If tobRows is null every value is 0 (implicit 24HR).
+ */
+function _computeTobMap(diffRecs, tobRows) {
+  const map = new Map();
+  for (const rec of diffRecs) {
+    for (let m = 0; m < 12; m++) {
+      if (rec.months[m] == null) continue;
+      const year   = rec.year;
+      const month1 = m + 1;
+      const days   = _daysInMonth(year, month1);
+
+      if (!tobRows || tobRows.length === 0) {
+        map.set(`${year}/${m}`, 0);
+        continue;
+      }
+
+      // Active adjustment at day 1 of this month (last row with date ≤ YYYY-MM-01).
+      let baseAdj = 0; // implicit 24HR = 0
+      for (const row of tobRows) {
+        if (row.year < year ||
+            (row.year === year && row.month < month1) ||
+            (row.year === year && row.month === month1 && row.day === 1)) {
+          baseAdj = row.adj[m];
+        }
+      }
+
+      // Any transitions that fall mid-month (day 2..last).
+      const inMonth = tobRows.filter(r =>
+        r.year === year && r.month === month1 && r.day >= 2 && r.day <= days
+      );
+
+      if (inMonth.length === 0) {
+        map.set(`${year}/${m}`, baseAdj);
+        continue;
+      }
+
+      // Weighted sum across segments.
+      let dayStart = 1, prevAdj = baseAdj, wSum = 0;
+      for (const row of inMonth) {
+        wSum    += prevAdj * (row.day - dayStart);
+        prevAdj  = row.adj[m];
+        dayStart = row.day;
+      }
+      wSum += prevAdj * (days - dayStart + 1);
+      map.set(`${year}/${m}`, Math.round(wSum / days));
+    }
+  }
+  return map;
+}
+
+/** Build TOB diff records from diffRecs + tobMap (same shape as diffRecs). */
+function _tobRecords(diffRecs, tobMap) {
+  return diffRecs.map(r => ({
+    year:   r.year,
+    months: r.months.map((v, m) => v != null ? (tobMap.get(`${r.year}/${m}`) ?? 0) : null),
+  }));
+}
+
+/** Build PHA diff records = total diff − TOB diff. */
+function _phaRecords(diffRecs, tobMap) {
+  return diffRecs.map(r => ({
+    year:   r.year,
+    months: r.months.map((v, m) => {
+      if (v == null) return null;
+      return v - (tobMap.get(`${r.year}/${m}`) ?? 0);
+    }),
+  }));
+}
+
+/**
+ * Fractional-year x position for a TOB transition date.
+ * E.g. 1980-06-15 → 1980 + (166 − 1) / 365 ≈ 1980.452
+ */
+function _transitionX(row) {
+  let doy = 0;
+  for (let m = 1; m < row.month; m++) doy += _daysInMonth(row.year, m);
+  doy += row.day;
+  const diy = _daysInMonth(row.year, 2) === 29 ? 366 : 365;
+  return row.year + (doy - 1) / diy;
+}
+
 // ── AdjChart class ────────────────────────────────────────────────────────────
 
 export class AdjChart {
@@ -240,6 +364,20 @@ export class AdjChart {
     this._loessSpan     = 0.3;
     this._loessMonthly  = null;
     this._loessYearly   = null;
+
+    // TOB / PHA breakdown.
+    this._tobMonthly = null;
+    this._tobYearly  = null;
+    this._phaMonthly = null;
+    this._phaYearly  = null;
+    // Precomputed transition lines: [{x: fractionalYear, code: string}]
+    // First entry is always the initial code active at data start.
+    this._tobDisplayLines = [];
+
+    // Series visibility (all on by default).
+    this._showTotal = true;
+    this._showTob   = true;
+    this._showPha   = true;
 
     // X-axis domain (fractional years).
     this._xMin       = null;
@@ -295,22 +433,29 @@ export class AdjChart {
   // ── Public API ────────────────────────────────────────────────────────────────
 
   /**
-   * Parse both CSVs, compute diffs, update data ranges, schedule render.
+   * Parse both CSVs (and optional TOB CSV), compute diffs, update data ranges,
+   * schedule render.
    * @param {string} qcuCsvText
    * @param {string} qcfCsvText
+   * @param {string|null} [tobCsvText]  — TOB file text; null/'' → implicit 24HR (all zeros)
    */
-  load(qcuCsvText, qcfCsvText) {
+  load(qcuCsvText, qcfCsvText, tobCsvText = null) {
     const qcuRecs = _parseCsv(qcuCsvText || '');
     const qcfRecs = _parseCsv(qcfCsvText || '');
 
     if (qcuRecs.length === 0 && qcfRecs.length === 0) {
-      this._diffRecs     = null;
-      this._monthly      = null;
-      this._yearly       = null;
-      this._monthlyTrend = null;
-      this._yearlyTrend  = null;
-      this._loessMonthly = null;
-      this._loessYearly  = null;
+      this._diffRecs        = null;
+      this._monthly         = null;
+      this._yearly          = null;
+      this._monthlyTrend    = null;
+      this._yearlyTrend     = null;
+      this._loessMonthly    = null;
+      this._loessYearly     = null;
+      this._tobMonthly      = null;
+      this._tobYearly       = null;
+      this._phaMonthly      = null;
+      this._phaYearly       = null;
+      this._tobDisplayLines = [];
       this._scheduleRender();
       return;
     }
@@ -323,6 +468,53 @@ export class AdjChart {
     this._yearlyTrend  = _adjTrendLine(this._yearly);
     this._loessMonthly = _adjLoess(this._monthly, this._loessSpan);
     this._loessYearly  = _adjLoess(this._yearly,  this._loessSpan);
+
+    // TOB / PHA breakdown.
+    const tobRows    = _parseTobCsv(tobCsvText);
+    const tobMap     = _computeTobMap(diffRecs, tobRows);
+    this._tobMonthly = _monthlyPts(_tobRecords(diffRecs, tobMap));
+    this._tobYearly  = _yearlyPts(_tobRecords(diffRecs, tobMap));
+    this._phaMonthly = _monthlyPts(_phaRecords(diffRecs, tobMap));
+    this._phaYearly  = _yearlyPts(_phaRecords(diffRecs, tobMap));
+
+    // Precompute display lines for the chart.
+    // Find the first data month.
+    let firstYear = null, firstMonth1 = null;
+    outer: for (const rec of diffRecs) {
+      for (let m = 0; m < 12; m++) {
+        if (rec.months[m] != null) { firstYear = rec.year; firstMonth1 = m + 1; break outer; }
+      }
+    }
+
+    if (firstYear !== null) {
+      // Initial code: last tobRow with date ≤ first data month day 1 (or '24HR' if none).
+      let initialCode = '24HR';
+      if (tobRows) {
+        for (const row of tobRows) {
+          if (row.year < firstYear ||
+              (row.year === firstYear && row.month < firstMonth1) ||
+              (row.year === firstYear && row.month === firstMonth1 && row.day === 1)) {
+            initialCode = row.code;
+          }
+        }
+      }
+      // x position of data start (will be refined to actual dataXMin after allX computation).
+      // Store as sentinel; _render() uses this._dataXMin instead.
+      this._tobDisplayLines = [{ x: null, code: initialCode }];  // x filled in by render
+
+      // Subsequent transitions strictly inside the data range.
+      if (tobRows) {
+        for (const row of tobRows) {
+          if (row.year > firstYear ||
+              (row.year === firstYear && row.month > firstMonth1) ||
+              (row.year === firstYear && row.month === firstMonth1 && row.day > 1)) {
+            this._tobDisplayLines.push({ x: _transitionX(row), code: row.code });
+          }
+        }
+      }
+    } else {
+      this._tobDisplayLines = [];
+    }
 
     const allX = this._monthly.filter(Boolean).map(p => p.x);
     if (allX.length > 0) {
@@ -395,6 +587,18 @@ export class AdjChart {
 
   /** Show or hide the trend line. @param {boolean} v */
   setShowTrend(v) { this._showTrend = !!v; this._scheduleRender(); }
+
+  /**
+   * Show or hide one of the three adjustment series.
+   * @param {'total'|'tob'|'pha'} series
+   * @param {boolean} show
+   */
+  setShowSeries(series, show) {
+    if      (series === 'total') this._showTotal = !!show;
+    else if (series === 'tob')   this._showTob   = !!show;
+    else if (series === 'pha')   this._showPha   = !!show;
+    this._scheduleRender();
+  }
 
   /** Halve the x span centred on current view. */
   zoomIn()  { this._zoom(0.5); }
@@ -505,13 +709,16 @@ export class AdjChart {
     const colBorderStr = _cssVar('--border-strong')  || '#4a6080';
     const isLight      = document.documentElement.dataset.theme === 'light';
     const colInsp      = isLight ? 'rgba(0,80,180,0.45)' : 'rgba(80,144,224,0.5)';
-    let   colAdj       = _cssVar('--adj-total');
-    if (!colAdj) colAdj = '#30c880';
+    const colTotal     = _cssVar('--adj-total') || '#30c880';
+    const colTob       = _cssVar('--adj-tob')   || '#f08030';
+    const colPha       = _cssVar('--adj-pha')   || '#5090f8';
 
-    const pts  = this._mode === 'monthly' ? this._monthly : this._yearly;
+    const totalPts = this._mode === 'monthly' ? this._monthly    : this._yearly;
+    const tobPts   = this._mode === 'monthly' ? this._tobMonthly : this._tobYearly;
+    const phaPts   = this._mode === 'monthly' ? this._phaMonthly : this._phaYearly;
     const xMin = this._xMin, xMax = this._xMax;
 
-    if (!pts || pts.length === 0) {
+    if (!totalPts || totalPts.length === 0) {
       ctx.fillStyle = colText;
       ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -521,8 +728,25 @@ export class AdjChart {
 
     if (xMin === null) return;
 
-    const visible = pts.filter(p => p && p.x >= xMin && p.x <= xMax);
-    if (visible.length === 0) {
+    // All series hidden → show empty-state message.
+    if (!this._showTotal && !this._showTob && !this._showPha) {
+      ctx.fillStyle = colText;
+      ctx.font = `${13 * dpr}px 'Source Sans 3', sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No series selected', W / 2, H / 2);
+      return;
+    }
+
+    // Collect visible points from all shown series to derive y-range.
+    const visAll = [];
+    const inView = p => p && p.x >= xMin && p.x <= xMax;
+    if (this._showTotal) visAll.push(...totalPts.filter(inView));
+    if (this._showTob && tobPts) visAll.push(...tobPts.filter(inView));
+    if (this._showPha && phaPts) visAll.push(...phaPts.filter(inView));
+
+    // Fall back to total for the "zoom out" empty-state check.
+    const visTotal = totalPts.filter(inView);
+    if (visTotal.length === 0) {
       ctx.fillStyle = colText;
       ctx.font = `${12 * dpr}px 'JetBrains Mono', monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -530,7 +754,7 @@ export class AdjChart {
       return;
     }
 
-    const { yMin, yMax } = _adjYRange(visible);
+    const { yMin, yMax } = _adjYRange(visAll.length > 0 ? visAll : visTotal);
 
     const toX = x => ml + (x - xMin) / (xMax - xMin) * cw;
     const toY = y => mt + (yMax - y) / (yMax - yMin) * ch;
@@ -564,7 +788,7 @@ export class AdjChart {
       ctx.fillText(String(Math.round(x)), px, mt + ch + 5 * dpr);
     }
 
-    // Zero baseline — thicker/brighter line using --border-strong.
+    // Zero baseline.
     const py0 = toY(0);
     ctx.strokeStyle = colBorderStr; ctx.lineWidth = 2 * dpr; ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(ml, py0); ctx.lineTo(ml + cw, py0); ctx.stroke();
@@ -573,7 +797,7 @@ export class AdjChart {
     ctx.save();
     ctx.beginPath(); ctx.rect(ml - 0.5, mt - 0.5, cw + 1, ch + 1); ctx.clip();
 
-    // Inspector vertical line (drawn before data).
+    // Inspector vertical line.
     if (this._hoverX !== null && this._hoverX >= xMin && this._hoverX <= xMax) {
       const px = toX(this._hoverX);
       ctx.strokeStyle = colInsp;
@@ -582,41 +806,85 @@ export class AdjChart {
       ctx.beginPath(); ctx.moveTo(px, mt); ctx.lineTo(px, mt + ch); ctx.stroke();
     }
 
-    // Data line — skip nulls (lift pen).
-    ctx.strokeStyle = colAdj;
-    ctx.lineWidth   = 1.5 * dpr;
-    ctx.lineJoin    = 'round';
-    ctx.lineCap     = 'round';
-    ctx.setLineDash([]);
-    let open = false;
-    ctx.beginPath();
-    for (const p of pts) {
-      if (!p) {
-        if (open) { ctx.stroke(); ctx.beginPath(); open = false; }
-        continue;
-      }
-      const px = toX(p.x), py = toY(p.y);
-      if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
-    }
-    if (open) ctx.stroke();
+    // TOB transition lines + code labels (drawn before data lines, only when TOB is visible).
+    if (this._showTob && this._tobDisplayLines && this._tobDisplayLines.length > 0) {
+      for (const line of this._tobDisplayLines) {
+        // The first entry has x === null; use dataXMin instead.
+        const tx = line.x !== null ? line.x : (this._dataXMin ?? xMin);
+        if (tx < xMin || tx > xMax) continue;
+        const px = toX(tx);
 
-    // Hover dot on nearest point.
+        ctx.strokeStyle  = colTob;
+        ctx.globalAlpha  = 0.55;
+        ctx.lineWidth    = 1 * dpr;
+        ctx.setLineDash([4 * dpr, 3 * dpr]);
+        ctx.beginPath(); ctx.moveTo(px, mt); ctx.lineTo(px, mt + ch); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha  = 1;
+
+        // Rotated code label at the top of the chart area.
+        ctx.save();
+        ctx.translate(px - 3 * dpr, mt + ch / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle    = colTob;
+        ctx.globalAlpha  = 0.85;
+        ctx.font         = `${9 * dpr}px 'JetBrains Mono', monospace`;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(line.code, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
+
+    // Helper: draw a data line, lifting the pen at nulls.
+    const drawSeries = (pts, color, lw = 1.5) => {
+      if (!pts || pts.length === 0) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = lw * dpr;
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+      ctx.setLineDash([]);
+      let open = false;
+      ctx.beginPath();
+      for (const p of pts) {
+        if (!p) {
+          if (open) { ctx.stroke(); ctx.beginPath(); open = false; }
+          continue;
+        }
+        const px = toX(p.x), py = toY(p.y);
+        if (!open) { ctx.moveTo(px, py); open = true; } else { ctx.lineTo(px, py); }
+      }
+      if (open) ctx.stroke();
+    };
+
+    // Draw series in back-to-front order: PHA → TOB → Total.
+    if (this._showPha   && phaPts)   drawSeries(phaPts,   colPha,   1.5);
+    if (this._showTob   && tobPts)   drawSeries(tobPts,   colTob,   1.5);
+    if (this._showTotal && totalPts) drawSeries(totalPts, colTotal, 1.5);
+
+    // Hover dots on all visible series at hovered x.
     if (this._hoveredPt && this._hoverX !== null &&
         this._hoverX >= xMin && this._hoverX <= xMax) {
-      const px = toX(this._hoverX);
-      const py = toY(this._hoveredPt.y);
-      ctx.beginPath(); ctx.arc(px, py, 3 * dpr, 0, Math.PI * 2);
-      ctx.fillStyle   = colAdj; ctx.fill();
-      ctx.strokeStyle = colBg;  ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      const dotAt = (pts, color) => {
+        if (!pts) return;
+        const p = pts.find(q => q && Math.abs(q.x - this._hoverX) < 1e-9);
+        if (!p) return;
+        ctx.beginPath(); ctx.arc(toX(p.x), toY(p.y), 3 * dpr, 0, Math.PI * 2);
+        ctx.fillStyle   = color; ctx.fill();
+        ctx.strokeStyle = colBg; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      };
+      if (this._showPha   && phaPts)   dotAt(phaPts,   colPha);
+      if (this._showTob   && tobPts)   dotAt(tobPts,   colTob);
+      if (this._showTotal && totalPts) dotAt(totalPts, colTotal);
     }
 
-    // Trend line (inside clip).
-    const _activeTrend = this._mode === 'monthly' ? this._monthlyTrend : this._yearlyTrend;
+    // Trend line and LOESS for the total series (inside clip).
     const colTrend     = isLight ? '#2060b0' : '#7fb2ff';
-
-    // LOESS smooth line (bold, solid, 3 px — inside clip).
+    const _activeTrend = this._mode === 'monthly' ? this._monthlyTrend : this._yearlyTrend;
     const _activeLoess = this._mode === 'monthly' ? this._loessMonthly : this._loessYearly;
-    if (_activeLoess && _activeLoess.length >= 2 && this._showLoess) {
+
+    if (this._showTotal && _activeLoess && _activeLoess.length >= 2 && this._showLoess) {
       ctx.strokeStyle = colTrend;
       ctx.lineWidth   = 3 * dpr;
       ctx.setLineDash([]);
@@ -632,7 +900,7 @@ export class AdjChart {
       if (loessOpen) ctx.stroke();
     }
 
-    if (_activeTrend && this._showTrend) {
+    if (this._showTotal && _activeTrend && this._showTrend) {
       const trendStartY = _activeTrend.intercept + _activeTrend.slopePerYear * xMin;
       const trendEndY   = _activeTrend.intercept + _activeTrend.slopePerYear * xMax;
       ctx.strokeStyle = colTrend;
@@ -647,8 +915,8 @@ export class AdjChart {
 
     ctx.restore();
 
-    // Slope label (outside clip).
-    if (_activeTrend && this._showTrend) {
+    // Slope label (outside clip, only for total series).
+    if (this._showTotal && _activeTrend && this._showTrend) {
       const slope = _activeTrend.slopePer100Years;
       const sign  = slope < 0 ? '−' : '+';
       const text  = `${sign}${Math.abs(slope).toFixed(2)}°C/100yr`;
@@ -769,16 +1037,34 @@ export class AdjChart {
     this._hoveredPt = bestPt;
 
     // Format tooltip.
-    const adj     = bestPt.y;
-    const sign    = adj >= 0 ? '+' : '';
-    const adjStr  = `${sign}${adj.toFixed(2)}°C`;
+    const _fmtV = v => {
+      if (v == null) return '—';
+      const s = v >= 0 ? '+' : '';
+      return `${s}${v.toFixed(2)}°`;
+    };
+    const tobPts = this._mode === 'monthly' ? this._tobMonthly : this._tobYearly;
+    const phaPts = this._mode === 'monthly' ? this._phaMonthly : this._phaYearly;
+    const _findAt = (pts, x) => pts?.find(q => q && Math.abs(q.x - x) < 1e-9) ?? null;
 
     if (this._mode === 'monthly') {
-      this._tooltip.textContent = `${bestPt.label}  ${adjStr}`;
+      const parts = [bestPt.label];
+      if (this._showTotal) parts.push(`Total ${_fmtV(bestPt.y)}`);
+      if (this._showTob && tobPts) parts.push(`TOB ${_fmtV(_findAt(tobPts, bestPt.x)?.y)}`);
+      if (this._showPha && phaPts) parts.push(`PHA ${_fmtV(_findAt(phaPts, bestPt.x)?.y)}`);
+      this._tooltip.textContent = parts.join('  ');
     } else {
-      // yearly: show year + adjustment + month count
       const year = Math.round(bestPt.x);
-      this._tooltip.textContent = `${year}\n${adjStr} (${bestPt.nMonths} mo)`;
+      const lines = [`${year}`];
+      if (this._showTotal) lines.push(`Total ${_fmtV(bestPt.y)} (${bestPt.nMonths} mo)`);
+      if (this._showTob && tobPts) {
+        const tp = _findAt(tobPts, bestPt.x);
+        if (tp) lines.push(`TOB ${_fmtV(tp.y)} (${tp.nMonths} mo)`);
+      }
+      if (this._showPha && phaPts) {
+        const pp = _findAt(phaPts, bestPt.x);
+        if (pp) lines.push(`PHA ${_fmtV(pp.y)} (${pp.nMonths} mo)`);
+      }
+      this._tooltip.textContent = lines.join('\n');
     }
     this._tooltip.hidden = false;
 

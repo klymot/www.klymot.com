@@ -54,7 +54,7 @@ let _lastFocused = null;
 let _headerTooltipResizeHandler = null;
 let _printRoot = null;
 let _printCharts = [];
-let _detailRawCsv = { qcu: null, qcf: null };
+let _detailRawCsv = { qcu: null, qcf: null, tob: null };
 
 /** Current index entry and sprite descriptors, used by the change-canvas renderer. */
 let _currentIndexEntry = null;
@@ -94,7 +94,11 @@ let _sharedShowLoess = false;
 let _sharedLoessSpan = 0.3;
 
 /** Current mode for the Adjustments chart (independent of temp chart mode). */
-let _adjMode = 'monthly';
+let _adjMode    = 'monthly';
+/** Adj series visibility — persisted to URL when the adj section is active. */
+let _adjShowTotal = true;
+let _adjShowTob   = true;
+let _adjShowPha   = true;
 
 /** Cache of loaded sprite Image objects keyed by src URL. */
 const _imgCache = {};
@@ -264,7 +268,7 @@ export function closeDetail() {
 function _destroyCharts() {
   for (const chart of Object.values(_charts)) chart?.destroy();
   _charts = {};
-  _detailRawCsv = { qcu: null, qcf: null };
+  _detailRawCsv = { qcu: null, qcf: null, tob: null };
 }
 
 function _applyChartModeUi(section, mode) {
@@ -351,16 +355,34 @@ function _initCharts() {
   const adjChart = adjWrap ? new AdjChart(adjWrap) : null;
   if (adjChart) _charts['adj'] = adjChart;
 
-  // Restore adj mode from URL if the adj section was active.
-  if (restore?.section === 'adj' && restore?.mode) {
-    _adjMode = restore.mode;
-    adjChart?.setMode(_adjMode);
-    _panel.querySelectorAll('[data-section="adj"] [data-adj-mode]').forEach(b => {
-      const active = b.dataset.adjMode === _adjMode;
-      b.classList.toggle('active', active);
-      b.setAttribute('aria-pressed', String(active));
+  // Restore adj mode + series visibility from URL if the adj section was active.
+  if (restore?.section === 'adj') {
+    if (restore.mode) {
+      _adjMode = restore.mode;
+      adjChart?.setMode(_adjMode);
+      _panel.querySelectorAll('[data-section="adj"] [data-adj-mode]').forEach(b => {
+        const active = b.dataset.adjMode === _adjMode;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
+      _panel.querySelector('[data-section="adj"] .chart-mode-row')?._updateArrows?.();
+    }
+    // Restore series visibility (defaults: all on).
+    _adjShowTotal = restore.showTotal !== false;
+    _adjShowTob   = restore.showTob   !== false;
+    _adjShowPha   = restore.showPha   !== false;
+    adjChart?.setShowSeries('total', _adjShowTotal);
+    adjChart?.setShowSeries('tob',   _adjShowTob);
+    adjChart?.setShowSeries('pha',   _adjShowPha);
+    _panel.querySelectorAll('[data-section="adj"] .adj-series-btn').forEach(b => {
+      const series = b.dataset.series;
+      const on = series === 'total' ? _adjShowTotal
+               : series === 'tob'   ? _adjShowTob
+               : series === 'pha'   ? _adjShowPha
+               : true;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
     });
-    _panel.querySelector('[data-section="adj"] .chart-mode-row')?._updateArrows?.();
   }
 
   // Wire adj mode buttons.
@@ -391,15 +413,31 @@ function _initCharts() {
   // Propagate adj zoom changes to URL.
   adjWrap?.addEventListener('chart:zoom', () => _updateStationUrl());
 
+  // Wire adj series toggle buttons (Total / TOB / PHA).
+  _panel.querySelectorAll('[data-section="adj"] .adj-series-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const series  = btn.dataset.series;
+      const pressed = btn.classList.toggle('active');
+      btn.setAttribute('aria-pressed', String(pressed));
+      if (series === 'total') _adjShowTotal = pressed;
+      if (series === 'tob')   _adjShowTob   = pressed;
+      if (series === 'pha')   _adjShowPha   = pressed;
+      adjChart?.setShowSeries(series, pressed);
+      _updateStationUrl();
+    });
+  });
+
   // Track data-load completion so we can compute the cross-chart union range.
-  // Raw CSV texts are stored so we can feed both to AdjChart once both have loaded.
-  _detailRawCsv = { qcu: null, qcf: null };
-  let loadsRemaining = SECTIONS.length;
+  // Raw CSV texts are stored so we can feed all three to AdjChart once loaded.
+  _detailRawCsv = { qcu: null, qcf: null, tob: null };
+  // 2 temp-chart CSVs + 1 TOB CSV = 3 loads before we can initialise the adj chart.
+  let loadsRemaining = SECTIONS.length + 1; // +1 for TOB
+
   function _onChartDataLoaded() {
     loadsRemaining--;
     if (loadsRemaining > 0) return;
 
-    // Both charts have loaded — compute the union of their data extents.
+    // All CSVs have loaded — compute the union of temp-chart data extents.
     let globalMin = Infinity, globalMax = -Infinity;
     for (const s of SECTIONS) {
       const range = _charts[s]?.getDataRange();
@@ -420,10 +458,16 @@ function _initCharts() {
       }
     }
 
-    // Feed both datasets to the adj chart and give it the same x range.
+    // Feed all three datasets to the adj chart and give it the same x range.
     if (adjChart && _detailRawCsv.qcu !== null && _detailRawCsv.qcf !== null) {
-      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf);
+      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf, _detailRawCsv.tob);
       adjChart.setGlobalRange(globalMin, globalMax);
+
+      // Enable series toggle buttons now that data is ready.
+      _panel.querySelectorAll('[data-section="adj"] .adj-series-btn').forEach(btn => {
+        btn.disabled = false;
+        btn.removeAttribute('title');
+      });
     }
 
     // Apply inspector only to the section that was active when the URL was shared.
@@ -437,6 +481,15 @@ function _initCharts() {
     // Re-serialise URL and refresh QR now that the final zoom/inspector are set.
     _updateStationUrl();
   }
+
+  // Fetch the TOB CSV (missing file → null, treated as all-zeros 24HR).
+  fetch(`data/tob/${encodeURIComponent(locationId)}.csv`)
+    .then(r => r.ok ? r.text() : null)
+    .catch(() => null)
+    .then(text => {
+      _detailRawCsv.tob = text ?? null;
+      _onChartDataLoaded();
+    });
 
   SECTIONS.forEach((section, i) => {
     const wrap = _panel.querySelector(`[data-section="${section}"] .chart-canvas-wrap`);
@@ -1031,7 +1084,10 @@ function _updateStationUrl() {
       detail.zoomMax = zoom?.max;
     }
   } else if (section === 'adj') {
-    detail.mode = _adjMode;
+    detail.mode      = _adjMode;
+    detail.showTotal = _adjShowTotal;
+    detail.showTob   = _adjShowTob;
+    detail.showPha   = _adjShowPha;
   } else if (section === 'bu-surface' || section === 'population') {
     const yearTab = _panel.querySelector('.bu-tab.active') ??
                     _panel.querySelector('.pop-tab.active');
@@ -1196,8 +1252,8 @@ function _adjChartPanel() {
       <div class="chart-canvas-wrap"></div>
       <div class="adj-series-toggles" role="group" aria-label="Adjustment series">
         <button class="adj-series-btn active" data-series="total" style="--s-color:var(--adj-total)" aria-pressed="true">Total</button>
-        <button class="adj-series-btn" data-series="tob" style="--s-color:var(--adj-tob)" disabled title="TOB component coming soon" aria-pressed="false">TOB</button>
-        <button class="adj-series-btn" data-series="pha" style="--s-color:var(--adj-pha)" disabled title="PHA component coming soon" aria-pressed="false">PHA</button>
+        <button class="adj-series-btn active" data-series="tob" style="--s-color:var(--adj-tob)" disabled aria-pressed="true">TOB</button>
+        <button class="adj-series-btn active" data-series="pha" style="--s-color:var(--adj-pha)" disabled aria-pressed="true">PHA</button>
       </div>
     </div>`;
 }
@@ -1788,7 +1844,7 @@ async function _populatePrintRoot() {
     qcuChart?.resetZoom();
     qcfChart?.resetZoom();
     if (adjChart && _detailRawCsv.qcu != null && _detailRawCsv.qcf != null) {
-      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf);
+      adjChart.load(_detailRawCsv.qcu, _detailRawCsv.qcf, _detailRawCsv.tob);
       adjChart.setGlobalRange(globalMin, globalMax);
       adjChart.resetZoom();
     }

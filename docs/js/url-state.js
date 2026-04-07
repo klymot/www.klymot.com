@@ -16,6 +16,7 @@
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
  *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the trend line; 'loess' to enable LOESS; 'loessspan=NN' for span (10–90); combine with commas; '-' for defaults
  *   bymonth:  3-hex-digit bitmask of selected months (bit 0 = Jan … bit 11 = Dec); default '041' = Jan+Jul
+ *   adjseries: comma-separated flags; 'notob' hides TOB series; 'nopha' hides PHA series; '-' for defaults (both shown)
  *
  * Theme is intentionally excluded — it is a user preference stored in
  * localStorage, not part of shareable state.
@@ -83,6 +84,9 @@ export function serialiseMapState(map, projection, filterActive = null) {
  * @param {boolean} [detail.showLoess]                     — whether to show LOESS smooth line (default false)
  * @param {number}  [detail.loessSpan]                     — LOESS bandwidth span 0.1–0.9 (default 0.3)
  * @param {Set<number>} [detail.selectedMonths]            — bymonth mode: which months to display (default Jan+Jul)
+ * @param {boolean} [detail.showTotal]                     — show Total series in adj chart (default true)
+ * @param {boolean} [detail.showTob]                       — show TOB series in adj chart (default true)
+ * @param {boolean} [detail.showPha]                       — show PHA series in adj chart (default true)
  * @returns {string}  e.g. 'station=USW00021514;qcu;yearly;1950.00,2024.00;-'
  */
 export function serialiseStationState(locationId, detail = {}) {
@@ -93,6 +97,7 @@ export function serialiseStationState(locationId, detail = {}) {
     excludeSparseAnomalyYears, useCenteredAnomalyReference, showAnomalyTrend,
     showLoess, loessSpan,
     selectedMonths,
+    showTotal, showTob, showPha,
   } = detail;
 
   // Build bymonth bitmask; default is Jan+Jul = 0x041.
@@ -114,7 +119,10 @@ export function serialiseStationState(locationId, detail = {}) {
     useCenteredAnomalyReference !== true &&
     showAnomalyTrend !== false &&
     !showLoess &&
-    bymonthMask === _BYMONTH_DEFAULT
+    bymonthMask === _BYMONTH_DEFAULT &&
+    showTotal !== false &&
+    showTob !== false &&
+    showPha !== false
   ) {
     return `station=${encodedId}`;
   }
@@ -141,7 +149,13 @@ export function serialiseStationState(locationId, detail = {}) {
   const anomalyStr  = anomalyFlags.length ? anomalyFlags.join(',') : '-';
   const bymonthStr  = bymonthMask === _BYMONTH_DEFAULT ? '-' : bymonthMask.toString(16).padStart(3, '0');
 
-  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr};${anomalyStr};${bymonthStr}`;
+  const adjSeriesFlags = [];
+  if (showTotal === false) adjSeriesFlags.push('nototal');
+  if (showTob === false) adjSeriesFlags.push('notob');
+  if (showPha === false) adjSeriesFlags.push('nopha');
+  const adjSeriesStr = adjSeriesFlags.length ? adjSeriesFlags.join(',') : '-';
+
+  return `station=${encodedId};${sectionStr};${modeStr};${zoomStr};${partialStr};${anomalyStr};${bymonthStr};${adjSeriesStr}`;
 }
 
 /**
@@ -254,6 +268,12 @@ export function parseHash(hash) {
         for (let i = 0; i < 12; i++) { if (bymonthMask & (1 << i)) months.push(i); }
         result.selectedMonths = months;
       }
+
+      const p7 = parts.length >= 8 ? parts[7] : '-';
+      const adjSeriesFlags = new Set((p7 && p7 !== '-') ? p7.split(',') : []);
+      result.showTotal = !adjSeriesFlags.has('nototal');
+      result.showTob   = !adjSeriesFlags.has('notob');
+      result.showPha   = !adjSeriesFlags.has('nopha');
     }
   } else if (raw.startsWith('table=')) {
     const parts = raw.slice(6).split('/');
