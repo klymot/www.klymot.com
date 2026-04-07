@@ -1,4 +1,4 @@
-# Meridian — Global Observatory Network
+# Meridian — Interactive GHCN Explorer
 
 An interactive world map of ~30,000 climate monitoring stations and observatories. Pan, zoom, switch projections, toggle themes, search stations, browse a sortable table, and share any view or station via a URL or QR code.
 

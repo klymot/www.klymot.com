@@ -2239,7 +2239,7 @@ function _detailHeader(category, name, data, indexEntry, locationId) {
     <div class="detail-print-brand">
       <span class="header-logo" aria-hidden="true">◎</span>
       <span class="header-title">Meridian</span>
-      <span class="header-subtitle">Global Observatory Network</span>
+      <span class="header-subtitle">Interactive GHCN Explorer</span>
     </div>
     <div class="detail-header">
       <div class="detail-header-left">
