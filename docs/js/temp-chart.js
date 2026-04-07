@@ -1233,7 +1233,7 @@ export class TempChart {
     // Complete-year data line (drawn after amber connecting line so blue overlaps
     // amber at the shared complete-year junction points).
     if (pts) {
-      if (this._showLoess) ctx.globalAlpha = 0.5;
+      if (this._showLoess || this._showAnomalyTrend) ctx.globalAlpha = 0.5;
       ctx.strokeStyle = colLine; ctx.lineWidth = 1.5 * dpr;
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       let open = false;
@@ -1419,7 +1419,7 @@ export class TempChart {
     }
 
     // Month lines
-    if (this._showLoess) ctx.globalAlpha = 0.5;
+    if (this._showLoess || this._showAnomalyTrend) ctx.globalAlpha = 0.5;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const m of selected) {
       ctx.strokeStyle = colors[m];
