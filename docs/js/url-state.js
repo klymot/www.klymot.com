@@ -2,9 +2,12 @@
  * URL hash state serialisation and parsing.
  *
  * Hash formats:
- *   Map view:   #map=<zoom>/<lat>/<lng>/<projection>
+ *   Map view:   #map=<zoom>/<lat>/<lng>/<projection>[/filters=<filter-state>]
  *   Station:    #station=<location-id>[;<section>;<mode>;<zoom>;<partial>;<anomaly>]
- *   Table view: #table=<sort-column>/<sort-direction>
+ *   Table view: #table=<sort-column>/<sort-direction>[/filters=<filter-state>]
+ *
+ * Filter state: filters=<filterId>:<bandIdx>[.<bandIdx>…][~<filterId>:…]
+ *   e.g. filters=lat:0.2~bu_2020_1km:0
  *
  * Station detail fields (all optional, use '-' for absent):
  *   section:  qcu | qcf | bu | pop
@@ -28,17 +31,40 @@ const _SECTION_EXPAND = {
 };
 
 /**
+ * Serialise active filter selections into a URL suffix string.
+ * Returns '' if there are no active selections.
+ * @param {Object} active  — { filterId: Set<number> }  (from filter-bar getActiveSelections)
+ * @returns {string}  e.g. 'filters=lat:0.2~bu_2020_1km:0' or ''
+ */
+export function serialiseFilterState(active) {
+  if (!active || typeof active !== 'object') return '';
+  const parts = [];
+  for (const [filterId, bands] of Object.entries(active)) {
+    if (!(bands instanceof Set) || bands.size === 0) continue;
+    const bandStr = [...bands].sort((a, b) => a - b).join('.');
+    parts.push(`${filterId}:${bandStr}`);
+  }
+  return parts.length ? `filters=${parts.join('~')}` : '';
+}
+
+/**
  * Serialise the current map viewport to a hash fragment string.
- * @param {object} map         — MapLibre map instance
- * @param {string} projection  — 'mercator' | 'globe'
+ * @param {object} map          — MapLibre map instance
+ * @param {string} projection   — 'mercator' | 'globe'
+ * @param {object} [filterActive] — active filter selections (from filter-bar); omit for no filter state
  * @returns {string}  e.g. 'map=5.2/19.4721/-155.5922/globe'
  */
-export function serialiseMapState(map, projection) {
+export function serialiseMapState(map, projection, filterActive = null) {
   const center = map.getCenter();
   const zoom   = map.getZoom().toFixed(1);
   const lat    = center.lat.toFixed(4);
   const lng    = center.lng.toFixed(4);
-  return `map=${zoom}/${lat}/${lng}/${projection}`;
+  const base   = `map=${zoom}/${lat}/${lng}/${projection}`;
+  if (filterActive) {
+    const fs = serialiseFilterState(filterActive);
+    if (fs) return `${base}/${fs}`;
+  }
+  return base;
 }
 
 /**
@@ -122,10 +148,16 @@ export function serialiseStationState(locationId, detail = {}) {
  * Serialise the table sort state to a hash fragment string.
  * @param {string} sortColumn
  * @param {string} sortDirection  — 'asc' | 'desc'
+ * @param {object} [filterActive] — active filter selections; omit for no filter state
  * @returns {string}  e.g. 'table=name/asc'
  */
-export function serialiseTableState(sortColumn, sortDirection) {
-  return `table=${encodeURIComponent(sortColumn)}/${encodeURIComponent(sortDirection)}`;
+export function serialiseTableState(sortColumn, sortDirection, filterActive = null) {
+  const base = `table=${encodeURIComponent(sortColumn)}/${encodeURIComponent(sortDirection)}`;
+  if (filterActive) {
+    const fs = serialiseFilterState(filterActive);
+    if (fs) return `${base}/${fs}`;
+  }
+  return base;
 }
 
 /**
@@ -139,91 +171,113 @@ export function serialiseTableState(sortColumn, sortDirection) {
  *          |{ type: 'table', sortColumn: string, sortDirection: string }
  *          |null}
  */
+function _parseFilterSuffix(filterStr) {
+  const result = {};
+  if (!filterStr) return result;
+  for (const part of filterStr.split('~')) {
+    const colonIdx = part.indexOf(':');
+    if (colonIdx < 0) continue;
+    const filterId   = part.slice(0, colonIdx);
+    const bandIndices = part.slice(colonIdx + 1)
+      .split('.')
+      .map(Number)
+      .filter(n => Number.isInteger(n) && n >= 0);
+    if (filterId && bandIndices.length) result[filterId] = new Set(bandIndices);
+  }
+  return result;
+}
+
 export function parseHash(hash) {
   const raw = (hash ?? '').replace(/^#/, '');
   if (!raw) return null;
 
+  let result = null;
+  let filterPart = '';
+
   if (raw.startsWith('map=')) {
     const parts = raw.slice(4).split('/');
-    if (parts.length < 4) return null;
-    const zoom = parseFloat(parts[0]);
-    const lat  = parseFloat(parts[1]);
-    const lng  = parseFloat(parts[2]);
-    const projection = parts[3];
-    if (isNaN(zoom) || isNaN(lat) || isNaN(lng)) return null;
-    if (projection !== 'mercator' && projection !== 'globe') return null;
-    return { type: 'map', zoom, lat, lng, projection };
-  }
-
-  if (raw.startsWith('station=')) {
-    const rest  = raw.slice(8);
-    const parts = rest.split(';');
-    const id    = decodeURIComponent(parts[0]);
-    if (!id) return null;
-
-    const result = { type: 'station', id };
-
-    // section (index 1)
-    if (parts.length >= 2 && parts[1] && parts[1] !== '-') {
-      result.section = _SECTION_EXPAND[parts[1]] ?? parts[1];
-    }
-
-    // mode (index 2)
-    if (parts.length >= 3 && parts[2] && parts[2] !== '-') {
-      result.mode = parts[2];
-    }
-
-    // zoom (index 3): "min,max"
-    if (parts.length >= 4 && parts[3] && parts[3] !== '-') {
-      const zp = parts[3].split(',');
-      if (zp.length === 2) {
-        const zMin = parseFloat(zp[0]);
-        const zMax = parseFloat(zp[1]);
-        if (isFinite(zMin) && isFinite(zMax)) {
-          result.zoomMin = zMin;
-          result.zoomMax = zMax;
+    if (parts.length >= 4) {
+      const zoom = parseFloat(parts[0]);
+      const lat  = parseFloat(parts[1]);
+      const lng  = parseFloat(parts[2]);
+      const projection = parts[3];
+      if (!isNaN(zoom) && !isNaN(lat) && !isNaN(lng) &&
+          (projection === 'mercator' || projection === 'globe')) {
+        result = { type: 'map', zoom, lat, lng, projection };
+        // Optional 5th field: filters=...
+        if (parts.length >= 5 && parts[4].startsWith('filters=')) {
+          filterPart = parts[4];
         }
       }
     }
+  } else if (raw.startsWith('station=')) {
+    const rest  = raw.slice(8);
+    const parts = rest.split(';');
+    const id    = decodeURIComponent(parts[0]);
+    if (id) {
+      result = { type: 'station', id };
 
-    // Partial-year state (index 4): 'noest' = estimates off; 'noci' = est on, CI off; '-'/absent = both on.
-    const p4 = parts.length >= 5 ? parts[4] : '-';
-    result.showEst = p4 !== 'noest';
-    result.showCI  = p4 !== 'noest' && p4 !== 'noci';
+      if (parts.length >= 2 && parts[1] && parts[1] !== '-') {
+        result.section = _SECTION_EXPAND[parts[1]] ?? parts[1];
+      }
+      if (parts.length >= 3 && parts[2] && parts[2] !== '-') {
+        result.mode = parts[2];
+      }
+      if (parts.length >= 4 && parts[3] && parts[3] !== '-') {
+        const zp = parts[3].split(',');
+        if (zp.length === 2) {
+          const zMin = parseFloat(zp[0]);
+          const zMax = parseFloat(zp[1]);
+          if (isFinite(zMin) && isFinite(zMax)) {
+            result.zoomMin = zMin;
+            result.zoomMax = zMax;
+          }
+        }
+      }
+      const p4 = parts.length >= 5 ? parts[4] : '-';
+      result.showEst = p4 !== 'noest';
+      result.showCI  = p4 !== 'noest' && p4 !== 'noci';
 
-    // Annual anomaly state (index 5): defaults are exclude sparse years and use all full years.
-    const p5 = parts.length >= 6 ? parts[5] : '-';
-    const anomalyFlags = new Set((p5 && p5 !== '-') ? p5.split(',') : []);
-    result.excludeSparseAnomalyYears = !anomalyFlags.has('inclsparse');
-    result.useCenteredAnomalyReference = anomalyFlags.has('center30');
-    result.showAnomalyTrend = !anomalyFlags.has('notrend');
-    result.showLoess = anomalyFlags.has('loess');
-    const loessSpanFlag = [...anomalyFlags].find(f => f.startsWith('loessspan='));
-    result.loessSpan = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
+      const p5 = parts.length >= 6 ? parts[5] : '-';
+      const anomalyFlags = new Set((p5 && p5 !== '-') ? p5.split(',') : []);
+      result.excludeSparseAnomalyYears   = !anomalyFlags.has('inclsparse');
+      result.useCenteredAnomalyReference =  anomalyFlags.has('center30');
+      result.showAnomalyTrend            = !anomalyFlags.has('notrend');
+      result.showLoess                   =  anomalyFlags.has('loess');
+      const loessSpanFlag = [...anomalyFlags].find(f => f.startsWith('loessspan='));
+      result.loessSpan = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
 
-    // Bymonth selection (index 6): 3-hex-digit bitmask; '-'/absent = default Jan+Jul.
-    const p6 = parts.length >= 7 ? parts[6] : '-';
-    const bymonthMask = (p6 && p6 !== '-') ? parseInt(p6, 16) : 0x041;
-    if (!isNaN(bymonthMask)) {
-      const months = [];
-      for (let i = 0; i < 12; i++) { if (bymonthMask & (1 << i)) months.push(i); }
-      result.selectedMonths = months;
+      const p6 = parts.length >= 7 ? parts[6] : '-';
+      const bymonthMask = (p6 && p6 !== '-') ? parseInt(p6, 16) : 0x041;
+      if (!isNaN(bymonthMask)) {
+        const months = [];
+        for (let i = 0; i < 12; i++) { if (bymonthMask & (1 << i)) months.push(i); }
+        result.selectedMonths = months;
+      }
     }
-
-    return result;
-  }
-
-  if (raw.startsWith('table=')) {
+  } else if (raw.startsWith('table=')) {
     const parts = raw.slice(6).split('/');
-    if (parts.length < 2) return null;
-    return {
-      type:          'table',
-      sortColumn:    decodeURIComponent(parts[0]),
-      sortDirection: decodeURIComponent(parts[1]),
-    };
+    if (parts.length >= 2) {
+      result = {
+        type:          'table',
+        sortColumn:    decodeURIComponent(parts[0]),
+        sortDirection: decodeURIComponent(parts[1]),
+      };
+      // Optional 3rd field: filters=...
+      if (parts.length >= 3 && parts[2].startsWith('filters=')) {
+        filterPart = parts[2];
+      }
+    }
   }
 
-  return null;
+  if (!result) return null;
+
+  // Attach filter state if present
+  if (filterPart.startsWith('filters=')) {
+    result.filters = _parseFilterSuffix(filterPart.slice(8));
+  }
+
+  return result;
 }
 
 /**

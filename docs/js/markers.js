@@ -1,11 +1,12 @@
 import { getMap } from './map.js?v=20260406';
 
 // ── Module state ─────────────────────────────────────────────────────────────
-let _locations       = [];
-let _buSprites       = { bu2020: null, bu1975: null, pop2020: null, pop1975: null };  // sprite descriptors by year
+let _locations         = [];
+let _buSprites         = { bu2020: null, bu1975: null, pop2020: null, pop1975: null };
 let _featureCollection = null;
-let _currentTheme    = 'dark';
-let _syncRetryTimer  = null;
+let _currentTheme      = 'dark';
+let _syncRetryTimer    = null;
+let _filteredIds       = null; // null = show all; Set<string> = filtered subset
 
 // ── Colour palette ───────────────────────────────────────────────────────────
 const COLORS = {
@@ -14,12 +15,14 @@ const COLORS = {
     station:      '#d4a855',
     textFill:     '#e8d5a3',
     textHalo:     'rgba(10,22,40,0.8)',
+    geoLines:     'rgba(212, 168, 85, 0.40)',
   },
   light: {
     observatory:  '#1e6e90',
     station:      '#7a5f20',
     textFill:     '#3d2b1f',
     textHalo:     'rgba(244,240,232,0.8)',
+    geoLines:     'rgba(100, 80, 20, 0.45)',
   },
 };
 
@@ -30,6 +33,12 @@ const LAYER_IDS = {
   markers: 'location-markers',
   labels: 'location-labels',
 };
+
+// Geographic reference lines (Arctic Circle, Tropic of Cancer/Capricorn, Antarctic Circle)
+const GEO_LINES_SOURCE = 'geographic-lines';
+const GEO_LINES_LAYER  = 'geographic-lines-layer';
+const GEO_LABELS_LAYER  = 'geographic-line-labels-layer';
+const GEO_LATITUDES    = [66.5, 23.4, 0, -23.4, -66.5];
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -109,6 +118,16 @@ export async function initMarkers(theme) {
  */
 export function setMarkersTheme(theme) {
   _currentTheme = theme;
+}
+
+/**
+ * Restrict which locations are shown on the map.
+ * Pass null to show all locations.
+ */
+export function setFilteredLocations(filteredIds) {
+  _filteredIds = filteredIds ? new Set(filteredIds) : null;
+  _applySourceFilter();
+  _updateStationCount();
 }
 
 // ── Private helpers ──────────────────────────────────────────────────────────
@@ -229,7 +248,9 @@ function _syncLayers() {
   try {
     const map = getMap();
     if (!map?.getStyle?.()) return;
+    _addGeographicLines();
     _addLayers();
+    _applySourceFilter();
   } catch (_err) {
     _syncRetryTimer = setTimeout(() => {
       _syncLayers();
@@ -245,5 +266,99 @@ function _addLayerIfMissing(config) {
 
 function _updateStationCount() {
   const el = document.getElementById('station-count');
-  if (el) el.textContent = `${_locations.length.toLocaleString()} stations`;
+  if (!el) return;
+  const total = _locations.length;
+  const shown = _filteredIds !== null ? _filteredIds.size : total;
+  el.textContent = shown === total
+    ? `${total.toLocaleString()} stations`
+    : `${shown.toLocaleString()} of ${total.toLocaleString()} stations`;
+}
+
+function _applySourceFilter() {
+  const map = getMap();
+  const src = map?.getSource?.(SOURCE_ID);
+  if (!src || !_featureCollection) return;
+  if (_filteredIds === null) {
+    src.setData(_featureCollection);
+  } else {
+    src.setData({
+      type: 'FeatureCollection',
+      features: _featureCollection.features.filter(f => _filteredIds.has(f.properties.id)),
+    });
+  }
+}
+
+function _latLineFeature(lat) {
+  const label = lat === 66.5
+    ? 'ARCTIC CIRCLE'
+    : lat === 23.4
+      ? 'TROPIC OF CANCER'
+      : lat === 0
+        ? 'EQUATOR'
+        : lat === -23.4
+          ? 'TROPIC OF CAPRICORN'
+          : 'ANTARCTIC CIRCLE';
+
+  // 37 points every 10° for smooth globe rendering
+  return {
+    type: 'Feature',
+    properties: { lat, label },
+    geometry: {
+      type: 'LineString',
+      coordinates: Array.from({ length: 37 }, (_, i) => [-180 + i * 10, lat]),
+    },
+  };
+}
+
+function _addGeographicLines() {
+  const map    = getMap();
+  const colors = COLORS[_currentTheme] ?? COLORS.dark;
+
+  if (!map.getSource(GEO_LINES_SOURCE)) {
+    map.addSource(GEO_LINES_SOURCE, {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: GEO_LATITUDES.map(_latLineFeature),
+      },
+    });
+  }
+
+  _addLayerIfMissing({
+    id:     GEO_LINES_LAYER,
+    type:   'line',
+    source: GEO_LINES_SOURCE,
+    paint:  {
+      'line-color':     colors.geoLines,
+      'line-width':     1,
+      'line-dasharray': [5, 5],
+      'line-opacity':   1,
+    },
+  });
+
+  _addLayerIfMissing({
+    id:     GEO_LABELS_LAYER,
+    type:   'symbol',
+    source: GEO_LINES_SOURCE,
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+      'symbol-placement': 'line',
+      'symbol-spacing': 500,
+      'text-size': [
+        'interpolate', ['linear'], ['zoom'],
+        1, 10,
+        3, 12,
+      ],
+      'text-max-width': 100,
+      'text-keep-upright': true,
+      'text-rotation-alignment': 'map',
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
+    },
+    paint: {
+      'text-color': colors.geoLines,
+      'text-opacity': 0.8,
+    },
+  });
 }

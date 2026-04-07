@@ -1,10 +1,11 @@
 import { initMap, getMap, setProjection, getProjection, updateMapTheme, supportsProjection } from './map.js?v=20260406';
 import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js?v=20260406';
-import { initMarkers, setMarkersTheme, getLocations, getBuSprite } from './markers.js?v=20260406';
-import { serialiseMapState, parseHash, pushState, onHashChange } from './url-state.js?v=20260406';
+import { initMarkers, setMarkersTheme, getLocations, getBuSprite, setFilteredLocations } from './markers.js?v=20260406';
+import { serialiseMapState, parseHash, pushState, onHashChange, serialiseFilterState } from './url-state.js?v=20260406';
 import { initMapQR } from './qr.js?v=20260406';
 import { initDetailPanel, openDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260406';
-import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter } from './table-view.js?v=20260406';
+import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter, setColumnFilters } from './table-view.js?v=20260406';
+import { initFilterBar, getActiveSelections, restoreSelections } from './filter-bar.js?v=20260406';
 import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260406';
 import { initConsent } from './consent.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
@@ -51,7 +52,7 @@ function init() {
       btn.classList.toggle('active', btn.dataset.view === next)
     );
     if (syncUrl) {
-      pushState(serialiseMapState(map, getProjection()));
+      pushState(serialiseMapState(map, getProjection(), getActiveSelections()));
       updateMapQR(window.location.href);
     }
   }
@@ -285,7 +286,7 @@ function init() {
     clearTimeout(_moveendTimer);
     _moveendTimer = setTimeout(() => {
       if (isTableVisible()) return;
-      pushState(serialiseMapState(map, getProjection()));
+      pushState(serialiseMapState(map, getProjection(), getActiveSelections()));
       updateMapQR(window.location.href);
       // Open any station that was queued by the search (flyTo has now settled).
       if (_pendingStation) {
@@ -305,6 +306,7 @@ function init() {
   onHashChange(() => {
     const state = parseHash(window.location.hash);
     if (!state) return;
+    if (state.filters) restoreSelections(state.filters);
     if (state.type === 'map') {
       if (isTableVisible()) hideTable();
       map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom });
@@ -328,8 +330,30 @@ function init() {
       : (fn) => window.setTimeout(fn, 300);
     scheduleSpritePreload(() => preloadDetailSprites(getBuSprite()));
 
-    initTableView(getLocations());
+    initTableView(getLocations(), () => serialiseFilterState(getActiveSelections()));
+    initFilterBar(getLocations());
     _initStationSearch(getLocations(), map, (id) => { _pendingStation = id; });
+
+    document.addEventListener('filter:change', (e) => {
+      const { filteredIds } = e.detail;
+      setColumnFilters(filteredIds);
+      setFilteredLocations(filteredIds);
+      // Keep URL and QR code in sync with the active filter state
+      if (isTableVisible()) {
+        // table-view will push its own state via _pushTableState on next sort interaction;
+        // for filter-only changes, push now
+        const filterStr = serialiseFilterState(getActiveSelections());
+        const base = getCurrentTableHash();
+        pushState(filterStr ? `${base}/${filterStr}` : base);
+      } else {
+        pushState(serialiseMapState(map, getProjection(), getActiveSelections()));
+      }
+      updateMapQR(window.location.href);
+    });
+
+    // Restore any filter state embedded in the initial URL after the filter
+    // consumers are listening, so the visible map/table state is updated too.
+    if (initialState?.filters) restoreSelections(initialState.filters);
 
     if (initialState?.type === 'station') {
       _restoreStation(initialState.id, initialState);

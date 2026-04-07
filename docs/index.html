@@ -42,6 +42,8 @@
              aria-controls="station-dropdown">
       <ul class="station-dropdown" id="station-dropdown" hidden role="listbox" aria-label="Matching stations"></ul>
     </div>
+    <button id="filter-toggle" class="btn-control filter-toggle-btn"
+            aria-pressed="false" title="Toggle column filters">Filter</button>
     <nav class="header-controls" aria-label="View and projection controls">
       <div class="view-toggle" role="group" aria-label="View mode">
         <button class="btn-control view-btn" data-view="mercator" title="Mercator (flat) projection">Mercator</button>
@@ -57,6 +59,9 @@
 
   <!-- Screen-reader-only live region for theme change announcements -->
   <span id="theme-announcement" class="sr-only" aria-live="polite" aria-atomic="true"></span>
+
+  <!-- Filter bar — sits between the header and the map/table area in all views -->
+  <div id="filter-bar" class="filter-bar" hidden role="toolbar" aria-label="Column filters"></div>
 
   <main class="map-wrapper">
     <div id="map" class="map-container" aria-label="Interactive world map"></div>

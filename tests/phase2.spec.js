@@ -218,6 +218,39 @@ test('AC4 – location-labels layer uses name field and is filtered to uncluster
   expect(JSON.stringify(layer.filter)).toContain('point_count');
 });
 
+test('AC4 – geographic latitude label layer is added with text labels', async ({ page }) => {
+  await loadPage(page);
+  await waitForMarkers(page);
+
+  const layer = await page.evaluate(() =>
+    (window.__mapLayers ?? []).find(l => l.id === 'geographic-line-labels-layer')
+  );
+  expect(layer).toBeDefined();
+  expect(layer.type).toBe('symbol');
+  expect(JSON.stringify(layer.layout?.['text-field'])).toContain('label');
+  expect(layer.layout?.['symbol-placement']).toBe('line');
+  expect(layer.layout?.['text-max-width']).toBe(100);
+  const lineLayer = await page.evaluate(() =>
+    (window.__mapLayers ?? []).find(l => l.id === 'geographic-lines-layer')
+  );
+  expect(layer.paint?.['text-color']).toBe(lineLayer.paint?.['line-color']);
+  expect(layer.paint?.['text-halo-color']).toBeUndefined();
+  expect(layer.paint?.['text-halo-width']).toBeUndefined();
+});
+
+test('AC4 – geographic latitude label source includes equator and tropic labels', async ({ page }) => {
+  await loadPage(page);
+  await waitForMarkers(page);
+
+  const labels = await page.evaluate(() =>
+    (window.__mapSources?.['geographic-lines']?.data?.features ?? [])
+      .map(f => f.properties?.label)
+  );
+  expect(labels).toContain('EQUATOR');
+  expect(labels).toContain('TROPIC OF CANCER');
+  expect(labels).toContain('TROPIC OF CAPRICORN');
+});
+
 // ── AC5: Theme toggle updates marker colours ──────────────────────────────────
 
 test('AC5 – location-markers circle-color changes to light palette after theme toggle', async ({ page }) => {

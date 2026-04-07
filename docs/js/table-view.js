@@ -37,13 +37,15 @@ const COLUMNS = [
 
 const COL_COUNT = COLUMNS.length; // all data columns; no separate action column
 
-let _allLocations = [];
-let _filtered     = [];
-let _sortCol      = 'name';
-let _sortDir      = 'asc';
-let _filterText   = '';
-let _filterTimer  = null;
-let _visible      = false;
+let _allLocations    = [];
+let _filtered        = [];
+let _sortCol         = 'name';
+let _sortDir         = 'asc';
+let _filterText      = '';
+let _filterTimer     = null;
+let _columnFilterIds = null; // null = no column filter; Set<string> = allowed IDs
+let _visible         = false;
+let _getFilterSuffix = null; // optional callback → '' | 'filters=...'
 
 let _container = null;
 let _scroller  = null;
@@ -52,9 +54,10 @@ let _countEl   = null;
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-export function initTableView(locations) {
-  _allLocations = locations;
-  _container    = document.getElementById('table-container');
+export function initTableView(locations, getFilterSuffix = null) {
+  _allLocations    = locations;
+  _getFilterSuffix = getFilterSuffix;
+  _container       = document.getElementById('table-container');
   _scroller     = document.getElementById('table-scroller');
   _tbody        = document.getElementById('table-tbody');
   _countEl      = document.getElementById('table-count');
@@ -75,7 +78,7 @@ export function initTableView(locations) {
       if (_scroller) _scroller.scrollTop = 0;
       _renderWindow();
       _updateHeaderArrows();
-      pushState(serialiseTableState(_sortCol, _sortDir));
+      _pushTableState();
     });
   });
 
@@ -101,7 +104,7 @@ export function showTable({ sortColumn, sortDirection, syncUrl = true } = {}) {
   _renderWindow();
   _updateHeaderArrows();
 
-  if (syncUrl) pushState(serialiseTableState(_sortCol, _sortDir));
+  if (syncUrl) _pushTableState();
   document.dispatchEvent(new CustomEvent('table:shown'));
 }
 
@@ -141,16 +144,38 @@ export function getCurrentTableHash() {
   return serialiseTableState(_sortCol, _sortDir);
 }
 
+function _pushTableState() {
+  const suffix = _getFilterSuffix?.() ?? '';
+  pushState(suffix ? `${serialiseTableState(_sortCol, _sortDir)}/${suffix}` : serialiseTableState(_sortCol, _sortDir));
+}
+
+/**
+ * Apply a set of allowed location IDs from the filter bar.
+ * Pass null to remove column filtering.
+ */
+export function setColumnFilters(filteredIds) {
+  _columnFilterIds = filteredIds ? new Set(filteredIds) : null;
+  _applyFilterAndSort();
+  if (_scroller) _scroller.scrollTop = 0;
+  _renderWindow();
+}
+
 // ── Private ────────────────────────────────────────────────────────────────────
 
 function _applyFilterAndSort() {
   const q = _filterText.toLowerCase();
+
+  // Start with either all locations or the column-filter subset
+  let base = _columnFilterIds
+    ? _allLocations.filter(loc => _columnFilterIds.has(loc.id))
+    : _allLocations.slice();
+
   _filtered = q
-    ? _allLocations.filter(loc =>
+    ? base.filter(loc =>
         (loc.id   ?? '').toLowerCase().includes(q) ||
         (loc.name ?? '').toLowerCase().includes(q)
       )
-    : _allLocations.slice();
+    : base;
 
   const colDef = COLUMNS.find(c => c.key === _sortCol);
   _filtered.sort((a, b) => {

@@ -136,6 +136,10 @@ window.maplibregl = (() => {
       if (!src) return null;
       return {
         ...src,
+        setData(data) {
+          // Mock: store the latest data for test inspection.
+          src._data = data;
+        },
         getClusterExpansionZoom(clusterId, callback) {
           // Mock: always expand to zoom 8.
           callback(null, 8);
