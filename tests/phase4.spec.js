@@ -157,25 +157,26 @@ test('AC1 – overlay shows the station type badge', async ({ page }) => {
   expect(category).toContain('Atmospheric Baseline Observatory');
 });
 
-test('AC1 – overlay shows the metadata grid with country, elevation, established, network', async ({ page }) => {
+test('AC1 – overlay header shows station id, elevation, latitude, longitude', async ({ page }) => {
   await loadPage(page, { detailRoutes: { 'mauna-loa': MOCK_DETAIL_MAUNA_LOA } });
   await waitForMarkers(page);
 
   await selectStation(page, 'mauna-loa');
 
-  await page.waitForSelector('.detail-meta', { timeout: 2000 });
-  const metaText = await page.locator('.detail-meta').textContent();
-  expect(metaText).toContain('USA (Hawaii)');
+  await page.waitForSelector('.detail-header-meta', { timeout: 2000 });
+  const metaText = await page.locator('.detail-header-meta').textContent();
+  expect(metaText).toContain('mauna-loa');
   expect(metaText).toContain('3397m');
-  expect(metaText).toContain('1958');
-  expect(metaText).toContain('NOAA GML / WMO GAW');
+  expect(metaText).toContain('19.4721');
+  expect(metaText).toContain('-155.5922');
 });
 
-test('AC1 – overlay shows variable tags', async ({ page }) => {
+test('AC1 – about section shows variable tags', async ({ page }) => {
   await loadPage(page, { detailRoutes: { 'mauna-loa': MOCK_DETAIL_MAUNA_LOA } });
   await waitForMarkers(page);
 
   await selectStation(page, 'mauna-loa');
+  await page.locator('.section-tab[data-section="about"]').click();
 
   await page.waitForSelector('.variable-tag', { timeout: 2000 });
   const tags = await page.locator('.variable-tag').allTextContents();
@@ -183,14 +184,15 @@ test('AC1 – overlay shows variable tags', async ({ page }) => {
   expect(tags).toContain('CH₄');
 });
 
-test('AC1 – overlay shows the description', async ({ page }) => {
+test('AC1 – about section shows the description', async ({ page }) => {
   await loadPage(page, { detailRoutes: { 'mauna-loa': MOCK_DETAIL_MAUNA_LOA } });
   await waitForMarkers(page);
 
   await selectStation(page, 'mauna-loa');
+  await page.locator('.section-tab[data-section="about"]').click();
 
-  await page.waitForSelector('.detail-description', { timeout: 2000 });
-  const desc = await page.locator('.detail-description').textContent();
+  await page.waitForSelector('.about-description', { timeout: 2000 });
+  const desc = await page.locator('.about-description').textContent();
   expect(desc).toContain('NOAA');
 });
 
@@ -378,15 +380,14 @@ test('AC6 – detail panel QR encodes the station URL (#station=<id>)', async ({
   expect(qrUrl).toContain('#station=mauna-loa');
 });
 
-test('AC6 – detail panel has a "Share this station" label', async ({ page }) => {
+test('AC6 – detail panel QR has no text label', async ({ page }) => {
   await loadPage(page, { detailRoutes: { 'mauna-loa': MOCK_DETAIL_MAUNA_LOA } });
   await waitForMarkers(page);
 
   await selectStation(page, 'mauna-loa');
 
-  await page.waitForSelector('.detail-qr .qr-label', { timeout: 2000 });
-  const label = await page.locator('.detail-qr .qr-label').textContent();
-  expect(label?.toLowerCase()).toContain('share');
+  await page.waitForSelector('.detail-qr .qr-code svg', { timeout: 2000 });
+  await expect(page.locator('.detail-qr .qr-label')).toHaveCount(0);
 });
 
 // ── AC7: URL hash updates on open and close ───────────────────────────────────
