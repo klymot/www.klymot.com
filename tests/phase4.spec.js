@@ -23,9 +23,9 @@ const EMPTY_CSS  = '';
 
 const MOCK_INDEX = {
   locations: [
-    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)',    elevation_m: 3397, established: 1958, network: 'NOAA GML' },
-    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',        elevation_m: 52,   established: 1949, network: 'WMO / GHCN' },
-    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',     elevation_m: 2835, established: 1957, network: 'NOAA GML / NSF' },
+    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)',    elevation_m: 3397, established: 1958, network: 'GHCNm' },
+    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',        elevation_m: 52,   established: 1949, network: 'GHCNm' },
+    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',     elevation_m: 2835, established: 1957, network: 'GHCNm' },
   ],
 };
 
@@ -34,10 +34,10 @@ const MOCK_DETAIL_MAUNA_LOA = {
   country:     'USA (Hawaii)',
   elevation:   '3397m',
   established: '1958',
-  type:        'Atmospheric Baseline Observatory',
-  description: 'Premier atmospheric research facility operated by NOAA.',
+  type:        'High-Elevation Climate Station',
+  description: 'High-elevation climate station included in the GHCNm archive.',
   variables:   ['CO₂', 'CH₄', 'N₂O'],
-  network:     'NOAA GML / WMO GAW',
+  network:     'GHCNm',
 };
 
 // Minimal qrcode-generator mock that stamps data-qr-url on the SVG.
@@ -154,7 +154,7 @@ test('AC1 – overlay shows the station type badge', async ({ page }) => {
 
   await page.waitForSelector('.detail-category', { timeout: 2000 });
   const category = await page.locator('.detail-category').textContent();
-  expect(category).toContain('Atmospheric Baseline Observatory');
+  expect(category).toContain('High-Elevation Climate Station');
 });
 
 test('AC1 – overlay header shows station id, elevation, latitude, longitude', async ({ page }) => {
@@ -193,7 +193,7 @@ test('AC1 – about section shows the description', async ({ page }) => {
 
   await page.waitForSelector('.about-description', { timeout: 2000 });
   const desc = await page.locator('.about-description').textContent();
-  expect(desc).toContain('NOAA');
+  expect(desc).toContain('GHCNm');
 });
 
 // ── AC2: Loading shimmer ──────────────────────────────────────────────────────

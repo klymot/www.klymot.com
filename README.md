@@ -41,7 +41,7 @@ Append to the `locations` array:
   "country": "United Kingdom",
   "elevation_m": 25,
   "established": 1990,
-  "network": "WMO / GHCN"
+  "network": "GHCNm"
 }
 ```
 
@@ -60,7 +60,7 @@ Append to the `locations` array:
   "type": "Surface Weather Station",
   "description": "A brief description of the station and its scientific role.",
   "variables": ["Temperature", "Precipitation", "Wind Speed"],
-  "network": "WMO / GHCN"
+  "network": "GHCNm"
 }
 ```
 

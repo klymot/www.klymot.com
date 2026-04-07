@@ -6,5 +6,5 @@
   "type": "Baseline Air Pollution Station",
   "description": "Samples some of the cleanest air in the world, arriving on westerly winds across the Southern Ocean. A critical Southern Hemisphere reference for greenhouse gas and aerosol trends, with an exceptionally low local pollution influence.",
   "variables": ["CO₂", "CH₄", "CFCs", "Aerosols"],
-  "network": "CSIRO / WMO GAW"
+  "network": "GHCNm"
 }

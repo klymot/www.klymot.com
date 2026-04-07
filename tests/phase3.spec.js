@@ -25,9 +25,9 @@ const EMPTY_CSS = '';
 // Minimal station index reused across tests.
 const MOCK_INDEX = {
   locations: [
-    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)', elevation_m: 3397, established: 1958, network: 'NOAA GML' },
-    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',      elevation_m: 52,   established: 1949, network: 'WMO / GHCN' },
-    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',   elevation_m: 2835, established: 1957, network: 'NOAA GML / NSF' },
+    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)', elevation_m: 3397, established: 1958, network: 'GHCNm' },
+    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',      elevation_m: 52,   established: 1949, network: 'GHCNm' },
+    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',   elevation_m: 2835, established: 1957, network: 'GHCNm' },
   ],
 };
 

@@ -28,11 +28,11 @@ const EMPTY_CSS  = '';
 
 const MOCK_INDEX = {
   locations: [
-    { id: 'mauna-loa',   name: 'Mauna Loa',        lat:  19.4721, lng: -155.5922, category: 'observatory', country: 'USA',         elevation_m: 3397, established: 1958, network: 'NOAA GML' },
-    { id: 'reykjavik',   name: 'Reykjavík',         lat:  64.1466, lng:  -21.9426, category: 'station',     country: 'Iceland',     elevation_m:   52, established: 1949, network: 'WMO / GHCN' },
-    { id: 'south-pole',  name: 'South Pole',        lat: -90.0,    lng:    0.0,    category: 'observatory', country: 'Antarctica',  elevation_m: 2835, established: 1957, network: 'NOAA GML / NSF' },
-    { id: 'cape-grim',   name: 'Cape Grim',         lat: -40.6833, lng:  144.6833, category: 'station',     country: 'Australia',   elevation_m:   94, established: 1976, network: 'CSIRO / WMO' },
-    { id: 'alert',       name: 'Alert Station',     lat:  82.4953, lng:  -62.3420, category: 'station',     country: 'Canada',      elevation_m:   62, established: 1950, network: 'NOAA GMD' },
+    { id: 'mauna-loa',   name: 'Mauna Loa',        lat:  19.4721, lng: -155.5922, category: 'observatory', country: 'USA',         elevation_m: 3397, established: 1958, network: 'GHCNm' },
+    { id: 'reykjavik',   name: 'Reykjavík',         lat:  64.1466, lng:  -21.9426, category: 'station',     country: 'Iceland',     elevation_m:   52, established: 1949, network: 'GHCNm' },
+    { id: 'south-pole',  name: 'South Pole',        lat: -90.0,    lng:    0.0,    category: 'observatory', country: 'Antarctica',  elevation_m: 2835, established: 1957, network: 'GHCNm' },
+    { id: 'cape-grim',   name: 'Cape Grim',         lat: -40.6833, lng:  144.6833, category: 'station',     country: 'Australia',   elevation_m:   94, established: 1976, network: 'GHCNm' },
+    { id: 'alert',       name: 'Alert Station',     lat:  82.4953, lng:  -62.3420, category: 'station',     country: 'Canada',      elevation_m:   62, established: 1950, network: 'GHCNm' },
   ],
 };
 
@@ -41,10 +41,10 @@ const MOCK_DETAIL_MAUNA_LOA = {
   country:     'USA (Hawaii)',
   elevation:   '3397m',
   established: '1958',
-  type:        'Atmospheric Baseline Observatory',
-  description: 'Premier atmospheric research facility operated by NOAA.',
+  type:        'High-Elevation Climate Station',
+  description: 'High-elevation climate station included in the GHCNm archive.',
   variables:   ['CO₂', 'CH₄'],
-  network:     'NOAA GML / WMO GAW',
+  network:     'GHCNm',
 };
 
 const QR_MOCK_BODY = `

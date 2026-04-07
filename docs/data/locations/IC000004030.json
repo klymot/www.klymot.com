@@ -4,7 +4,7 @@
   "elevation": "52m",
   "established": "1949",
   "type": "Surface Monitoring Station",
-  "description": "Long-running meteorological station in the North Atlantic, contributing to GISTEMP and ERA5 reanalysis datasets. A key node in the sparse high-latitude observation network, providing data on sub-arctic climate variability and storm track behaviour.",
+  "description": "Long-running North Atlantic climate station included in the GHCNm archive. It provides a high-latitude temperature record, with surrounding built-up and population context derived from GHSL layers.",
   "variables": ["Temperature", "Pressure", "Wind", "Humidity"],
-  "network": "WMO / GHCN"
+  "network": "GHCNm"
 }

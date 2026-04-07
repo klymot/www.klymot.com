@@ -6,5 +6,5 @@
   "type": "Atmospheric & Geophysical Observatory",
   "description": "Year-round research station at the geographic South Pole. Provides a unique vantage for atmospheric composition, cosmic ray, and seismological measurements in the most pristine air on Earth, far from industrial sources.",
   "variables": ["CO₂", "O₃", "Aerosols", "UV Radiation"],
-  "network": "NOAA GML / NSF"
+  "network": "GHCNm"
 }

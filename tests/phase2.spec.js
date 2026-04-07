@@ -25,11 +25,11 @@ const EMPTY_CSS  = '';
 // Minimal index used by all tests (keeps test data self-contained).
 const MOCK_INDEX = {
   locations: [
-    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)',  elevation_m: 3397, established: 1958, network: 'NOAA GML' },
-    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',       elevation_m: 52,   established: 1949, network: 'WMO / GHCN' },
-    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',    elevation_m: 2835, established: 1957, network: 'NOAA GML / NSF' },
+    { id: 'mauna-loa',  name: 'Mauna Loa',  lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)',  elevation_m: 3397, established: 1958, network: 'GHCNm' },
+    { id: 'reykjavik',  name: 'Reykjavík',  lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',       elevation_m: 52,   established: 1949, network: 'GHCNm' },
+    { id: 'south-pole', name: 'South Pole', lat: -90.0,   lng: 0.0,       category: 'observatory', country: 'Antarctica',    elevation_m: 2835, established: 1957, network: 'GHCNm' },
     { id: 'tokyo',      name: 'Tokyo',      lat: 35.6762, lng: 139.6503,  category: 'station',     country: 'Japan',         elevation_m: 25,   established: 1875, network: 'WMO / JMA' },
-    { id: 'svalbard',   name: 'Svalbard',   lat: 78.2232, lng: 15.6267,   category: 'station',     country: 'Norway',        elevation_m: 28,   established: 1969, network: 'WMO / GHCN' },
+    { id: 'svalbard',   name: 'Svalbard',   lat: 78.2232, lng: 15.6267,   category: 'station',     country: 'Norway',        elevation_m: 28,   established: 1969, network: 'GHCNm' },
   ],
 };
 

@@ -22,8 +22,8 @@ const EMPTY_CSS  = '';
 
 const MOCK_INDEX = {
   locations: [
-    { id: 'mauna-loa', name: 'Mauna Loa', lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)', elevation_m: 3397, established: 1958, network: 'NOAA GML' },
-    { id: 'reykjavik', name: 'Reykjavík', lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',      elevation_m:   52, established: 1949, network: 'WMO / GHCN' },
+    { id: 'mauna-loa', name: 'Mauna Loa', lat: 19.4721, lng: -155.5922, category: 'observatory', country: 'USA (Hawaii)', elevation_m: 3397, established: 1958, network: 'GHCNm' },
+    { id: 'reykjavik', name: 'Reykjavík', lat: 64.1466, lng: -21.9426,  category: 'station',     country: 'Iceland',      elevation_m:   52, established: 1949, network: 'GHCNm' },
   ],
 };
 
@@ -139,7 +139,7 @@ test('AC1 – button aria-expanded reflects panel state', async ({ page }) => {
 
 // ── AC2: Panel lists all sources and references ───────────────────────────────
 
-test('AC2 – panel contains Observational Networks section', async ({ page }) => {
+test('AC2 – panel contains Core Datasets section', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
 
@@ -147,10 +147,10 @@ test('AC2 – panel contains Observational Networks section', async ({ page }) =
   await waitForPanel(page);
 
   const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('Observational Networks');
+  expect(text).toContain('Core Datasets');
 });
 
-test('AC2 – panel lists NOAA GML', async ({ page }) => {
+test('AC2 – panel lists GHCN-Monthly v4', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
 
@@ -158,10 +158,10 @@ test('AC2 – panel lists NOAA GML', async ({ page }) => {
   await waitForPanel(page);
 
   const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('NOAA GML');
+  expect(text).toContain('GHCN-Monthly v4');
 });
 
-test('AC2 – panel lists WMO GAW', async ({ page }) => {
+test('AC2 – panel lists GHSL R2023A', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
 
@@ -169,10 +169,10 @@ test('AC2 – panel lists WMO GAW', async ({ page }) => {
   await waitForPanel(page);
 
   const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('WMO GAW');
+  expect(text).toContain('GHSL R2023A');
 });
 
-test('AC2 – panel lists GHCN v4', async ({ page }) => {
+test('AC2 – panel cites Menne et al. 2018 for GHCN-Monthly', async ({ page }) => {
   await loadPage(page);
   await waitForMarkers(page);
 
@@ -180,40 +180,8 @@ test('AC2 – panel lists GHCN v4', async ({ page }) => {
   await waitForPanel(page);
 
   const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('GHCN v4');
-});
-
-test('AC2 – panel contains Reanalysis & Gridded Products section', async ({ page }) => {
-  await loadPage(page);
-  await waitForMarkers(page);
-
-  await clickSourcesBtn(page);
-  await waitForPanel(page);
-
-  const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('Reanalysis');
-});
-
-test('AC2 – panel lists ERA5', async ({ page }) => {
-  await loadPage(page);
-  await waitForMarkers(page);
-
-  await clickSourcesBtn(page);
-  await waitForPanel(page);
-
-  const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('ERA5');
-});
-
-test('AC2 – panel lists GISTEMP v4', async ({ page }) => {
-  await loadPage(page);
-  await waitForMarkers(page);
-
-  await clickSourcesBtn(page);
-  await waitForPanel(page);
-
-  const text = await page.locator('#sources-panel').textContent();
-  expect(text).toContain('GISTEMP v4');
+  expect(text).toContain('Menne');
+  expect(text).toContain('2018');
 });
 
 test('AC2 – panel contains Algorithms & Methodology section', async ({ page }) => {
