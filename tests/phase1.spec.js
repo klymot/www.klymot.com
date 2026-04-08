@@ -270,7 +270,7 @@ test('AC5 – correct theme icon shown per theme', async ({ page }) => {
 test('AC5 – theme is persisted to localStorage', async ({ page }) => {
   await loadPage(page);
   await page.click('#theme-toggle'); // → light
-  const stored = await page.evaluate(() => localStorage.getItem('meridian-theme'));
+  const stored = await page.evaluate(() => localStorage.getItem('klymot-theme'));
   expect(stored).toBe('light');
 });
 
@@ -295,7 +295,7 @@ test('AC5 – saved theme is restored on reload', async ({ page }) => {
 
 test('page title is correct', async ({ page }) => {
   await loadPage(page);
-  await expect(page).toHaveTitle(/Meridian/);
+  await expect(page).toHaveTitle(/Klymot/);
 });
 
 test('coordinate display is present in footer', async ({ page }) => {
