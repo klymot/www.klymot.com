@@ -1,6 +1,6 @@
 // ── Guided Tour (driver.js) ────────────────────────────────────────────────────
 
-const TOUR_SEEN_KEY = 'meridian-tour-seen';
+const TOUR_SEEN_KEY = 'klymot-tour-seen';
 
 function hasTourBeenSeen() {
   return !!localStorage.getItem(TOUR_SEEN_KEY);
@@ -116,7 +116,7 @@ function _startTour() {
       // ── 1. Welcome ──────────────────────────────────────────────────
       {
         popover: {
-          title: 'Welcome to Meridian',
+          title: 'Welcome to Klymot',
           description:
             'An interactive explorer for GHCN weather station data. ' +
             'This tour will walk you through the key features using ' +
@@ -322,7 +322,7 @@ function _startTour() {
           title: 'Data Sources',
           description:
             'Read about the GHCN-Daily dataset, built-up area data, ' +
-            'and other references used in Meridian.',
+            'and other references used in Klymot.',
           side: 'top',
           align: 'end',
         },

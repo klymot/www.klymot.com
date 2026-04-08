@@ -1,4 +1,4 @@
-const CONSENT_KEY = 'meridian-consent';
+const CONSENT_KEY = 'klymot-consent';
 const GA_ID = 'G-CEQZZXVE7Q';
 
 function loadGA() {

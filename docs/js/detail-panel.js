@@ -2014,7 +2014,7 @@ async function _downloadPdfFromPrintRoot() {
     pdf.text(`Page ${i}`, pageWidth - margin, footerY, { align: 'right', baseline: 'bottom' });
   }
 
-  pdf.save(`meridian-${_currentLocationId}.pdf`);
+  pdf.save(`klymot-${_currentLocationId}.pdf`);
 }
 
 async function _renderChangeCanvas(canvas) {
@@ -2238,7 +2238,7 @@ function _detailHeader(category, name, data, indexEntry, locationId) {
   return `
     <div class="detail-print-brand">
       <span class="header-logo" aria-hidden="true">◎</span>
-      <span class="header-title">Meridian</span>
+      <span class="header-title">Klymot</span>
       <span class="header-subtitle">Interactive GHCN Explorer</span>
     </div>
     <div class="detail-header">
@@ -2354,7 +2354,7 @@ async function _downloadPng() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `meridian-${_currentLocationId}.png`;
+    a.download = `klymot-${_currentLocationId}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) {

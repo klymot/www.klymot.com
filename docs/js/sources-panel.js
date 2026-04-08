@@ -65,7 +65,7 @@ export function renderSourcesContent({ includeShell = true } = {}) {
         <ul class="sources-list">
           <li class="sources-item">
             <div class="sources-item-name">GHCN-Monthly v4 <span class="sources-cite">Menne et al., 2018</span></div>
-            <div class="sources-item-desc">Global Historical Climatology Network Monthly temperature dataset. Meridian uses GHCNm station records as the primary climate observation source for map, table, and station detail views. <a class="sources-link" href="https://doi.org/10.1175/JCLI-D-18-0094.1" target="_blank" rel="noopener">DOI</a></div>
+            <div class="sources-item-desc">Global Historical Climatology Network Monthly temperature dataset. Klymot uses GHCNm station records as the primary climate observation source for map, table, and station detail views. <a class="sources-link" href="https://doi.org/10.1175/JCLI-D-18-0094.1" target="_blank" rel="noopener">DOI</a></div>
           </li>
           <li class="sources-item">
             <div class="sources-item-name">GHSL R2023A</div>

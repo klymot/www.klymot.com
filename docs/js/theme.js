@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'meridian-theme';
+const STORAGE_KEY = 'klymot-theme';
 const VALID_THEMES = ['dark', 'light'];
 
 let currentTheme = 'dark';
