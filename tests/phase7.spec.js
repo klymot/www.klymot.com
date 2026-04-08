@@ -412,9 +412,9 @@ test('AC5 – README contains "Running locally" section', async () => {
   expect(readme).toMatch(/running locally/i);
 });
 
-test('AC5 – README contains "Adding new locations" section', async () => {
+test('AC5 – README contains "No API token" section', async () => {
   const readme = readFileSync(join(__dirname, '..', 'README.md'), 'utf8');
-  expect(readme).toMatch(/adding new locations/i);
+  expect(readme).toMatch(/no api token/i);
 });
 
 test('AC5 – README documents the URL hash format', async () => {

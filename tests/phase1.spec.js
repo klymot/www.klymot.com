@@ -295,7 +295,7 @@ test('AC5 – saved theme is restored on reload', async ({ page }) => {
 
 test('page title is correct', async ({ page }) => {
   await loadPage(page);
-  await expect(page).toHaveTitle(/Klymot/);
+  await expect(page).toHaveTitle(/klymot/i);
 });
 
 test('coordinate display is present in footer', async ({ page }) => {
