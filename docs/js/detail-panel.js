@@ -2237,9 +2237,9 @@ function _detailHeader(category, name, data, indexEntry, locationId) {
     </div>`).join('');
   return `
     <div class="detail-print-brand">
-      <span class="header-logo" aria-hidden="true">◎</span>
-      <span class="header-title">Klymot</span>
-      <span class="header-subtitle">Interactive GHCN Explorer</span>
+      <span class="header-logo" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="22" height="22"><circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.25"/><ellipse cx="16" cy="16" rx="13" ry="4.2" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="9.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="22.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="16" rx="3" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="16" rx="9" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><circle cx="19.5" cy="10.5" r="4" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/><circle cx="19.5" cy="10.5" r="2" fill="currentColor"/></svg></span>
+      <span class="header-title">klymot</span>
+      <span class="header-subtitle">Climate Data Explorer</span>
     </div>
     <div class="detail-header">
       <div class="detail-header-left">

@@ -143,9 +143,10 @@ body {
 }
 
 .header-logo {
-  font-size: 1.4rem;
   color: var(--accent-primary);
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -157,10 +158,10 @@ body {
 }
 
 .header-subtitle {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-variant-caps: all-small-caps;
 }
 
 .header-controls {
