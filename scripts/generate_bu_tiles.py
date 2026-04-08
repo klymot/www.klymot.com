@@ -73,7 +73,6 @@ CACHE_DIR  = REPO_ROOT / '.cache'
 
 YEAR_CONFIG = {
     # label → (ghsl_epoch, default_tif_stem)
-    '2020': ('2020', 'GHS_BUILT_S_E2020_GLOBE_R2023A_54009_100_V1_0'),
     '1975': ('1975', 'GHS_BUILT_S_E1975_GLOBE_R2023A_54009_100_V1_0'),
     '1980': ('1980', 'GHS_BUILT_S_E1980_GLOBE_R2023A_54009_100_V1_0'),
     '1985': ('1985', 'GHS_BUILT_S_E1985_GLOBE_R2023A_54009_100_V1_0'),
@@ -119,10 +118,8 @@ def _ghsl_paths(stem: str) -> tuple[Path, Path, Path, str]:
     etag = CACHE_DIR / (stem + '.zip.etag')
     # Derive epoch from stem, e.g. GHS_BUILT_S_E2020_... → E2020_...
     # URL pattern: .../GHS_BUILT_S_E{epoch}_GLOBE_R2023A_54009_100/V1-0/{zip}
-    epoch_dir = '_'.join(stem.split('_')[:6])   # GHS_BUILT_S_E2020_GLOBE_R2023A_54009_100  ... actually let's parse properly
     # stem = GHS_BUILT_S_E{epoch}_GLOBE_R2023A_54009_100_V1_0
     parts    = stem.split('_')
-    epoch    = parts[4]          # e.g. E2020 → full token 'E2020'
     dir_name = '_'.join(parts[:8])  # GHS_BUILT_S_E2020_GLOBE_R2023A_54009_100
     url      = f'{_JRC_BASE}{dir_name}/V1-0/{stem}.zip'
     return tif, zp, etag, url

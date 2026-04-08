@@ -4,7 +4,6 @@
  * Public API:
  *   initFilterBar(locations)       — build the filter bar from location data
  *   toggleFilterBar()              — show/hide the filter bar (preserves selections)
- *   isFilterBarVisible() → boolean
  *   clearAllFilters()              — reset all active selections
  *
  * Events dispatched on document:
@@ -136,10 +135,6 @@ export function toggleFilterBar() {
 
   // When bar is hidden, remove all filtering; when re-opened, reapply
   _dispatchFilterChange();
-}
-
-export function isFilterBarVisible() {
-  return _barVisible;
 }
 
 export function clearAllFilters() {

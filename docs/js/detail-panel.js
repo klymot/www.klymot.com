@@ -900,7 +900,7 @@ async function _copyText(text) {
       await navigator.clipboard.writeText(text);
       return { ok: true, message: 'Copied link' };
     }
-  } catch (err) {
+  } catch {
     const msg = err?.name === 'NotAllowedError'
       ? 'Clipboard permission was denied.'
       : 'Clipboard API copy failed.';
@@ -1878,20 +1878,6 @@ async function _populatePrintRoot() {
     }
   };
 
-  const addMapGridPage = (sectionNames) => {
-    const sections = sectionNames
-      .map(name => sectionsByName.get(name))
-      .filter(Boolean);
-    if (!sections.length) return;
-    const page = document.createElement('section');
-    page.className = 'detail-pdf-page';
-    const grid = document.createElement('div');
-    grid.className = 'detail-report-map-grid';
-    sections.forEach(section => grid.appendChild(section));
-    page.appendChild(grid);
-    pagesWrap.appendChild(page);
-  };
-
   const addCombinedAdjAndMapPage = () => {
     const adj = sectionsByName.get('adj');
     const mapSections = ['bu-surface', 'population']
@@ -2095,7 +2081,7 @@ async function _renderChangeCanvas(canvas) {
     }
 
     ctx.putImageData(imgData, 0, 0);
-  } catch (err) {
+  } catch {
     // If images fail to load (e.g. 1975 sprite not yet generated), show a message
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#1a1a2e';
@@ -2186,7 +2172,7 @@ async function _renderPopChangeCanvas(canvas) {
     }
 
     ctx.putImageData(imgData, 0, 0);
-  } catch (err) {
+  } catch {
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, display, display);
