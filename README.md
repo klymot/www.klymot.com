@@ -1,12 +1,12 @@
-# Meridian — Interactive GHCN Explorer
+# klymot — Climate Data Explorer
 
-An interactive world map of ~30,000 climate monitoring stations and observatories. Pan, zoom, switch projections, toggle themes, search stations, browse a sortable table, and share any view or station via a URL or QR code.
+An interactive world map of ~30,000 GHCN climate monitoring stations. Pan, zoom, switch projections, toggle themes, search stations, browse a sortable table, and share any view or station via a URL or QR code.
 
 ---
 
 ## Running locally
 
-No build step required. Serve the `meridian/` directory with any static file server:
+No build step required. Serve the `docs/` directory with any static file server:
 
 ```bash
 # Python (built-in)
@@ -25,52 +25,9 @@ Then open `http://localhost:8080` in your browser.
 
 ---
 
-## Adding new locations
-
-### 1. Add an entry to `data/index.json`
-
-Append to the `locations` array:
-
-```json
-{
-  "id": "my-station",
-  "name": "My Station",
-  "lat": 51.5074,
-  "lng": -0.1278,
-  "category": "station",
-  "country": "United Kingdom",
-  "elevation_m": 25,
-  "established": 1990,
-  "network": "GHCNm"
-}
-```
-
-- `id`: kebab-case, unique. Used as the URL fragment and to locate the detail file.
-- `category`: `"observatory"` or `"station"` — controls marker colour.
-- `elevation_m`: numeric metres (used for sorting in the table).
-
-### 2. Create a detail file at `data/locations/<id>.json`
-
-```json
-{
-  "name": "My Station",
-  "country": "United Kingdom",
-  "elevation": "25m",
-  "established": "1990",
-  "type": "Surface Weather Station",
-  "description": "A brief description of the station and its scientific role.",
-  "variables": ["Temperature", "Precipitation", "Wind Speed"],
-  "network": "GHCNm"
-}
-```
-
-If the detail file is absent, the app shows a graceful "No data available" fallback when the marker is clicked.
-
----
-
 ## No API token required
 
-Meridian uses [MapLibre GL JS](https://maplibre.org/) (fully open-source) with [Carto free basemap styles](https://carto.com/basemaps/) — no account, no API key.
+klymot uses [MapLibre GL JS](https://maplibre.org/) (fully open-source) with [Carto free basemap styles](https://carto.com/basemaps/) — no account, no API key.
 
 ---
 
@@ -81,7 +38,7 @@ Every view is bookmarkable. The URL hash encodes the current state:
 | State | Format | Example |
 |---|---|---|
 | Map view | `#map=<zoom>/<lat>/<lng>/<projection>` | `#map=5.2/19.47/-155.59/globe` |
-| Station selected | `#station=<id>` | `#station=mauna-loa` |
+| Station selected | `#station=<id>` | `#station=EI000003953` |
 | Table view | `#table=<column>/<direction>` | `#table=elevation_m/desc` |
 
 - Pasting a map URL into a new tab restores the exact viewport and projection.
@@ -93,11 +50,11 @@ Every view is bookmarkable. The URL hash encodes the current state:
 
 ## Deployment
 
-The site is fully static — deploy the `meridian/` directory to any CDN or static host:
+The site is fully static — deploy the `docs/` directory to any CDN or static host:
 
-- **Cloudflare Pages**: connect the repo and set the build output to `meridian/`.
-- **GitHub Pages**: push `meridian/` contents to a `gh-pages` branch (or configure Pages to serve from `/meridian`).
-- **Netlify**: drag and drop the `meridian/` folder into the Netlify dashboard.
+- **Cloudflare Pages**: connect the repo and set the build output to `docs/`.
+- **GitHub Pages**: configure Pages to serve from `/docs` on the `main` branch.
+- **Netlify**: drag and drop the `docs/` folder into the Netlify dashboard.
 
 Ensure the host sends `Content-Encoding: gzip` for JSON files — all major CDNs do this automatically when gzip is enabled (it is by default). The raw `data/index.json` is ~4.5 MB but compresses to ~400–600 KB.
 
