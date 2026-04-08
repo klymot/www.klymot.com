@@ -9,11 +9,13 @@ import { initFilterBar, getActiveSelections, restoreSelections } from './filter-
 import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260406';
 import { initConsent } from './consent.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
+import { initTour } from './tour.js?v=20260406';
 
 function init() {
   // Theme must be initialised first so data-theme is set before map style is chosen.
   initTheme();
   initConsent();
+  initTour();
 
   const map = initMap(getTheme());
 

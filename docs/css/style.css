@@ -2691,6 +2691,94 @@ body {
   }
 }
 
+/* ── Tour Button ─────────────────────────────────────────────────── */
+
+.btn-tour {
+  width: 2rem;
+  padding: 0.375rem 0;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+@keyframes tour-pulse {
+  0%   { box-shadow: 0 0 0 2px rgba(212, 168, 85, 0.9), 0 0 10px rgba(212, 168, 85, 0.6); }
+  65%  { box-shadow: 0 0 0 9px rgba(212, 168, 85, 0),   0 0 20px rgba(212, 168, 85, 0); }
+  100% { box-shadow: 0 0 0 2px rgba(212, 168, 85, 0.9), 0 0 10px rgba(212, 168, 85, 0.6); }
+}
+
+.tour-btn-hint {
+  border-color: var(--accent-primary) !important;
+  color: var(--accent-primary) !important;
+  background: rgba(212, 168, 85, 0.12) !important;
+  font-weight: 600 !important;
+  animation: tour-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Driver.js popover theme overrides ───────────────────────────── */
+
+.driver-popover {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 0.5rem !important;
+  font-family: 'Source Sans 3', sans-serif !important;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.4), 0 0 1px var(--border-strong) !important;
+}
+
+.driver-popover-title {
+  font-family: 'Playfair Display', Georgia, serif !important;
+  font-size: 1rem !important;
+  color: var(--accent-primary) !important;
+  margin-bottom: 0.35rem !important;
+}
+
+.driver-popover-description {
+  color: var(--text-secondary) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+}
+
+.driver-popover-footer {
+  margin-top: 0.75rem !important;
+}
+
+.driver-popover-footer button {
+  background: var(--btn-bg) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 0.375rem !important;
+  font-family: 'Source Sans 3', sans-serif !important;
+  font-size: 0.8125rem !important;
+  padding: 0.3rem 0.65rem !important;
+  cursor: pointer !important;
+  text-shadow: none !important;
+}
+
+.driver-popover-footer button:hover {
+  background: var(--btn-hover) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
+}
+
+.driver-popover-next-btn {
+  background: var(--btn-active-bg) !important;
+  color: var(--btn-active-text) !important;
+  border-color: var(--btn-active-bg) !important;
+  font-weight: 600 !important;
+}
+
+.driver-popover-next-btn:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.driver-popover-progress-text {
+  color: var(--text-muted) !important;
+  font-size: 0.75rem !important;
+}
+
+
 /* ── Mapbox GL overrides ─────────────────────────────────────────── */
 
 .mapboxgl-ctrl-logo,
