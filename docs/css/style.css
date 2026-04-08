@@ -140,6 +140,13 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.header-brand:hover .header-title {
+  color: var(--accent-primary);
+  transition: color 0.15s;
 }
 
 .header-logo {

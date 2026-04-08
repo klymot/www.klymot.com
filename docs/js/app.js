@@ -3,9 +3,9 @@ import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js?v=20
 import { initMarkers, setMarkersTheme, getLocations, getBuSprite, setFilteredLocations } from './markers.js?v=20260406';
 import { serialiseMapState, parseHash, pushState, onHashChange, serialiseFilterState } from './url-state.js?v=20260406';
 import { initMapQR } from './qr.js?v=20260406';
-import { initDetailPanel, openDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260406';
+import { initDetailPanel, openDetail, closeDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260406';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter, setColumnFilters } from './table-view.js?v=20260406';
-import { initFilterBar, getActiveSelections, restoreSelections } from './filter-bar.js?v=20260406';
+import { initFilterBar, getActiveSelections, restoreSelections, clearAllFilters } from './filter-bar.js?v=20260406';
 import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260406';
 import { initConsent } from './consent.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
@@ -23,6 +23,22 @@ function init() {
   const _loadingOverlay = document.getElementById('loading-overlay');
   const _tableBtn       = document.querySelector('.view-btn[data-view="table"]');
   if (_tableBtn) _tableBtn.disabled = true;
+
+  // ── Header brand → reset to default view ──────────────────────────
+  document.querySelector('.header-brand')
+    ?.addEventListener('click', () => {
+      // Close detail panel if open
+      closeDetail();
+      // Return to map view if table is visible
+      if (isTableVisible()) hideTable();
+      // Clear all filters
+      clearAllFilters();
+      // Fly back to the default globe position
+      const _defaultProjection = supportsProjection() ? 'globe' : 'mercator';
+      applyProjection(_defaultProjection, { syncUrl: false });
+      map.flyTo({ center: [10, 20], zoom: 1.5 });
+      trackEvent('header_brand_reset');
+    });
 
   // ── Theme toggle ───────────────────────────────────────────────────
   document.getElementById('theme-toggle')
