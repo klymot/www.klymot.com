@@ -10,12 +10,9 @@ jobs:
     name: Fetch and commit latest GHCN data
     runs-on: ubuntu-latest
 
-<<<<<<< HEAD
-=======
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
->>>>>>> 7c4344934 (ci: opt into Node.js 24 for actions; add daily GHCN data workflow)
     permissions:
       contents: write
 
