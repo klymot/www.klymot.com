@@ -64,6 +64,13 @@ async function loadPage(page, { hash = '' } = {}) {
     route.fulfill({ status: 200, contentType: 'application/javascript', body: QR_MOCK_BODY })
   );
 
+  // Strip SRI integrity attributes so CDN mocks aren't blocked by hash mismatch.
+  await page.route(u => ['/', '/index.html'].includes(new URL(u).pathname), async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/ integrity="[^"]*"/g, '');
+    await route.fulfill({ response, body });
+  });
+
   const url = hash ? `/${hash}` : '/';
   await page.goto(url);
 }

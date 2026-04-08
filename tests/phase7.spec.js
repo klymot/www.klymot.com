@@ -65,6 +65,13 @@ async function loadPage(page, { hash = '', detailRoutes = {}, delay = 0 } = {}) 
     route.fulfill({ status: 200, contentType: 'application/javascript', body: QR_MOCK_BODY })
   );
 
+  // Strip SRI integrity attributes so CDN mocks aren't blocked by hash mismatch.
+  await page.route(u => ['/', '/index.html'].includes(new URL(u).pathname), async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/ integrity="[^"]*"/g, '');
+    await route.fulfill({ response, body });
+  });
+
   if (delay > 0) {
     // Slow index fetch so we can observe the loading state.
     await page.route('**/data/index.json', async route => {
@@ -374,7 +381,7 @@ test('AC3 – preconnect link for unpkg.com is in document head', async ({ page 
   await loadPage(page);
   const hasPreconnect = await page.evaluate(() =>
     [...document.querySelectorAll('link[rel="preconnect"]')]
-      .some(l => l.href.includes('unpkg.com'))
+      .some(l => new URL(l.href).hostname === 'unpkg.com')
   );
   expect(hasPreconnect).toBe(true);
 });
@@ -383,7 +390,7 @@ test('AC3 – preconnect link for cdnjs.cloudflare.com is in document head', asy
   await loadPage(page);
   const hasPreconnect = await page.evaluate(() =>
     [...document.querySelectorAll('link[rel="preconnect"]')]
-      .some(l => l.href.includes('cdnjs.cloudflare.com'))
+      .some(l => new URL(l.href).hostname === 'cdnjs.cloudflare.com')
   );
   expect(hasPreconnect).toBe(true);
 });
