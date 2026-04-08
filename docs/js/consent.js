@@ -1,5 +1,5 @@
 const CONSENT_KEY = 'klymot-consent';
-const GA_ID = 'G-CEQZZXVE7Q';
+const GA_ID = 'G-JRMHRKGT89';
 
 function loadGA() {
   const script = document.createElement('script');
