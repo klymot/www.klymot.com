@@ -16,7 +16,7 @@
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
  *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the trend line; 'loess' to enable LOESS; 'loessspan=NN' for span (10–90); combine with commas; '-' for defaults
  *   bymonth:  3-hex-digit bitmask of selected months (bit 0 = Jan … bit 11 = Dec); default '041' = Jan+Jul
- *   adjseries: comma-separated flags; 'notob' hides TOB series; 'nopha' hides PHA series; '-' for defaults (both shown)
+ *   adjseries: comma-separated flags; 'nototal' hides Total series; 'notob' hides TOB series; 'nopha' hides PHA series; '-' for defaults (all shown)
  *
  * Theme is intentionally excluded — it is a user preference stored in
  * localStorage, not part of shareable state.
