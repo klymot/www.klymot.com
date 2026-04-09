@@ -425,9 +425,34 @@ function _computeByMonthCIBands(resp) {
 // ── Weighted trend computation ─────────────────────────────────────────────────
 
 /**
- * Weighted ordinary least squares trend.  Each point carries a `w` weight field.
- * Uses the standard WLS formula so that months/years with more stations pull
- * the trend line more strongly than those with fewer.
+ * Lag-1 autocorrelation of a residual series (Yule-Walker estimate).
+ * Returns a value in (−1, 1); clipped to ±0.99 to keep n_eff ≥ 1.
+ * @param {number[]} res
+ * @returns {number}
+ */
+function _lag1Autocorr(res) {
+  const n = res.length;
+  if (n < 3) return 0;
+  let sum = 0;
+  for (const r of res) sum += r;
+  const mean = sum / n;
+  let ss = 0, cross = 0;
+  for (let i = 0; i < n; i++) {
+    const c = res[i] - mean;
+    ss += c * c;
+    if (i < n - 1) cross += c * (res[i + 1] - mean);
+  }
+  if (ss < 1e-30) return 0;
+  return Math.max(-0.99, Math.min(0.99, cross / ss));
+}
+
+/**
+ * Inverse-variance weighted OLS trend with AR(1)-corrected standard error.
+ * Each point carries a `w` weight field (w = 1/Var(mean_t)).
+ * Under correctly-specified weights, Var(β̂₁) = Σw/denom; the ESS inflation
+ * factor sqrt(n/n_eff) then accounts for residual autocorrelation.
+ * @returns {{ slopePerYear, slopePer100Years, intercept, se }|null}
+ *   se — AR(1)-corrected SE of slopePerYear (°C/yr); multiply by 100 for °C/100yr
  */
 function _weightedTrendLine(pts) {
   if (pts.length < 2) return null;
@@ -443,7 +468,16 @@ function _weightedTrendLine(pts) {
   if (Math.abs(denom) < 1e-12) return null;
   const slopePerYear = (sumW * sumWXY - sumWX * sumWY) / denom;
   const intercept    = (sumWY - slopePerYear * sumWX) / sumW;
-  return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept };
+
+  // AR(1)-corrected SE: theoretical IV-WLS SE inflated by sqrt(n/n_eff).
+  const n         = pts.length;
+  const residuals = pts.map(p => p.y - (intercept + slopePerYear * p.x));
+  const seRaw     = Math.sqrt(sumW / denom);
+  const rho       = _lag1Autocorr(residuals);
+  const nEff      = Math.max(2, n * (1 - rho) / (1 + rho));
+  const se        = seRaw * Math.sqrt(n / nEff);
+
+  return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept, se };
 }
 
 /**

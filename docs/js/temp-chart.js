@@ -214,9 +214,33 @@ function _anomalyPoints(summaries, options = {}) {
 }
 
 /**
- * Compute a least-squares trend line for point data.
+ * Lag-1 autocorrelation of a residual series (Yule-Walker estimate).
+ * Returns a value in (−1, 1); clipped to ±0.99 to keep n_eff ≥ 1.
+ * @param {number[]} res
+ * @returns {number}
+ */
+function _lag1Autocorr(res) {
+  const n = res.length;
+  if (n < 3) return 0;
+  let sum = 0;
+  for (const r of res) sum += r;
+  const mean = sum / n;
+  let ss = 0, cross = 0;
+  for (let i = 0; i < n; i++) {
+    const c = res[i] - mean;
+    ss += c * c;
+    if (i < n - 1) cross += c * (res[i + 1] - mean);
+  }
+  if (ss < 1e-30) return 0;
+  return Math.max(-0.99, Math.min(0.99, cross / ss));
+}
+
+/**
+ * Compute a least-squares trend line for point data with an AR(1)-corrected
+ * standard error of the slope (effective sample size method).
  * @param {Array<{x: number, y: number}|null>} pts
- * @returns {{ slopePerYear: number, slopePer100Years: number, intercept: number }|null}
+ * @returns {{ slopePerYear: number, slopePer100Years: number, intercept: number, se: number }|null}
+ *   se — AR(1)-corrected SE of slopePerYear (°C/yr); multiply by 100 for °C/100yr
  */
 function _trendLine(pts) {
   const values = (pts ?? []).filter(Boolean);
@@ -236,11 +260,16 @@ function _trendLine(pts) {
 
   const slopePerYear = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slopePerYear * sumX) / n;
-  return {
-    slopePerYear,
-    slopePer100Years: slopePerYear * 100,
-    intercept,
-  };
+
+  // AR(1)-corrected SE: SE_raw = sqrt(MSE·n/denom), then inflate by sqrt(n/n_eff).
+  const residuals = values.map(p => p.y - (intercept + slopePerYear * p.x));
+  const sse = residuals.reduce((s, r) => s + r * r, 0);
+  const seRaw = n >= 3 ? Math.sqrt(sse * n / ((n - 2) * denom)) : 0;
+  const rho = _lag1Autocorr(residuals);
+  const nEff = Math.max(2, n * (1 - rho) / (1 + rho));
+  const se = seRaw * Math.sqrt(n / nEff);
+
+  return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept, se };
 }
 
 /**
@@ -539,7 +568,7 @@ export class TempChart {
     this._externalBands        = null;  // [{x, low, high}|null] CI bands for monthly/yearly modes
     this._externalBandsByMonth = null;  // Array<[{x, low, high}|null]> CI bands for bymonth mode (one array per month)
     this._showExternalBands    = false;
-    this._externalTrend        = null;  // {slopePerYear, slopePer100Years, intercept} overrides internal trend
+    this._externalTrend        = null;  // {slopePerYear, slopePer100Years, intercept, se?} overrides internal trend
     this._externalTrendsByMonth = null; // Array<trend|null> per-month overrides for bymonth mode
 
     // ── Unified x-axis domain (fractional years, shared across all modes) ──
@@ -822,13 +851,13 @@ export class TempChart {
    * Override the trend line for monthly/yearly modes with a pre-computed result
    * (e.g. a weighted OLS trend from the aggregate view).  Pass null to revert to
    * the internally-computed unweighted trend.
-   * @param {{ slopePerYear: number, slopePer100Years: number, intercept: number }|null} trend
+   * @param {{ slopePerYear: number, slopePer100Years: number, intercept: number, se?: number }|null} trend
    */
   setExternalTrend(trend) { this._externalTrend = trend ?? null; this._scheduleRender(); }
 
   /**
    * Override the per-month trend lines for bymonth mode.
-   * @param {Array<{ slopePerYear: number, slopePer100Years: number, intercept: number }|null>|null} trends — 12-element array
+   * @param {Array<{ slopePerYear: number, slopePer100Years: number, intercept: number, se?: number }|null>|null} trends — 12-element array
    */
   setExternalTrendsByMonth(trends) { this._externalTrendsByMonth = trends ?? null; this._scheduleRender(); }
 
@@ -1392,19 +1421,36 @@ export class TempChart {
     ctx.restore();
 
     if (_activeTrend && this._showAnomalyTrend) {
-      const slope = _activeTrend.slopePer100Years;
-      const sign = slope < 0 ? '−' : '';
-      const text = `${sign}${Math.abs(slope).toFixed(2)}°C/100yr`;
+      const slope  = _activeTrend.slopePer100Years;
+      const sign   = slope < 0 ? '−' : '';
+      const line1  = `${sign}${Math.abs(slope).toFixed(2)}°C/100y`;
       ctx.font = `${10 * dpr}px 'JetBrains Mono', monospace`;
-      const textW = ctx.measureText(text).width;
-      const tx = ml + cw - textW - 6 * dpr;
-      const ty = mt + 6 * dpr;
-      ctx.fillStyle = colBg;
-      ctx.fillRect(tx - 4 * dpr, ty - 2 * dpr, textW + 8 * dpr, 14 * dpr);
-      ctx.fillStyle = colTrend;
-      ctx.textAlign = 'left';
+      ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(text, tx, ty);
+      if (_activeTrend.se > 0) {
+        const half  = 1.96 * _activeTrend.se * 100;
+        const lo    = slope - half;
+        const hi    = slope + half;
+        const fmt   = v => (v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+        const line2 = `95% CI [${fmt(lo)}, ${fmt(hi)}]`;
+        const lineH = 13 * dpr;
+        const textW = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width);
+        const tx    = ml + cw - textW - 6 * dpr;
+        const ty    = mt + 6 * dpr;
+        ctx.fillStyle = colBg;
+        ctx.fillRect(tx - 4 * dpr, ty - 2 * dpr, textW + 8 * dpr, lineH * 2 + 4 * dpr);
+        ctx.fillStyle = colTrend;
+        ctx.fillText(line1, tx, ty);
+        ctx.fillText(line2, tx, ty + lineH);
+      } else {
+        const textW = ctx.measureText(line1).width;
+        const tx    = ml + cw - textW - 6 * dpr;
+        const ty    = mt + 6 * dpr;
+        ctx.fillStyle = colBg;
+        ctx.fillRect(tx - 4 * dpr, ty - 2 * dpr, textW + 8 * dpr, 14 * dpr);
+        ctx.fillStyle = colTrend;
+        ctx.fillText(line1, tx, ty);
+      }
     }
 
     // Axis border
