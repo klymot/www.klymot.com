@@ -48,11 +48,19 @@ func newCalcQueue(maxConcurrent int, maxWaitSecs float64) *calcQueue {
 // concurrency returns the maximum number of simultaneous computations.
 func (q *calcQueue) concurrency() int { return cap(q.sem) }
 
-// run executes fn under the concurrency limit.  Returns (true, 0) on success,
-// or (false, estimatedWaitSecs) when the queue is too deep.  The estimate is
-// only reliable once the EWMA has at least one sample; before that every
-// request is admitted.
-func (q *calcQueue) run(fn func()) (ran bool, retryAfter float64) {
+// currentEWMA returns the current EWMA of computation time in seconds.
+// Returns 0 before the first sample has been recorded.
+func (q *calcQueue) currentEWMA() float64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.ewma
+}
+
+// run executes fn under the concurrency limit.  Returns (true, elapsed, 0) on
+// success, or (false, 0, estimatedWaitSecs) when the queue is too deep.  The
+// estimate is only reliable once the EWMA has at least one sample; before that
+// every request is admitted.
+func (q *calcQueue) run(fn func()) (ran bool, elapsed time.Duration, retryAfter float64) {
 	pending := q.pending.Add(1)
 
 	q.mu.Lock()
@@ -67,7 +75,7 @@ func (q *calcQueue) run(fn func()) (ran bool, retryAfter float64) {
 		est := float64(rounds) * ewma
 		if est > q.maxWait {
 			q.pending.Add(-1)
-			return false, est
+			return false, 0, est
 		}
 	}
 
@@ -75,7 +83,7 @@ func (q *calcQueue) run(fn func()) (ran bool, retryAfter float64) {
 
 	start := time.Now()
 	fn()
-	elapsed := time.Since(start)
+	elapsed = time.Since(start)
 
 	<-q.sem
 	q.pending.Add(-1)
@@ -90,5 +98,5 @@ func (q *calcQueue) run(fn func()) (ran bool, retryAfter float64) {
 	}
 	q.mu.Unlock()
 
-	return true, 0
+	return true, elapsed, 0
 }

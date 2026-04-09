@@ -53,9 +53,10 @@ func requestFingerprint(req aggregateRequest) uint64 {
 // ── Pre-computed all-station cache ────────────────────────────────────────────
 
 type precomputedKey struct {
-	series     string
-	anomaly    bool
-	geoGridded bool
+	series        string
+	anomaly       bool
+	geoGridded    bool
+	fullYearsOnly bool
 }
 
 type precomputedEntry struct {
@@ -80,38 +81,41 @@ type precomputedCache struct {
 }
 
 // newPrecomputedCache creates the cache and wires up a compute function for
-// each of the 8 key combinations.  Call startPrecomputation() to kick off
-// background goroutines; requests that arrive first will compute on demand.
+// each of the 16 key combinations.  Call startPrecomputation() to kick off
+// background computation; requests that arrive first will compute on demand.
 func newPrecomputedCache(allIDs []string, store DataStore, meta map[string]StationMeta) *precomputedCache {
-	entries := make(map[precomputedKey]*precomputedEntry, 8)
+	entries := make(map[precomputedKey]*precomputedEntry, 16)
 	for _, series := range []string{"qcf", "qcu"} {
 		for _, anomaly := range []bool{false, true} {
 			for _, geo := range []bool{false, true} {
-				series, anomaly, geo := series, anomaly, geo
-				key := precomputedKey{series, anomaly, geo}
-				req := aggregateRequest{
-					StationIDs: allIDs,
-					Series:     series,
-					Anomaly:    anomaly,
-					GeoGridded: geo,
-				}
-				e := &precomputedEntry{}
-				e.fn = func() []byte {
-					resp, err := computeAggregate(store, meta, req)
-					if err != nil {
-						log.Printf("pre-compute %+v: %v", key, err)
-						return nil
+				for _, fullYears := range []bool{false, true} {
+					series, anomaly, geo, fullYears := series, anomaly, geo, fullYears
+					key := precomputedKey{series, anomaly, geo, fullYears}
+					req := aggregateRequest{
+						StationIDs:    allIDs,
+						Series:        series,
+						Anomaly:       anomaly,
+						GeoGridded:    geo,
+						FullYearsOnly: fullYears,
 					}
-					data, err := json.Marshal(resp)
-					if err != nil {
-						log.Printf("pre-compute marshal %+v: %v", key, err)
-						return nil
+					e := &precomputedEntry{}
+					e.fn = func() []byte {
+						resp, err := computeAggregate(store, meta, req)
+						if err != nil {
+							log.Printf("pre-compute %+v: %v", key, err)
+							return nil
+						}
+						data, err := json.Marshal(resp)
+						if err != nil {
+							log.Printf("pre-compute marshal %+v: %v", key, err)
+							return nil
+						}
+						log.Printf("pre-computed: series=%s anomaly=%v geo_gridded=%v full_years=%v (%dB)",
+							key.series, key.anomaly, key.geoGridded, key.fullYearsOnly, len(data))
+						return data
 					}
-					log.Printf("pre-computed: series=%s anomaly=%v geo_gridded=%v (%dB)",
-						key.series, key.anomaly, key.geoGridded, len(data))
-					return data
+					entries[key] = e
 				}
-				entries[key] = e
 			}
 		}
 	}
@@ -137,19 +141,16 @@ func (c *precomputedCache) startPrecomputation() {
 }
 
 // get returns the cached JSON bytes for req if it targets the full station
-// set with full_years_only=false, blocking until the entry is ready.
+// set, blocking until the entry is ready.
 // Returns nil, false when the request does not match the pre-computed set.
 func (c *precomputedCache) get(req aggregateRequest) ([]byte, bool) {
-	if req.FullYearsOnly {
-		return nil, false
-	}
 	if len(req.StationIDs) != c.allCount {
 		return nil, false
 	}
 	if stationSetFingerprint(req.StationIDs) != c.allHash {
 		return nil, false
 	}
-	key := precomputedKey{req.Series, req.Anomaly, req.GeoGridded}
+	key := precomputedKey{req.Series, req.Anomaly, req.GeoGridded, req.FullYearsOnly}
 	e, ok := c.entries[key]
 	if !ok {
 		return nil, false

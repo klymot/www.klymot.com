@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"time"
 	"unicode"
 )
 
@@ -73,6 +74,8 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 
 		// 1. Pre-computed all-station cache (blocks until ready if still computing).
 		if data, ok := pc.get(req); ok {
+			log.Printf("aggregate: hit=precomputed series=%s anomaly=%v geo_gridded=%v stations=%d",
+				req.Series, req.Anomaly, req.GeoGridded, len(req.StationIDs))
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(data) //nolint:errcheck
 			return
@@ -81,6 +84,8 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 		// 2. LRU response cache.
 		cacheKey := requestFingerprint(req)
 		if data, ok := lru.get(cacheKey); ok {
+			log.Printf("aggregate: hit=lru series=%s anomaly=%v geo_gridded=%v stations=%d",
+				req.Series, req.Anomaly, req.GeoGridded, len(req.StationIDs))
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(data) //nolint:errcheck
 			return
@@ -89,14 +94,19 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 		// 3. Live computation — run under the concurrency queue.
 		var resp *aggregateResponse
 		var computeErr error
-		ran, retryAfter := q.run(func() {
+		ran, elapsed, retryAfter := q.run(func() {
 			resp, computeErr = computeAggregate(store, meta, req)
 		})
 		if !ran {
+			log.Printf("aggregate: rejected series=%s anomaly=%v geo_gridded=%v stations=%d est=%.1fs",
+				req.Series, req.Anomaly, req.GeoGridded, len(req.StationIDs), retryAfter)
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter))))
 			http.Error(w, "server busy, try again later", http.StatusServiceUnavailable)
 			return
 		}
+		log.Printf("aggregate: miss series=%s anomaly=%v geo_gridded=%v stations=%d duration=%s ewma=%.3fs",
+			req.Series, req.Anomaly, req.GeoGridded, len(req.StationIDs),
+			elapsed.Round(time.Millisecond), q.currentEWMA())
 		if computeErr != nil {
 			log.Printf("aggregate error: %v", computeErr)
 			http.Error(w, "internal server error", http.StatusInternalServerError)

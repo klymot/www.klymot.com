@@ -64,7 +64,7 @@ func main() {
 	// Requests that arrive before a computation finishes will block until it is ready.
 	pc := newPrecomputedCache(allIDs, store, meta)
 	pc.startPrecomputation()
-	log.Printf("pre-computing 8 all-station graphs in background (%d stations)", len(allIDs))
+	log.Printf("pre-computing 16 all-station graphs in background (%d stations)", len(allIDs))
 
 	// LRU cache for other commonly-requested aggregations.
 	lru := newLRUCache(int64(*flagResponseCache) * 1024 * 1024)
