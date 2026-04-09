@@ -875,7 +875,7 @@ function _initModeArrows() {
     const nextBtn = modeRow.querySelector('.chart-mode-next');
     if (!toggle || !prevBtn || !nextBtn) return;
 
-    const getBtns      = () => [...toggle.querySelectorAll('.chart-mode-btn')];
+    const getBtns      = () => [...toggle.querySelectorAll('.chart-mode-btn:not([hidden])')];
     const getActiveIdx = () => getBtns().findIndex(b => b.classList.contains('active'));
 
     function updateArrows() {
@@ -932,11 +932,11 @@ function _seriesPanel(series, hidden) {
           <button class="chart-mode-arrow chart-mode-prev"
                   aria-label="Previous chart mode" hidden>‹</button>
           <div class="chart-mode-toggle" role="group" aria-label="Time resolution">
-            <button class="chart-mode-btn"
+            <button class="chart-mode-btn" hidden
                     data-mode="monthly" aria-pressed="false">Monthly</button>
-            <button class="chart-mode-btn"
+            <button class="chart-mode-btn" hidden
                     data-mode="bymonth" aria-pressed="false">By Month</button>
-            <button class="chart-mode-btn"
+            <button class="chart-mode-btn" hidden
                     data-mode="yearly"  aria-pressed="false">Annual</button>
             <button class="chart-mode-btn"
                     data-mode="monthly-anomaly" aria-pressed="false">Monthly Anomaly</button>
