@@ -29,6 +29,7 @@ let _activeSeries         = 'qcu';
 let _sharedMode           = 'yearly-anomaly';
 let _sharedSelectedMonths = new Set([0, 6]);
 let _sharedShowTrend      = true;
+let _trendFromYear        = 0;     // 0 = all data, 1880, or 1950
 let _sharedShowLoess      = false;
 let _sharedLoessSpan      = 0.3;
 let _geoGridded           = true;
@@ -116,6 +117,7 @@ export function restoreGraphState(state, stationIds) {
   if (state.fullYearsOnly === false) _fullYearsOnly = false;
   if (state.showCI)              _showCI           = true;
   if (state.showTrend === false) _sharedShowTrend = false;
+  if (state.trendFromYear != null) _trendFromYear = state.trendFromYear;
   if (state.showLoess)   _sharedShowLoess  = true;
   if (state.loessSpan != null) _sharedLoessSpan = state.loessSpan;
   if (Array.isArray(state.selectedMonths)) {
@@ -175,7 +177,8 @@ function _pushUrl() {
     geoGridded:    _geoGridded,
     fullYearsOnly: _fullYearsOnly,
     showCI:        _showCI,
-    showTrend: _sharedShowTrend,
+    showTrend:    _sharedShowTrend,
+    trendFromYear: _trendFromYear,
     showLoess: _sharedShowLoess,
     loessSpan: _sharedLoessSpan,
     selectedMonths: _sharedSelectedMonths,
@@ -480,6 +483,9 @@ function _weightedTrendLine(pts) {
   return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept, se };
 }
 
+/** Slider positions → start years. Index 0 = all data. */
+const _TREND_FROM_STEPS = [0, 1880, 1950];
+
 /**
  * Inverse-variance weight for a single monthly mean.
  * Var(mean) = σ²/n  ⟹  weight = n/σ².
@@ -492,19 +498,19 @@ function _ivWeight(n, sd) {
 /**
  * Weighted trend for monthly mode.
  * Weight = n/σ² (inverse variance of the multi-station mean).
+ * @param {object} resp
+ * @param {number} [fromYear] — exclude points before this year (0 = all data)
  */
-function _computeWeightedMonthlyTrend(resp) {
+function _computeWeightedMonthlyTrend(resp, fromYear = 0) {
   if (!resp?.start || !resp.counts?.length) return null;
   const startYear = parseInt(resp.start.split('-')[0], 10);
   const pts = [];
   for (let i = 0; i < resp.counts.length; i++) {
     const n = resp.counts[i];
     if (n < 1) continue;
-    pts.push({
-      x: startYear + Math.floor(i / 12) + (i % 12) / 12,
-      y: resp.averages[i],
-      w: _ivWeight(n, resp.std_devs?.[i] ?? 0),
-    });
+    const x = startYear + Math.floor(i / 12) + (i % 12) / 12;
+    if (fromYear > 0 && x < fromYear) continue;
+    pts.push({ x, y: resp.averages[i], w: _ivWeight(n, resp.std_devs?.[i] ?? 0) });
   }
   return _weightedTrendLine(pts);
 }
@@ -514,13 +520,16 @@ function _computeWeightedMonthlyTrend(resp) {
  * Weight = 1 / annualVariance, where annualVariance combines the two components
  * used for the annual CI bands (station-sampling + month-to-month spread).
  * Falls back to total station-months when variance is zero.
+ * @param {object} resp
+ * @param {number} [fromYear] — exclude years before this (0 = all data)
  */
-function _computeWeightedAnnualTrend(resp) {
+function _computeWeightedAnnualTrend(resp, fromYear = 0) {
   if (!resp?.start || !resp.counts?.length) return null;
   const startYear  = parseInt(resp.start.split('-')[0], 10);
   const totalYears = Math.ceil(resp.counts.length / 12);
   const pts = [];
   for (let y = 0; y < totalYears; y++) {
+    if (fromYear > 0 && startYear + y < fromYear) continue;
     let valid = true;
     const months = [];
     for (let m = 0; m < 12; m++) {
@@ -548,14 +557,17 @@ function _computeWeightedAnnualTrend(resp) {
  * Weighted trends for bymonth mode: one trend per calendar month.
  * Weight = n/σ² (inverse variance of the multi-station mean).
  * Returns a 12-element array; null entries mean insufficient data.
+ * @param {object} resp
+ * @param {number} [fromYear] — exclude years before this (0 = all data)
  */
-function _computeWeightedByMonthTrends(resp) {
+function _computeWeightedByMonthTrends(resp, fromYear = 0) {
   if (!resp?.start || !resp.counts?.length) return null;
   const startYear  = parseInt(resp.start.split('-')[0], 10);
   const totalYears = Math.ceil(resp.counts.length / 12);
   return Array.from({ length: 12 }, (_, m) => {
     const pts = [];
     for (let y = 0; y < totalYears; y++) {
+      if (fromYear > 0 && startYear + y < fromYear) continue;
       const i = y * 12 + m;
       if (i >= resp.counts.length || resp.counts[i] < 1) continue;
       const n = resp.counts[i];
@@ -578,13 +590,13 @@ function _applyWeightedTrends() {
     }
     const cm = _chartMode(_sharedMode);
     if (cm === 'yearly') {
-      chart.setExternalTrend(_computeWeightedAnnualTrend(resp));
+      chart.setExternalTrend(_computeWeightedAnnualTrend(resp, _trendFromYear));
       chart.setExternalTrendsByMonth(null);
     } else if (cm === 'bymonth') {
       chart.setExternalTrend(null);
-      chart.setExternalTrendsByMonth(_computeWeightedByMonthTrends(resp));
+      chart.setExternalTrendsByMonth(_computeWeightedByMonthTrends(resp, _trendFromYear));
     } else {
-      chart.setExternalTrend(_computeWeightedMonthlyTrend(resp));
+      chart.setExternalTrend(_computeWeightedMonthlyTrend(resp, _trendFromYear));
       chart.setExternalTrendsByMonth(null);
     }
   }
@@ -735,10 +747,19 @@ function _syncControlsToState() {
     panel.hidden = panel.dataset.aggSeries !== _activeSeries;
   });
 
-  // Trend toggle
+  // Trend toggle + from-year slider
   _container?.querySelectorAll('[data-action="trend-toggle"]').forEach(b => {
     b.classList.toggle('active', _sharedShowTrend);
     b.setAttribute('aria-pressed', String(_sharedShowTrend));
+  });
+  _container?.querySelectorAll('.chart-trend-from-controls').forEach(c => {
+    c.style.visibility = _sharedShowTrend ? 'visible' : 'hidden';
+  });
+  const _trendFromStep = _TREND_FROM_STEPS.indexOf(_trendFromYear);
+  const _trendFromIdx  = _trendFromStep < 0 ? 0 : _trendFromStep;
+  _container?.querySelectorAll('.trend-from-range').forEach(s => { s.value = _trendFromIdx; });
+  _container?.querySelectorAll('.trend-from-value').forEach(v => {
+    v.textContent = _trendFromYear > 0 ? String(_trendFromYear) : 'All';
   });
 
   // LOESS toggle
@@ -834,7 +855,24 @@ function _wireEvents() {
         b.classList.toggle('active', _sharedShowTrend);
         b.setAttribute('aria-pressed', String(_sharedShowTrend));
       });
+      _container.querySelectorAll('.chart-trend-from-controls').forEach(c => {
+        c.style.visibility = _sharedShowTrend ? 'visible' : 'hidden';
+      });
       for (const c of Object.values(_charts)) c?.setShowAnomalyTrend(_sharedShowTrend);
+      _pushUrl();
+    });
+  });
+
+  // Trend from-year slider
+  _container.querySelectorAll('.trend-from-range').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const idx = parseInt(slider.value, 10);
+      _trendFromYear = _TREND_FROM_STEPS[idx] ?? 0;
+      _container.querySelectorAll('.trend-from-range').forEach(s => { s.value = idx; });
+      _container.querySelectorAll('.trend-from-value').forEach(v => {
+        v.textContent = _trendFromYear > 0 ? String(_trendFromYear) : 'All';
+      });
+      _applyWeightedTrends();
       _pushUrl();
     });
   });
@@ -1022,14 +1060,25 @@ function _seriesPanel(series, hidden) {
         </div>
         <div class="chart-footer">
           <p class="chart-hint">Drag to pan · Hover for temperature</p>
-          <div class="chart-loess-controls" style="visibility:hidden">
-            <label class="loess-slider-label">
-              <span class="loess-slider-title">Smoothing</span>
-              <input type="range" class="loess-range"
-                     min="10" max="90" step="5" value="30"
-                     aria-label="LOESS span">
-              <span class="loess-slider-value">0.30</span>
-            </label>
+          <div class="chart-slider-row">
+            <div class="chart-trend-from-controls" style="visibility:hidden">
+              <label class="loess-slider-label">
+                <span class="loess-slider-title">Trend From</span>
+                <input type="range" class="trend-from-range"
+                       min="0" max="2" step="1" value="0"
+                       aria-label="Trend start year">
+                <span class="trend-from-value">All</span>
+              </label>
+            </div>
+            <div class="chart-loess-controls" style="visibility:hidden">
+              <label class="loess-slider-label">
+                <span class="loess-slider-title">Smoothing</span>
+                <input type="range" class="loess-range"
+                       min="10" max="90" step="5" value="30"
+                       aria-label="LOESS span">
+                <span class="loess-slider-value">0.30</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>

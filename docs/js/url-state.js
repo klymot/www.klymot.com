@@ -176,7 +176,8 @@ export function serialiseStationState(locationId, detail = {}) {
  * @param {boolean} [detail.geoGridded]    — whether geo-gridded weighting is active
  * @param {boolean} [detail.fullYearsOnly] — whether only complete station-years contribute (default true)
  * @param {boolean} [detail.showCI]        — whether 95% CI bands are shown
- * @param {boolean} [detail.showTrend]   — whether trend line is shown (default true)
+ * @param {boolean} [detail.showTrend]     — whether trend line is shown (default true)
+ * @param {number}  [detail.trendFromYear] — trend start year: 0=all, 1880, 1950 (default 0)
  * @param {boolean} [detail.showLoess]   — whether LOESS is shown (default false)
  * @param {number}  [detail.loessSpan]   — LOESS span 0.1–0.9 (default 0.3)
  * @param {Set<number>} [detail.selectedMonths] — bymonth mode selected months
@@ -188,7 +189,7 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
     series = 'qcu',
     mode   = 'monthly',
     zoomMin, zoomMax,
-    geoGridded, fullYearsOnly, showCI, showTrend, showLoess, loessSpan,
+    geoGridded, fullYearsOnly, showCI, showTrend, trendFromYear, showLoess, loessSpan,
     selectedMonths,
   } = detail;
 
@@ -202,6 +203,7 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
   if (fullYearsOnly === false) flags.push('nofullyr');
   if (showCI) flags.push('ci');
   if (showTrend === false) flags.push('notrend');
+  if (trendFromYear) flags.push(`trendfrom=${trendFromYear}`);
   if (showLoess) {
     flags.push('loess');
     const spanInt = Math.round((loessSpan ?? 0.3) * 100);
@@ -385,6 +387,8 @@ export function parseHash(hash) {
       result.fullYearsOnly = !flagSet.has('nofullyr');
       result.showCI        = flagSet.has('ci');
       result.showTrend  = !flagSet.has('notrend');
+      const trendFromFlag = [...flagSet].find(f => f.startsWith('trendfrom='));
+      result.trendFromYear = trendFromFlag ? parseInt(trendFromFlag.slice(10), 10) : 0;
       result.showLoess  =  flagSet.has('loess');
       const loessSpanFlag = [...flagSet].find(f => f.startsWith('loessspan='));
       result.loessSpan  = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;

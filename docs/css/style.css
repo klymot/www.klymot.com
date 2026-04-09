@@ -1613,11 +1613,20 @@ body {
   line-height: 1.4rem;
 }
 
-.chart-loess-controls {
+.chart-slider-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.chart-loess-controls,
+.chart-trend-from-controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  visibility: hidden; /* JS shows when LOESS is active */
+  visibility: hidden; /* JS shows when active */
 }
 
 .loess-slider-label {
@@ -1680,6 +1689,50 @@ body {
   text-align: right;
   color: var(--text-secondary);
   font-size: 0.6875rem;
+}
+
+.trend-from-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 60px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  outline: none;
+  cursor: pointer;
+}
+
+.trend-from-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+  transition: transform 0.1s;
+}
+
+.trend-from-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+}
+
+.trend-from-range::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.trend-from-value {
+  min-width: 2.75rem;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
 }
 
 /* ── Heatmap colour-scale legend ──────────────────────────────────── */
@@ -2823,6 +2876,7 @@ body {
   }
   .chart-hint,
   .chart-loess-controls,
+  .chart-trend-from-controls,
   .chart-mode-row,
   .chart-controls-row,
   .chart-month-toggles,
