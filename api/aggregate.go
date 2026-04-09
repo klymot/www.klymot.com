@@ -36,7 +36,7 @@ type aggregateResponse struct {
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
 
-func newAggregateHandler(store DataStore, meta map[string]StationMeta) http.HandlerFunc {
+func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *precomputedCache, lru *lruCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -70,6 +70,22 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta) http.Hand
 			}
 		}
 
+		// 1. Pre-computed all-station cache (blocks until ready if still computing).
+		if data, ok := pc.get(req); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data) //nolint:errcheck
+			return
+		}
+
+		// 2. LRU response cache.
+		cacheKey := requestFingerprint(req)
+		if data, ok := lru.get(cacheKey); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data) //nolint:errcheck
+			return
+		}
+
+		// 3. Live computation.
 		resp, err := computeAggregate(store, meta, req)
 		if err != nil {
 			log.Printf("aggregate error: %v", err)
@@ -77,10 +93,16 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta) http.Hand
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
+		data, err := json.Marshal(resp)
+		if err != nil {
 			log.Printf("encoding response: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
+		lru.put(cacheKey, data)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data) //nolint:errcheck
 	}
 }
 

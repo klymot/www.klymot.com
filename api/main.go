@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,13 +20,14 @@ import (
 )
 
 var (
-	flagDataDir = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
-	flagCache   = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
-	flagProd    = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
-	flagCertDir = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
-	flagDomain  = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
-	flagPort    = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
-	flagIndex   = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
+	flagDataDir      = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
+	flagCache        = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
+	flagProd         = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
+	flagCertDir      = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
+	flagDomain       = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
+	flagPort         = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
+	flagIndex        = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
+	flagResponseCache = flag.Int("response-cache", 10, "LRU response cache size in MiB (0 to disable)")
 )
 
 func main() {
@@ -50,9 +52,30 @@ func main() {
 	}
 	log.Printf("data store ready (cache=%s)", *flagCache)
 
+	// Build sorted list of all station IDs for pre-computation.
+	allIDs := make([]string, 0, len(meta))
+	for id := range meta {
+		allIDs = append(allIDs, id)
+	}
+	sort.Strings(allIDs)
+
+	// Pre-compute all-station aggregations (8 combinations) in background goroutines.
+	// Requests that arrive before a computation finishes will block until it is ready.
+	pc := newPrecomputedCache(allIDs, store, meta)
+	pc.startPrecomputation()
+	log.Printf("pre-computing 8 all-station graphs in background (%d stations)", len(allIDs))
+
+	// LRU cache for other commonly-requested aggregations.
+	lru := newLRUCache(int64(*flagResponseCache) * 1024 * 1024)
+	if *flagResponseCache > 0 {
+		log.Printf("response cache: %d MiB LRU", *flagResponseCache)
+	} else {
+		log.Printf("response cache: disabled")
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/aggregate", corsMiddleware(*flagProd)(
-		http.HandlerFunc(newAggregateHandler(store, meta)),
+		http.HandlerFunc(newAggregateHandler(store, meta, pc, lru)),
 	))
 	mux.Handle("/api/v1/status", corsMiddleware(*flagProd)(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
