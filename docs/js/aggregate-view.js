@@ -212,6 +212,10 @@ async function _loadData(stationIds) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ station_ids: ids, series, geo_gridded: _geoGridded, anomaly: _isAnomalyMode(_sharedMode), full_years_only: _fullYearsOnly }),
       });
+      if (resp.status === 503) {
+        const retryAfter = parseInt(resp.headers.get('Retry-After') ?? '0', 10);
+        return { series, data: null, overloaded: true, retryAfter };
+      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return { series, data: await resp.json() };
     } catch (err) {
@@ -231,6 +235,13 @@ async function _loadData(stationIds) {
     const results = await fetchPromise;
 
     if (gen !== _loadGeneration) return; // superseded while fetching
+
+    // If the server rejected the request due to queue overload, show an error.
+    const overloaded = results.find(r => r.overloaded);
+    if (overloaded) {
+      _setOverloadStatus(overloaded.retryAfter);
+      return; // spinner cleared by finally
+    }
 
     // Compute the union x-range across both series so the charts start and end at
     // the same point (mirrors the detail panel's cross-chart range synchronisation).
@@ -572,7 +583,17 @@ function _applyCI() {
 
 function _setStatus(text) {
   const el = _container?.querySelector('.aggregate-status');
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.classList.remove('is-error');
+  el.textContent = text;
+}
+
+function _setOverloadStatus(retryAfterSecs) {
+  const el = _container?.querySelector('.aggregate-status');
+  if (!el) return;
+  el.classList.add('is-error');
+  const hint = retryAfterSecs > 0 ? ` Try again in ~${Math.ceil(retryAfterSecs)}s.` : '';
+  el.textContent = `Server is busy — too many requests queued.${hint} Try again later.`;
 }
 
 // ── Chart lifecycle ────────────────────────────────────────────────────────────

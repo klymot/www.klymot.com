@@ -1996,6 +1996,12 @@ body {
   text-overflow: ellipsis;
 }
 
+.aggregate-status.is-error {
+  color: var(--adj-tob);
+  font-weight: 500;
+  white-space: normal;
+}
+
 .aggregate-loading-overlay {
   display: none;
   position: absolute;

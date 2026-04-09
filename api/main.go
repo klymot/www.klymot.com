@@ -27,7 +27,8 @@ var (
 	flagDomain       = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
 	flagPort         = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
 	flagIndex        = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
-	flagResponseCache = flag.Int("response-cache", 10, "LRU response cache size in MiB (0 to disable)")
+	flagResponseCache  = flag.Int("response-cache", 10, "LRU response cache size in MiB (0 to disable)")
+	flagConcurrency    = flag.Int("concurrency", 0, "max concurrent aggregate computations (0 = number of CPU cores)")
 )
 
 func main() {
@@ -73,9 +74,12 @@ func main() {
 		log.Printf("response cache: disabled")
 	}
 
+	queue := newCalcQueue(*flagConcurrency, 45.0)
+	log.Printf("computation queue: max %d concurrent, 45s reject threshold", queue.concurrency())
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/aggregate", corsMiddleware(*flagProd)(
-		http.HandlerFunc(newAggregateHandler(store, meta, pc, lru)),
+		http.HandlerFunc(newAggregateHandler(store, meta, pc, lru, queue)),
 	))
 	mux.Handle("/api/v1/status", corsMiddleware(*flagProd)(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

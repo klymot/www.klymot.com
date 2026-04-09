@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"unicode"
 )
 
@@ -36,7 +37,7 @@ type aggregateResponse struct {
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
 
-func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *precomputedCache, lru *lruCache) http.HandlerFunc {
+func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *precomputedCache, lru *lruCache, q *calcQueue) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -85,10 +86,19 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 			return
 		}
 
-		// 3. Live computation.
-		resp, err := computeAggregate(store, meta, req)
-		if err != nil {
-			log.Printf("aggregate error: %v", err)
+		// 3. Live computation — run under the concurrency queue.
+		var resp *aggregateResponse
+		var computeErr error
+		ran, retryAfter := q.run(func() {
+			resp, computeErr = computeAggregate(store, meta, req)
+		})
+		if !ran {
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter))))
+			http.Error(w, "server busy, try again later", http.StatusServiceUnavailable)
+			return
+		}
+		if computeErr != nil {
+			log.Printf("aggregate error: %v", computeErr)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
