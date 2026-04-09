@@ -45,7 +45,8 @@ let _filterText      = '';
 let _filterTimer     = null;
 let _columnFilterIds = null; // null = no column filter; Set<string> = allowed IDs
 let _visible         = false;
-let _getFilterSuffix = null; // optional callback → '' | 'filters=...'
+let _getFilterSuffix  = null; // optional callback → '' | 'filters=...'
+let _getFilterSummary = null; // optional callback → human-readable filter summary string
 
 let _container = null;
 let _scroller  = null;
@@ -54,9 +55,10 @@ let _countEl   = null;
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-export function initTableView(locations, getFilterSuffix = null) {
-  _allLocations    = locations;
-  _getFilterSuffix = getFilterSuffix;
+export function initTableView(locations, getFilterSuffix = null, getFilterSummary = null) {
+  _allLocations     = locations;
+  _getFilterSuffix  = getFilterSuffix;
+  _getFilterSummary = getFilterSummary;
   _container       = document.getElementById('table-container');
   _scroller     = document.getElementById('table-scroller');
   _tbody        = document.getElementById('table-tbody');
@@ -194,9 +196,11 @@ function _updateCount() {
   if (!_countEl) return;
   const total = _allLocations.length;
   const shown = _filtered.length;
-  _countEl.textContent = shown === total
+  const base = shown === total
     ? `${total.toLocaleString()} stations`
     : `${shown.toLocaleString()} of ${total.toLocaleString()} stations`;
+  const summary = _getFilterSummary?.() ?? '';
+  _countEl.textContent = summary ? `${base} · ${summary}` : base;
 }
 
 function _updateHeaderArrows() {

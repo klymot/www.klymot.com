@@ -22,7 +22,8 @@ import { pushState, serialiseGraphState } from './url-state.js?v=20260406';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
-let _container = null;
+let _container        = null;
+let _getFilterSummary = null;
 let _charts    = { qcu: null, qcf: null };
 let _activeSeries         = 'qcu';
 let _sharedMode           = 'yearly-anomaly';
@@ -68,6 +69,9 @@ export function isAggregateVisible() { return _visible; }
 
 /** Register a callback that returns the current active filter selections for URL state. */
 export function setFilterStateGetter(fn) { _getFilterState = fn; }
+
+/** Register a callback that returns the current filter summary string for display. */
+export function setFilterSummaryGetter(fn) { _getFilterSummary = fn; }
 
 /** Show the view and kick off a data fetch for the given station ID array. */
 export function showAggregateView(stationIds) {
@@ -185,9 +189,14 @@ async function _loadData(stationIds) {
   _lastStationIds = ids;
   const gen = ++_loadGeneration;
 
-  _setStatus(ids.length === 0
-    ? 'No stations selected — apply a filter to see the aggregate.'
-    : `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''}`);
+  const _filterSummary = ids.length > 0 ? (_getFilterSummary?.() ?? '') : '';
+  _setStatus(
+    ids.length === 0
+      ? 'No stations selected — apply a filter to see the aggregate.'
+      : _filterSummary
+        ? `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''} · ${_filterSummary}`
+        : `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''}`
+  );
 
   if (ids.length === 0) {
     _container?.classList.remove('is-loading');

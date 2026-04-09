@@ -149,6 +149,67 @@ export function clearAllFilters() {
  * visible and at least one band is selected — otherwise returns {}).
  * Suitable for passing to serialiseFilterState().
  */
+/**
+ * Returns a human-readable summary of the active filter selections, or an
+ * empty string when no filters are active.
+ *
+ * Percentile bands are merged into compact ranges, e.g.:
+ *   <1st, 1–5th, 5–10th %ile  →  "≤10th %ile"
+ *   >99th + 95–99th %ile       →  "≥95th %ile"
+ *
+ * Range band labels have their parenthetical suffixes stripped for brevity:
+ *   "Arctic (>66.5°N)"  →  "Arctic"
+ */
+export function getFilterSummary() {
+  if (!_barVisible) return '';
+  const parts = [];
+  for (const def of _filterDefs) {
+    const sel = _active[def.id];
+    if (!sel || sel.size === 0) continue;
+    const s = def.type === 'percentile'
+      ? _pctFilterSummary(def.label, sel)
+      : _rangeFilterSummary(def.label, def.bands, sel);
+    if (s) parts.push(s);
+  }
+  return parts.join(' · ');
+}
+
+function _pctFilterSummary(label, sel) {
+  const ranges = [...sel]
+    .map(i => PCT_TEMPLATES[i]).filter(Boolean)
+    .sort((a, b) => a.pLow - b.pLow);
+  if (!ranges.length) return '';
+
+  // Merge adjacent/overlapping ranges.
+  const merged = [];
+  for (const r of ranges) {
+    if (merged.length && r.pLow <= merged[merged.length - 1].pHigh) {
+      merged[merged.length - 1].pHigh = Math.max(merged[merged.length - 1].pHigh, r.pHigh);
+    } else {
+      merged.push({ pLow: r.pLow, pHigh: r.pHigh });
+    }
+  }
+
+  const rangeStr = merged.map(({ pLow, pHigh }) =>
+    pLow === 0 && pHigh === 100 ? 'all'
+    : pLow === 0                ? `≤${pHigh}th %ile`
+    : pHigh === 100             ? `≥${pLow}th %ile`
+                                : `${pLow}–${pHigh}th %ile`
+  ).join(', ');
+
+  return `${label}: ${rangeStr}`;
+}
+
+function _rangeFilterSummary(label, bands, sel) {
+  const sorted = [...sel].sort((a, b) => a - b);
+  if (sorted.length === bands.length) return `${label}: all`;
+  // Strip parenthetical suffixes for brevity: "Arctic (>66.5°N)" → "Arctic".
+  const labels = sorted
+    .map(i => (bands[i]?.label ?? '').replace(/\s*\([^)]+\)$/, '').trim())
+    .filter(Boolean);
+  return labels.length ? `${label}: ${labels.join(', ')}` : '';
+}
+
 export function getActiveSelections() {
   if (!_barVisible) return {};
   const copy = {};
