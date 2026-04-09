@@ -66,10 +66,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	logged := loggingMiddleware(mux)
 	if *flagProd {
-		runProd(ctx, mux)
+		runProd(ctx, logged)
 	} else {
-		runLocal(ctx, mux)
+		runLocal(ctx, logged)
 	}
 }
 
@@ -149,6 +150,40 @@ func gracefulShutdown(srv *http.Server) {
 func redirectHTTPS(w http.ResponseWriter, r *http.Request) {
 	target := "https://" + r.Host + r.URL.RequestURI()
 	http.Redirect(w, r, target, http.StatusMovedPermanently)
+}
+
+// loggingMiddleware logs one line per request:
+//
+//	METHOD /path status bytes duration remoteAddr
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("%s %s %d %dB %s %s",
+			r.Method, r.URL.RequestURI(),
+			rec.status, rec.bytes,
+			time.Since(start).Round(time.Millisecond),
+			r.RemoteAddr,
+		)
+	})
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *responseRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	return n, err
 }
 
 var prodOrigins = map[string]bool{
