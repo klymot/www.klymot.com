@@ -159,6 +159,74 @@ export function serialiseStationState(locationId, detail = {}) {
 }
 
 /**
+ * Serialise the aggregate graph view state to a hash fragment string.
+ *
+ * Hash format: graph=<series>/<mode>/<zoom>/<flags>[/filters=<filter-state>]
+ *   series: qcu | qcf
+ *   mode:   monthly | yearly | bymonth
+ *   zoom:   <min>,<max> (decimal years) or '-'
+ *   flags:  comma-separated; 'geo'=geo-gridded, 'ci'=show CI, 'notrend'=hide trend,
+ *           'loess'=enable LOESS, 'loessspan=NN'=LOESS span, 'bymonth=NNN'=month mask
+ *
+ * @param {object} [detail]
+ * @param {string}  [detail.series]      — 'qcu' | 'qcf'  (default 'qcu')
+ * @param {string}  [detail.mode]        — chart mode       (default 'monthly')
+ * @param {number}  [detail.zoomMin]
+ * @param {number}  [detail.zoomMax]
+ * @param {boolean} [detail.geoGridded]    — whether geo-gridded weighting is active
+ * @param {boolean} [detail.fullYearsOnly] — whether only complete station-years contribute (default true)
+ * @param {boolean} [detail.showCI]        — whether 95% CI bands are shown
+ * @param {boolean} [detail.showTrend]   — whether trend line is shown (default true)
+ * @param {boolean} [detail.showLoess]   — whether LOESS is shown (default false)
+ * @param {number}  [detail.loessSpan]   — LOESS span 0.1–0.9 (default 0.3)
+ * @param {Set<number>} [detail.selectedMonths] — bymonth mode selected months
+ * @param {object}  [filterActive]       — active filter selections
+ * @returns {string}  e.g. 'graph=qcu/monthly/-/ci,geo'
+ */
+export function serialiseGraphState(detail = {}, filterActive = null) {
+  const {
+    series = 'qcu',
+    mode   = 'monthly',
+    zoomMin, zoomMax,
+    geoGridded, fullYearsOnly, showCI, showTrend, showLoess, loessSpan,
+    selectedMonths,
+  } = detail;
+
+  let zoomStr = '-';
+  if (zoomMin != null && zoomMax != null && isFinite(zoomMin) && isFinite(zoomMax)) {
+    zoomStr = `${zoomMin.toFixed(2)},${zoomMax.toFixed(2)}`;
+  }
+
+  const flags = [];
+  if (geoGridded) flags.push('geo');
+  if (fullYearsOnly === false) flags.push('nofullyr');
+  if (showCI) flags.push('ci');
+  if (showTrend === false) flags.push('notrend');
+  if (showLoess) {
+    flags.push('loess');
+    const spanInt = Math.round((loessSpan ?? 0.3) * 100);
+    if (spanInt !== 30) flags.push(`loessspan=${spanInt}`);
+  }
+  const _BYMONTH_DEFAULT = 0x041;
+  let bymonthMask = _BYMONTH_DEFAULT;
+  if (selectedMonths instanceof Set) {
+    bymonthMask = 0;
+    for (const m of selectedMonths) bymonthMask |= (1 << m);
+  }
+  if (bymonthMask !== _BYMONTH_DEFAULT) {
+    flags.push(`bymonth=${bymonthMask.toString(16).padStart(3, '0')}`);
+  }
+
+  const flagStr = flags.length ? flags.join(',') : '-';
+  const base = `graph=${series}/${mode}/${zoomStr}/${flagStr}`;
+  if (filterActive) {
+    const fs = serialiseFilterState(filterActive);
+    if (fs) return `${base}/${fs}`;
+  }
+  return base;
+}
+
+/**
  * Serialise the table sort state to a hash fragment string.
  * @param {string} sortColumn
  * @param {string} sortDirection  — 'asc' | 'desc'
@@ -286,6 +354,53 @@ export function parseHash(hash) {
       // Optional 3rd field: filters=...
       if (parts.length >= 3 && parts[2].startsWith('filters=')) {
         filterPart = parts[2];
+      }
+    }
+  } else if (raw.startsWith('graph=')) {
+    const parts = raw.slice(6).split('/');
+    // parts: [series, mode, zoom, flags, ?filters=...]
+    const series = parts[0];
+    const mode   = parts[1];
+    if ((series === 'qcu' || series === 'qcf') &&
+        (mode === 'monthly' || mode === 'yearly' || mode === 'bymonth' ||
+         mode === 'monthly-anomaly' || mode === 'yearly-anomaly')) {
+      result = { type: 'graph', series, mode };
+
+      const zoomStr = parts[2];
+      if (zoomStr && zoomStr !== '-') {
+        const zp = zoomStr.split(',');
+        if (zp.length === 2) {
+          const zMin = parseFloat(zp[0]);
+          const zMax = parseFloat(zp[1]);
+          if (isFinite(zMin) && isFinite(zMax)) {
+            result.zoomMin = zMin;
+            result.zoomMax = zMax;
+          }
+        }
+      }
+
+      const flagStr = parts[3];
+      const flagSet = new Set((flagStr && flagStr !== '-') ? flagStr.split(',') : []);
+      result.geoGridded    = flagSet.has('geo');
+      result.fullYearsOnly = !flagSet.has('nofullyr');
+      result.showCI        = flagSet.has('ci');
+      result.showTrend  = !flagSet.has('notrend');
+      result.showLoess  =  flagSet.has('loess');
+      const loessSpanFlag = [...flagSet].find(f => f.startsWith('loessspan='));
+      result.loessSpan  = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
+      const bymonthFlag = [...flagSet].find(f => f.startsWith('bymonth='));
+      if (bymonthFlag) {
+        const mask = parseInt(bymonthFlag.slice(8), 16);
+        if (!isNaN(mask)) {
+          const months = [];
+          for (let i = 0; i < 12; i++) { if (mask & (1 << i)) months.push(i); }
+          result.selectedMonths = months;
+        }
+      }
+
+      // Optional 5th field: filters=...
+      if (parts.length >= 5 && parts[4].startsWith('filters=')) {
+        filterPart = parts[4];
       }
     }
   }

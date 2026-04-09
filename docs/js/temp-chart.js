@@ -536,6 +536,12 @@ export class TempChart {
     this._loessByMonth  = null;
     this._loessAnomaly  = null;
 
+    this._externalBands        = null;  // [{x, low, high}|null] CI bands for monthly/yearly modes
+    this._externalBandsByMonth = null;  // Array<[{x, low, high}|null]> CI bands for bymonth mode (one array per month)
+    this._showExternalBands    = false;
+    this._externalTrend        = null;  // {slopePerYear, slopePer100Years, intercept} overrides internal trend
+    this._externalTrendsByMonth = null; // Array<trend|null> per-month overrides for bymonth mode
+
     // ── Unified x-axis domain (fractional years, shared across all modes) ──
     // null until load() or setGlobalRange() initialises them.
     this._xMin       = null;  // current view left edge
@@ -797,6 +803,35 @@ export class TempChart {
   setShowLoess(v) { this._showLoess = !!v; this._scheduleRender(); }
   getShowLoess()  { return this._showLoess; }
 
+  /**
+   * Set external CI bands for monthly/yearly modes (95% confidence interval shading).
+   * @param {Array<{x: number, low: number, high: number}|null>|null} bands
+   */
+  setExternalBands(bands) { this._externalBands = bands ?? null; this._scheduleRender(); }
+
+  /**
+   * Set per-month CI bands for bymonth mode.
+   * @param {Array<Array<{x: number, low: number, high: number}|null>>|null} bands  — 12-element array, one per month
+   */
+  setExternalBandsByMonth(bands) { this._externalBandsByMonth = bands ?? null; this._scheduleRender(); }
+
+  /** Show or hide all external CI band shading. */
+  setShowExternalBands(v) { this._showExternalBands = !!v; this._scheduleRender(); }
+
+  /**
+   * Override the trend line for monthly/yearly modes with a pre-computed result
+   * (e.g. a weighted OLS trend from the aggregate view).  Pass null to revert to
+   * the internally-computed unweighted trend.
+   * @param {{ slopePerYear: number, slopePer100Years: number, intercept: number }|null} trend
+   */
+  setExternalTrend(trend) { this._externalTrend = trend ?? null; this._scheduleRender(); }
+
+  /**
+   * Override the per-month trend lines for bymonth mode.
+   * @param {Array<{ slopePerYear: number, slopePer100Years: number, intercept: number }|null>|null} trends — 12-element array
+   */
+  setExternalTrendsByMonth(trends) { this._externalTrendsByMonth = trends ?? null; this._scheduleRender(); }
+
   /** Set LOESS bandwidth span (0.1–0.9) and recompute all curves. */
   setLoessSpan(span) {
     this._loessSpan   = Math.max(0.1, Math.min(0.9, span));
@@ -1035,8 +1070,8 @@ export class TempChart {
     }
 
     // Y-axis range is anchored to visible complete-year points. Partial-year
-    // estimate centres may expand that raw range by at most 10%; CI bars are
-    // clipped to the final domain and do not influence it.
+    // estimate centres may expand that raw range by at most 10%; external CI
+    // bands expand the domain to fit their full extent.
     let yMin = Infinity, yMax = -Infinity;
     for (const p of visible) { if (p.y < yMin) yMin = p.y; if (p.y > yMax) yMax = p.y; }
 
@@ -1054,6 +1089,15 @@ export class TempChart {
       const estMax = Math.max(...visiblePartials.map(pe => pe.estimate));
       yMin = Math.max(baseMin - estExt, Math.min(baseMin, estMin));
       yMax = Math.min(baseMax + estExt, Math.max(baseMax, estMax));
+    }
+
+    // External CI bands expand the y domain so the bands are fully visible.
+    if (this._showExternalBands && this._externalBands) {
+      for (const b of this._externalBands) {
+        if (!b || b.x < xMin || b.x > xMax) continue;
+        if (b.low  < yMin) yMin = b.low;
+        if (b.high > yMax) yMax = b.high;
+      }
     }
 
     if (!isFinite(yMin)) { yMin = -1; yMax = 1; }
@@ -1137,11 +1181,65 @@ export class TempChart {
       ctx.setLineDash([]);
     }
 
-    // Trend line — anomaly uses its own pre-computed trend; monthly/yearly compute on demand.
-    const _activeTrend = isAnomaly ? this._anomalyTrend
-      : this._mode === 'yearly'    ? this._yearlyTrend
-      : this._mode === 'monthly'   ? this._monthlyTrend
+    // External CI bands (aggregate 95% CI): shaded region + boundary lines.
+    // Grey so the bands are visually distinct from the blue data line.
+    if (this._showExternalBands && this._externalBands?.length >= 2) {
+      const colFill = isLight ? 'rgba(100,115,135,0.20)' : 'rgba(155,170,190,0.20)';
+      const colLine = isLight ? 'rgba(100,115,135,0.70)' : 'rgba(155,170,190,0.70)';
+      let segment = [];
+
+      const drawSeg = () => {
+        const vis = segment.filter(b => b.x >= xMin && b.x <= xMax);
+        if (vis.length >= 2) {
+          const clampY = (y) => Math.min(Math.max(y, yMin), yMax);
+
+          // Filled region between low and high bounds.
+          ctx.fillStyle = colFill;
+          ctx.beginPath();
+          ctx.moveTo(toX(vis[0].x), toY(clampY(vis[0].low)));
+          for (const b of vis) ctx.lineTo(toX(b.x), toY(clampY(b.low)));
+          for (let j = vis.length - 1; j >= 0; j--) ctx.lineTo(toX(vis[j].x), toY(clampY(vis[j].high)));
+          ctx.closePath();
+          ctx.fill();
+
+          // Upper bound line.
+          ctx.strokeStyle = colLine;
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.setLineDash([4 * dpr, 3 * dpr]);
+          ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+          ctx.beginPath();
+          for (let k = 0; k < vis.length; k++) {
+            const px = toX(vis[k].x), py = toY(clampY(vis[k].high));
+            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+
+          // Lower bound line.
+          ctx.beginPath();
+          for (let k = 0; k < vis.length; k++) {
+            const px = toX(vis[k].x), py = toY(clampY(vis[k].low));
+            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        segment = [];
+      };
+
+      for (const b of this._externalBands) {
+        if (!b) { drawSeg(); continue; }
+        segment.push(b);
+      }
+      drawSeg();
+    }
+
+    // Trend line — external (weighted) trend takes priority when set; otherwise fall
+    // back to the internally-computed unweighted trend for the active mode.
+    const _computedTrend = isAnomaly        ? this._anomalyTrend
+      : this._mode === 'yearly'             ? this._yearlyTrend
+      : this._mode === 'monthly'            ? this._monthlyTrend
       : null;
+    const _activeTrend = (this._externalTrend !== null) ? this._externalTrend : _computedTrend;
     if (_activeTrend && this._showAnomalyTrend) {
       const trendStartY = _activeTrend.intercept + _activeTrend.slopePerYear * xMin;
       const trendEndY   = _activeTrend.intercept + _activeTrend.slopePerYear * xMax;
@@ -1344,13 +1442,21 @@ export class TempChart {
       return;
     }
 
-    // Y range from all visible selected-month values.
+    // Y range from all visible selected-month values, expanded for CI bands.
     let yMin = Infinity, yMax = -Infinity;
     for (const m of selected) {
       for (const p of this._byMonth[m]) {
         if (p && p.x >= xMin && p.x <= xMax) {
           if (p.y < yMin) yMin = p.y;
           if (p.y > yMax) yMax = p.y;
+        }
+      }
+      if (this._showExternalBands && this._externalBandsByMonth?.[m]) {
+        for (const b of this._externalBandsByMonth[m]) {
+          if (b && b.x >= xMin && b.x <= xMax) {
+            if (b.low  < yMin) yMin = b.low;
+            if (b.high > yMax) yMax = b.high;
+          }
         }
       }
     }
@@ -1418,6 +1524,47 @@ export class TempChart {
       ctx.beginPath(); ctx.moveTo(px, mt); ctx.lineTo(px, mt + ch); ctx.stroke();
     }
 
+    // Per-month CI bands (drawn before lines so lines render on top).
+    if (this._showExternalBands && this._externalBandsByMonth) {
+      for (const m of selected) {
+        const mBands = this._externalBandsByMonth[m];
+        if (!mBands) continue;
+        const col = colors[m];
+        let segment = [];
+        const drawSeg = () => {
+          const vis = segment.filter(b => b.x >= xMin && b.x <= xMax);
+          if (vis.length >= 2) {
+            const clampY = y => Math.min(Math.max(y, yMin), yMax);
+            ctx.fillStyle = col; ctx.globalAlpha = 0.15;
+            ctx.beginPath();
+            ctx.moveTo(toX(vis[0].x), toY(clampY(vis[0].low)));
+            for (const b of vis) ctx.lineTo(toX(b.x), toY(clampY(b.low)));
+            for (let j = vis.length - 1; j >= 0; j--) ctx.lineTo(toX(vis[j].x), toY(clampY(vis[j].high)));
+            ctx.closePath(); ctx.fill();
+            ctx.strokeStyle = col; ctx.lineWidth = 1 * dpr; ctx.globalAlpha = 0.55;
+            ctx.setLineDash([4 * dpr, 3 * dpr]);
+            ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+            ctx.beginPath();
+            for (let k = 0; k < vis.length; k++) {
+              const px = toX(vis[k].x), py = toY(clampY(vis[k].high));
+              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.beginPath();
+            for (let k = 0; k < vis.length; k++) {
+              const px = toX(vis[k].x), py = toY(clampY(vis[k].low));
+              if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]); ctx.globalAlpha = 1;
+          }
+          segment = [];
+        };
+        for (const b of mBands) { if (!b) { drawSeg(); continue; } segment.push(b); }
+        drawSeg();
+      }
+    }
+
     // Month lines
     if (this._showLoess || this._showAnomalyTrend) ctx.globalAlpha = 0.5;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -1459,9 +1606,10 @@ export class TempChart {
     }
 
     // Trend lines for each selected month (when trend is enabled).
-    if (this._showAnomalyTrend && this._byMonthTrends) {
+    // External (weighted) per-month trends take priority over internal unweighted ones.
+    if (this._showAnomalyTrend && (this._byMonthTrends || this._externalTrendsByMonth)) {
       for (const m of selected) {
-        const trend = this._byMonthTrends[m];
+        const trend = this._externalTrendsByMonth?.[m] ?? this._byMonthTrends?.[m];
         if (!trend) continue;
         const trendStartY = trend.intercept + trend.slopePerYear * xMin;
         const trendEndY   = trend.intercept + trend.slopePerYear * xMax;

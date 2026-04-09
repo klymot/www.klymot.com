@@ -103,6 +103,10 @@ function _startTour() {
     return;
   }
 
+  // Aggregate graph steps are only shown when the API server is reachable
+  // (indicated by the Graph button being visible and enabled).
+  const _aggregateAvailable = !document.querySelector('.view-btn[data-view="aggregate"]')?.hidden;
+
   // `driverObj` is referenced inside step callbacks — assigned just below.
   let driverObj;
 
@@ -280,15 +284,55 @@ function _startTour() {
         element: '.view-toggle',
         popover: {
           title: 'Switch Views',
-          description:
-            'Display stations on a flat Mercator map, a rotatable globe, ' +
-            'or a sortable data table.',
+          description: _aggregateAvailable
+            ? 'Display stations on a flat Mercator map, a rotatable globe, ' +
+              'a sortable data table, or an <strong>Aggregate Graph</strong> — ' +
+              'a multi-station temperature chart built from all currently ' +
+              'filtered stations. Click <strong>Next</strong> and we\'ll open it.'
+            : 'Display stations on a flat Mercator map, a rotatable globe, ' +
+              'or a sortable data table.',
           side: 'bottom',
           align: 'end',
+          // onNextClick must be absent (not undefined) when aggregate is
+          // unavailable — driver.js treats the key's presence as a signal
+          // to intercept Next, even when the value is undefined.
+          ...(_aggregateAvailable ? {
+            onNextClick: () => {
+              document.querySelector('.view-btn[data-view="aggregate"]')?.click();
+              setTimeout(() => driverObj.moveNext(), 800);
+            },
+          } : {}),
         },
       },
 
-      // ── 12. Map ─────────────────────────────────────────────────────
+      // ── 12. Aggregate graph (shown only when API is reachable) ───────
+      ...(_aggregateAvailable ? [{
+        element: '#aggregate-container',
+        popover: {
+          title: 'Aggregate Graph',
+          description:
+            'Averages temperature records across every station in the current ' +
+            'filtered set. Choose between <strong>Monthly</strong>, ' +
+            '<strong>By Month</strong>, <strong>Annual</strong>, ' +
+            '<strong>Monthly Anomaly</strong>, and <strong>Annual Anomaly</strong> ' +
+            'modes. <strong>Geo-gridded</strong> weights stations by ' +
+            'cos(latitude) so polar regions don\'t dominate. ' +
+            '<strong>Full years</strong> (on by default) restricts each ' +
+            'station to years where all 12 months are present, preventing ' +
+            'seasonal gaps from biasing the mean. ' +
+            'Shaded <strong>95% CI</strong> bands and a weighted ' +
+            'trend line are also available. ' +
+            'Click <strong>Next</strong> to return to the map.',
+          side: 'top',
+          align: 'start',
+          onNextClick: () => {
+            document.querySelector('.view-btn[data-view="globe"]')?.click();
+            setTimeout(() => driverObj.moveNext(), 600);
+          },
+        },
+      }] : []),
+
+      // ── 13. Map ─────────────────────────────────────────────────────
       {
         element: '#map',
         popover: {
@@ -302,7 +346,7 @@ function _startTour() {
         },
       },
 
-      // ── 13. Zoom controls ───────────────────────────────────────────
+      // ── 14. Zoom controls ───────────────────────────────────────────
       {
         element: '.zoom-controls',
         popover: {
@@ -315,7 +359,7 @@ function _startTour() {
         },
       },
 
-      // ── 14. Data sources ────────────────────────────────────────────
+      // ── 15. Data sources ────────────────────────────────────────────
       {
         element: '#sources-btn',
         popover: {
@@ -328,7 +372,7 @@ function _startTour() {
         },
       },
 
-      // ── 15. Tour button ─────────────────────────────────────────────
+      // ── 16. Tour button ─────────────────────────────────────────────
       {
         element: '#tour-btn',
         popover: {

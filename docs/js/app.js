@@ -6,6 +6,7 @@ import { initMapQR } from './qr.js?v=20260406';
 import { initDetailPanel, openDetail, closeDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260406';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter, setColumnFilters } from './table-view.js?v=20260406';
 import { initFilterBar, getActiveSelections, restoreSelections, clearAllFilters } from './filter-bar.js?v=20260406';
+import { initAggregateView, showAggregateView, hideAggregateView, isAggregateVisible, refreshAggregateView, setFilterStateGetter, restoreGraphState, checkApiAvailable } from './aggregate-view.js?v=20260408';
 import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260406';
 import { initConsent } from './consent.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
@@ -19,18 +20,26 @@ function init() {
 
   const map = initMap(getTheme());
 
-  // ── Loading overlay & Table button: disabled until data is ready ───
+  // ── Loading overlay & Table/Graph buttons: disabled until data is ready ──
   const _loadingOverlay = document.getElementById('loading-overlay');
   const _tableBtn       = document.querySelector('.view-btn[data-view="table"]');
-  if (_tableBtn) _tableBtn.disabled = true;
+  const _aggregateBtn   = document.querySelector('.view-btn[data-view="aggregate"]');
+  if (_tableBtn)     _tableBtn.disabled     = true;
+  if (_aggregateBtn) _aggregateBtn.disabled = true;
+
+  // Start the API availability check concurrently with data loading.
+  // A 3-second timeout is built into checkApiAvailable(); by the time markers
+  // finish loading the result will almost always be ready.
+  const _apiAvailablePromise = checkApiAvailable();
 
   // ── Header brand → reset to default view ──────────────────────────
   document.querySelector('.header-brand')
     ?.addEventListener('click', () => {
       // Close detail panel if open
       closeDetail();
-      // Return to map view if table is visible
+      // Return to map view if table or aggregate view is visible
       if (isTableVisible()) hideTable();
+      if (isAggregateVisible()) hideAggregateView();
       // Clear all filters
       clearAllFilters();
       // Fly back to the default globe position
@@ -62,7 +71,11 @@ function init() {
       ?.setAttribute('disabled', 'disabled');
   }
 
+  // Track current filtered IDs so the aggregate view can refresh when filters change.
+  let _currentFilteredIds = null;
+
   function applyProjection(projection, { syncUrl = true } = {}) {
+    if (isAggregateVisible()) hideAggregateView();
     const next = projectionSupported ? projection : 'mercator';
     setProjection(next);
     // Activate the matching view button; deactivate the others.
@@ -78,16 +91,25 @@ function init() {
   document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
-      const currentView = isTableVisible() ? 'table' : getProjection();
+      const currentView = isAggregateVisible() ? 'aggregate'
+                        : isTableVisible()      ? 'table'
+                        :                         getProjection();
       if (view && view !== currentView) {
-        trackEvent('view_mode_change', {
-          from_view: currentView,
-          to_view: view,
-        });
+        trackEvent('view_mode_change', { from_view: currentView, to_view: view });
       }
 
       if (view === 'table') {
+        if (isAggregateVisible()) hideAggregateView();
         showTable();
+      } else if (view === 'aggregate') {
+        if (isTableVisible()) hideTable();
+        if (!isAggregateVisible()) {
+          document.querySelectorAll('.view-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.view === 'aggregate')
+          );
+          const ids = _currentFilteredIds ? [..._currentFilteredIds] : getLocations().map(l => l.id);
+          showAggregateView(ids);
+        }
       } else {
         // Mercator or Globe: switch to map view first if needed.
         if (isTableVisible()) hideTable();
@@ -98,6 +120,7 @@ function init() {
 
   // When the table hides, resize the map and restore the map URL/QR.
   document.addEventListener('table:hidden', () => {
+    if (isAggregateVisible()) return; // aggregate view took over, don't reset to map
     map.resize();
     applyProjection(getProjection(), { syncUrl: true });
     updateMapQR(window.location.href);
@@ -327,21 +350,45 @@ function init() {
     if (state.filters) restoreSelections(state.filters);
     if (state.type === 'map') {
       if (isTableVisible()) hideTable();
+      if (isAggregateVisible()) hideAggregateView();
       map.jumpTo({ center: [state.lng, state.lat], zoom: state.zoom });
       applyProjection(state.projection, { syncUrl: false });
     } else if (state.type === 'station') {
       _restoreStation(state.id, state);
     } else if (state.type === 'table') {
+      if (isAggregateVisible()) hideAggregateView();
       showTable({ sortColumn: state.sortColumn, sortDirection: state.sortDirection, syncUrl: false });
+    } else if (state.type === 'graph' && !_aggregateBtn?.hidden) {
+      if (isTableVisible()) hideTable();
+      if (!isAggregateVisible()) {
+        document.querySelectorAll('.view-btn').forEach(b =>
+          b.classList.toggle('active', b.dataset.view === 'aggregate')
+        );
+      }
+      const ids = _currentFilteredIds ? [..._currentFilteredIds] : getLocations().map(l => l.id);
+      restoreGraphState(state, ids);
     }
-    if (!isTableVisible()) updateMapQR(window.location.href);
+    if (!isTableVisible() && !isAggregateVisible()) updateMapQR(window.location.href);
   });
 
   // ── Markers ────────────────────────────────────────────────────────
-  initMarkers(getTheme()).then(() => {
-    // Data is ready: hide loading overlay and re-enable Table button.
+  initMarkers(getTheme()).then(async () => {
+    // Data is ready: resolve the API check (usually already done) and
+    // enable the aggregate button only if the API server is reachable.
+    const _apiAvailable = await _apiAvailablePromise;
+
     if (_loadingOverlay) _loadingOverlay.classList.add('ready');
     if (_tableBtn)       _tableBtn.disabled = false;
+    if (_aggregateBtn) {
+      if (_apiAvailable) {
+        _aggregateBtn.disabled = false;
+      } else {
+        _aggregateBtn.hidden = true;
+      }
+    }
+
+    initAggregateView();
+    setFilterStateGetter(getActiveSelections);
 
     const scheduleSpritePreload = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 1500 })
@@ -354,8 +401,13 @@ function init() {
 
     document.addEventListener('filter:change', (e) => {
       const { filteredIds } = e.detail;
+      _currentFilteredIds = filteredIds;
       setColumnFilters(filteredIds);
       setFilteredLocations(filteredIds);
+      if (isAggregateVisible()) {
+        const ids = filteredIds ? [...filteredIds] : getLocations().map(l => l.id);
+        refreshAggregateView(ids);
+      }
       // Keep URL and QR code in sync with the active filter state
       if (isTableVisible()) {
         // table-view will push its own state via _pushTableState on next sort interaction;
@@ -363,10 +415,12 @@ function init() {
         const filterStr = serialiseFilterState(getActiveSelections());
         const base = getCurrentTableHash();
         pushState(filterStr ? `${base}/${filterStr}` : base);
-      } else {
+        updateMapQR(window.location.href);
+      } else if (!isAggregateVisible()) {
         pushState(serialiseMapState(map, getProjection(), getActiveSelections()));
+        updateMapQR(window.location.href);
       }
-      updateMapQR(window.location.href);
+      // When aggregate view is visible, it pushes its own URL state via _pushUrl().
     });
 
     // Restore any filter state embedded in the initial URL after the filter
@@ -381,6 +435,12 @@ function init() {
         sortDirection: initialState.sortDirection,
         syncUrl:       false,
       });
+    } else if (initialState?.type === 'graph' && _apiAvailable) {
+      document.querySelectorAll('.view-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.view === 'aggregate')
+      );
+      const ids = _currentFilteredIds ? [..._currentFilteredIds] : getLocations().map(l => l.id);
+      restoreGraphState(initialState, ids);
     }
   }).catch(err => console.error('Markers load failed:', err));
 

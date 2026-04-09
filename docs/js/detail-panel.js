@@ -2237,8 +2237,16 @@ function _detailHeader(category, name, data, indexEntry, locationId) {
         ${metaHtml ? `<div class="detail-meta detail-header-meta" id="detail-header-meta">${metaHtml}</div>` : ''}
       </div>
       <div class="detail-header-qr">
+        <div class="detail-export-brand" aria-hidden="true">
+          <span class="header-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="22" height="22"><circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.25"/><ellipse cx="16" cy="16" rx="13" ry="4.2" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="9.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="22.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="16" rx="3" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><ellipse cx="16" cy="16" rx="9" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/><circle cx="19.5" cy="10.5" r="4" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/><circle cx="19.5" cy="10.5" r="2" fill="currentColor"/></svg></span>
+          <div class="detail-export-brand-text">
+            <span class="header-title">klymot</span>
+            <span class="header-subtitle">Climate Data Explorer</span>
+          </div>
+        </div>
         <div class="detail-qr detail-qr-header">
           <div class="qr-code"></div>
+          <span class="detail-qr-url">klymot.com</span>
         </div>
       </div>
       <div class="detail-header-actions">

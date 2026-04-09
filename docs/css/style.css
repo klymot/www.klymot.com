@@ -437,6 +437,8 @@ body {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), 0 0 1px var(--border-strong);
   transition: background 0.25s, border-color 0.25s;
   position: relative;
+  container-type: size;
+  container-name: detail;
 }
 
 /* .detail-top: flex row — left=category+name+meta, right=close+QR */
@@ -541,6 +543,27 @@ body {
   align-items: center;
   flex-shrink: 0;
   margin-right: 0.25rem;
+}
+
+.detail-export-brand {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.875rem;
+}
+
+.detail-export-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.detail-qr-url {
+  display: none;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .detail-qr-header .qr-label {
@@ -1138,6 +1161,17 @@ body {
 
 .pop-tab-panel[hidden] {
   display: none;
+}
+
+/* Scale the map tile to 480 px square when the panel is large enough.
+ * Only .detail-bu-wrap (the tile + crosshair + scale bar) is zoomed;
+ * the legend bar and score text stay at their natural sizes.
+ * Requires both width ≥ 720 px and height ≥ 750 px so the map fits
+ * without overflow when the viewport is too short to reach 780 px. */
+@container detail (min-width: 720px) and (min-height: 750px) {
+  .detail-bu-wrap {
+    zoom: 3;
+  }
 }
 
 /* ── Population score right column (legend + density scores) ───────── */
@@ -1926,6 +1960,52 @@ body {
   display: none;
 }
 
+/* ── Aggregate View ───────────────────────────────────────────────── */
+
+.aggregate-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  z-index: 1;
+  transition: background 0.25s;
+}
+
+.aggregate-container[hidden] {
+  display: none;
+}
+
+.aggregate-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 1.75rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  min-height: 2.25rem;
+}
+
+.aggregate-status {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The aggregate container houses .detail-sections directly, which already
+   carries flex:1 + min-height:0 to make the chart fill available height. */
+.aggregate-container .section-panel {
+  overflow: hidden; /* charts size themselves; no page-level scroll needed */
+}
+
+/* Hide map zoom controls when the aggregate view is visible. */
+.map-wrapper.aggregate-active .zoom-controls {
+  display: none;
+}
+
 /* ── Filter Toggle Button (in header) ─────────────────────────────── */
 
 .filter-toggle-btn {
@@ -2518,6 +2598,24 @@ body {
 }
 .detail-panel.export-mode .detail-header-qr {
   display: flex !important;
+  gap: 0 !important;
+}
+.detail-panel.export-mode .detail-export-brand {
+  display: flex !important;
+}
+.detail-panel.export-mode .detail-export-brand .header-logo svg {
+  width: 100px;
+  height: 100px;
+}
+.detail-panel.export-mode .detail-qr-header {
+  position: relative;
+}
+.detail-panel.export-mode .detail-qr-url {
+  display: block !important;
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
 }
 .detail-panel.export-mode .detail-qr {
   display: flex !important;

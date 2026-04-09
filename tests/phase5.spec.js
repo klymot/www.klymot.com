@@ -77,6 +77,9 @@ async function loadPage(page, { hash = '', detailRoutes = {}, mockIndex = MOCK_I
   await page.route('**qrcode**', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: QR_MOCK_BODY })
   );
+  await page.route('**/api/v1/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
 
   for (const [id, data] of Object.entries(detailRoutes)) {
     const pattern = `**/data/locations/${id}.json`;

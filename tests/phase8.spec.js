@@ -119,6 +119,9 @@ async function loadPage(page, { hash = '', mockIndex = MOCK_INDEX_FULL } = {}) {
   await page.route('**jspdf**', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.jspdf = { jsPDF: class { addImage(){} save(){} } };' })
   );
+  await page.route('**/api/v1/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
   await page.goto(hash ? `/${hash}` : '/');
 }
 

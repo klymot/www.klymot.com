@@ -34,6 +34,9 @@ async function loadPage(page) {
   // Suppress Google Fonts network calls (not needed for tests).
   await page.route('**fonts.googleapis.com**', route => route.fulfill({ status: 200, body: '' }));
   await page.route('**fonts.gstatic.com**', route => route.fulfill({ status: 200, body: '' }));
+  await page.route('**/api/v1/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
 
   await page.goto('/');
   // Wait for the mock map's async 'load' event to fire and zoom display to update.

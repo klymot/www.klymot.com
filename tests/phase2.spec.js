@@ -51,6 +51,9 @@ async function loadPage(page) {
       body:        JSON.stringify(MOCK_INDEX),
     })
   );
+  await page.route('**/api/v1/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
 
   await page.goto('/');
 }

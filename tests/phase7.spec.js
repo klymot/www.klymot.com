@@ -65,6 +65,12 @@ async function loadPage(page, { hash = '', detailRoutes = {}, delay = 0 } = {}) 
     route.fulfill({ status: 200, contentType: 'application/javascript', body: QR_MOCK_BODY })
   );
 
+  // Mock the aggregate API status check so it doesn't produce net::ERR_CONNECTION_REFUSED
+  // console errors (the real API server is not running during tests).
+  await page.route('**/api/v1/status', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
+
   // Strip SRI integrity attributes so CDN mocks aren't blocked by hash mismatch.
   await page.route(u => ['/', '/index.html'].includes(new URL(u).pathname), async route => {
     const response = await route.fetch();
