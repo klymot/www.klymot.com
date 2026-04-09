@@ -201,7 +201,7 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
   const flags = [];
   if (geoGridded) flags.push('geo');
   if (fullYearsOnly === false) flags.push('nofullyr');
-  if (showCI) flags.push('ci');
+  if (showCI === false) flags.push('noci');
   if (showTrend === false) flags.push('notrend');
   if (trendFromYear) flags.push(`trendfrom=${trendFromYear}`);
   if (showLoess) {
@@ -385,7 +385,7 @@ export function parseHash(hash) {
       const flagSet = new Set((flagStr && flagStr !== '-') ? flagStr.split(',') : []);
       result.geoGridded    = flagSet.has('geo');
       result.fullYearsOnly = !flagSet.has('nofullyr');
-      result.showCI        = flagSet.has('ci');
+      result.showCI        = !flagSet.has('noci');
       result.showTrend  = !flagSet.has('notrend');
       const trendFromFlag = [...flagSet].find(f => f.startsWith('trendfrom='));
       result.trendFromYear = trendFromFlag ? parseInt(trendFromFlag.slice(10), 10) : 0;

@@ -34,7 +34,7 @@ let _sharedShowLoess      = false;
 let _sharedLoessSpan      = 0.3;
 let _geoGridded           = true;
 let _fullYearsOnly        = true;
-let _showCI               = false;
+let _showCI               = true;
 let _lastResponses        = { qcu: null, qcf: null };
 let _visible              = false;
 let _getFilterState       = null;  // () → activeSelections, set by app.js
@@ -115,7 +115,7 @@ export function restoreGraphState(state, stationIds) {
   if (state.mode)        _sharedMode       = state.mode;
   if (state.geoGridded)          _geoGridded       = true;
   if (state.fullYearsOnly === false) _fullYearsOnly = false;
-  if (state.showCI)              _showCI           = true;
+  if (state.showCI === false)    _showCI           = false;
   if (state.showTrend === false) _sharedShowTrend = false;
   if (state.trendFromYear != null) _trendFromYear = state.trendFromYear;
   if (state.showLoess)   _sharedShowLoess  = true;
@@ -1050,9 +1050,9 @@ function _seriesPanel(series, hidden) {
             <button class="chart-ci-btn active" data-action="fy-toggle"
                     title="Only include station-years with all 12 months present"
                     aria-pressed="true">Full years</button>
-            <button class="chart-ci-btn" data-action="ci-toggle"
+            <button class="chart-ci-btn active" data-action="ci-toggle"
                     title="Show 95% confidence interval shading (±1.96 × standard error)"
-                    aria-pressed="false">95% CI</button>
+                    aria-pressed="true">95% CI</button>
           </div>
           <div class="chart-zoom-controls" role="group" aria-label="Zoom controls">
             <button class="chart-zoom-btn" data-action="zoom-out"
