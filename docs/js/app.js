@@ -6,7 +6,7 @@ import { initMapQR } from './qr.js?v=20260406';
 import { initDetailPanel, openDetail, closeDetail, setReturnMode, setRestoreState, preloadDetailSprites } from './detail-panel.js?v=20260406';
 import { initTableView, showTable, hideTable, isTableVisible, getCurrentTableHash, setTableFilter, setColumnFilters } from './table-view.js?v=20260406';
 import { initFilterBar, getActiveSelections, restoreSelections, clearAllFilters, getFilterSummary } from './filter-bar.js?v=20260406';
-import { initAggregateView, showAggregateView, hideAggregateView, isAggregateVisible, refreshAggregateView, setFilterStateGetter, setFilterSummaryGetter, restoreGraphState, checkApiAvailable } from './aggregate-view.js?v=20260410';
+import { initAggregateView, showAggregateView, hideAggregateView, isAggregateVisible, refreshAggregateView, setFilterStateGetter, setFilterSummaryGetter, setUrlChangeCallback, restoreGraphState, checkApiAvailable } from './aggregate-view.js?v=20260410';
 import { initSourcesPanel, toggleSources } from './sources-panel.js?v=20260406';
 import { initConsent } from './consent.js?v=20260406';
 import { trackEvent } from './analytics.js?v=20260406';
@@ -390,6 +390,7 @@ function init() {
     initAggregateView();
     setFilterStateGetter(getActiveSelections);
     setFilterSummaryGetter(getFilterSummary);
+    setUrlChangeCallback(() => updateMapQR(window.location.href));
 
     const scheduleSpritePreload = window.requestIdleCallback
       ? (fn) => window.requestIdleCallback(fn, { timeout: 1500 })

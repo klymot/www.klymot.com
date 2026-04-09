@@ -9,6 +9,7 @@
  *   isAggregateVisible()             — boolean
  *   refreshAggregateView(stationIds) — re-fetch with a new ID list (filter changed)
  *   setFilterStateGetter(fn)         — register a fn() → activeSelections callback for URL state
+ *   setUrlChangeCallback(fn)         — register a fn() called after every URL push (e.g. QR update)
  *   restoreGraphState(state)         — restore from a parsed URL graph state object
  *
  * API URL resolution:
@@ -38,6 +39,7 @@ let _showCI               = true;
 let _lastResponses        = { qcu: null, qcf: null };
 let _visible              = false;
 let _getFilterState       = null;  // () → activeSelections, set by app.js
+let _onUrlChange          = null;  // () → void, called after every _pushUrl()
 let _lastStationIds       = null;  // most recent station IDs passed to _loadData
 let _loadGeneration       = 0;    // incremented on each _loadData call; stale responses are dropped
 
@@ -73,6 +75,9 @@ export function setFilterStateGetter(fn) { _getFilterState = fn; }
 
 /** Register a callback that returns the current filter summary string for display. */
 export function setFilterSummaryGetter(fn) { _getFilterSummary = fn; }
+
+/** Register a callback invoked after every URL push (e.g. to update a QR code). */
+export function setUrlChangeCallback(fn) { _onUrlChange = fn; }
 
 /** Show the view and kick off a data fetch for the given station ID array. */
 export function showAggregateView(stationIds) {
@@ -183,6 +188,7 @@ function _pushUrl() {
     loessSpan: _sharedLoessSpan,
     selectedMonths: _sharedSelectedMonths,
   }, _getFilterState?.()));
+  _onUrlChange?.();
 }
 
 // ── Data fetch ─────────────────────────────────────────────────────────────────
