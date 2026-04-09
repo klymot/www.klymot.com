@@ -1618,7 +1618,14 @@ body {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1rem;
+}
+
+.chart-slider-sep {
+  color: var(--border-strong);
+  font-size: 0.75rem;
+  line-height: 1;
+  user-select: none;
 }
 
 .chart-loess-controls,

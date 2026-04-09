@@ -577,6 +577,12 @@ function _computeWeightedByMonthTrends(resp, fromYear = 0) {
   });
 }
 
+/** Show the | separator only when both sliders are visible. */
+function _syncSliderSep() {
+  const vis = _sharedShowTrend && _sharedShowLoess ? 'visible' : 'hidden';
+  _container?.querySelectorAll('.chart-slider-sep').forEach(s => { s.style.visibility = vis; });
+}
+
 /** Push weighted trends onto both charts for the current mode. */
 function _applyWeightedTrends() {
   for (const series of ['qcu', 'qcf']) {
@@ -793,6 +799,7 @@ function _syncControlsToState() {
   _container?.querySelectorAll('.loess-range').forEach(s => { s.value = Math.round(_sharedLoessSpan * 100); });
   _container?.querySelectorAll('.loess-slider-value').forEach(v => { v.textContent = _sharedLoessSpan.toFixed(2); });
 
+  _syncSliderSep();
   _applySharedMode();
 }
 
@@ -858,6 +865,7 @@ function _wireEvents() {
       _container.querySelectorAll('.chart-trend-from-controls').forEach(c => {
         c.style.visibility = _sharedShowTrend ? 'visible' : 'hidden';
       });
+      _syncSliderSep();
       for (const c of Object.values(_charts)) c?.setShowAnomalyTrend(_sharedShowTrend);
       _pushUrl();
     });
@@ -888,6 +896,7 @@ function _wireEvents() {
       _container.querySelectorAll('.chart-loess-controls').forEach(c => {
         c.style.visibility = _sharedShowLoess ? 'visible' : 'hidden';
       });
+      _syncSliderSep();
       for (const c of Object.values(_charts)) c?.setShowLoess(_sharedShowLoess);
       _pushUrl();
     });
@@ -1070,6 +1079,7 @@ function _seriesPanel(series, hidden) {
                 <span class="trend-from-value">All</span>
               </label>
             </div>
+            <span class="chart-slider-sep" style="visibility:hidden">|</span>
             <div class="chart-loess-controls" style="visibility:hidden">
               <label class="loess-slider-label">
                 <span class="loess-slider-title">LOESS Smoothing</span>
