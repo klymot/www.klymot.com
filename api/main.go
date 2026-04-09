@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"flag"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -66,7 +68,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logged := loggingMiddleware(mux)
+	logged := loggingMiddleware(gzipMiddleware(mux))
 	if *flagProd {
 		runProd(ctx, logged)
 	} else {
@@ -151,6 +153,37 @@ func redirectHTTPS(w http.ResponseWriter, r *http.Request) {
 	target := "https://" + r.Host + r.URL.RequestURI()
 	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }
+
+var gzipPool = sync.Pool{
+	New: func() any { w, _ := gzip.NewWriterLevel(nil, gzip.BestSpeed); return w },
+}
+
+// gzipMiddleware compresses responses for clients that send Accept-Encoding: gzip.
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		gz := gzipPool.Get().(*gzip.Writer)
+		gz.Reset(w)
+		defer func() {
+			gz.Close()
+			gzipPool.Put(gz)
+		}()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		w.Header().Del("Content-Length") // length will be wrong after compression
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
+	})
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error) { return g.gz.Write(b) }
 
 // loggingMiddleware logs one line per request:
 //
