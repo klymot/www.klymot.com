@@ -102,7 +102,6 @@ function init() {
         if (isAggregateVisible()) hideAggregateView();
         showTable();
       } else if (view === 'aggregate') {
-        if (isTableVisible()) hideTable();
         if (!isAggregateVisible()) {
           document.querySelectorAll('.view-btn').forEach(b =>
             b.classList.toggle('active', b.dataset.view === 'aggregate')
@@ -110,6 +109,7 @@ function init() {
           const ids = _currentFilteredIds ? [..._currentFilteredIds] : getLocations().map(l => l.id);
           showAggregateView(ids);
         }
+        if (isTableVisible()) hideTable();
       } else {
         // Mercator or Globe: switch to map view first if needed.
         if (isTableVisible()) hideTable();
@@ -326,7 +326,7 @@ function init() {
   map.on('moveend', () => {
     clearTimeout(_moveendTimer);
     _moveendTimer = setTimeout(() => {
-      if (isTableVisible()) return;
+      if (isTableVisible() || isAggregateVisible()) return;
       pushState(serialiseMapState(map, getProjection(), getActiveSelections()));
       updateMapQR(window.location.href);
       // Open any station that was queued by the search (flyTo has now settled).
@@ -359,7 +359,6 @@ function init() {
       if (isAggregateVisible()) hideAggregateView();
       showTable({ sortColumn: state.sortColumn, sortDirection: state.sortDirection, syncUrl: false });
     } else if (state.type === 'graph' && !_aggregateBtn?.hidden) {
-      if (isTableVisible()) hideTable();
       if (!isAggregateVisible()) {
         document.querySelectorAll('.view-btn').forEach(b =>
           b.classList.toggle('active', b.dataset.view === 'aggregate')
@@ -367,6 +366,7 @@ function init() {
       }
       const ids = _currentFilteredIds ? [..._currentFilteredIds] : getLocations().map(l => l.id);
       restoreGraphState(state, ids);
+      if (isTableVisible()) hideTable();
     }
     if (!isTableVisible() && !isAggregateVisible()) updateMapQR(window.location.href);
   });
