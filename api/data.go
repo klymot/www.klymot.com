@@ -92,6 +92,12 @@ func csvPath(dataDir, series, stationID string) string {
 	return filepath.Join(dataDir, series, stationID+".csv")
 }
 
+// isValidSeries rejects any series name that is not one of the two known
+// data series, preventing path traversal via the series parameter.
+func isValidSeries(series string) bool {
+	return series == "qcf" || series == "qcu"
+}
+
 // isValidStationID rejects any station ID that could enable path traversal.
 // Valid IDs are purely alphanumeric (e.g. "USW00003822").
 func isValidStationID(id string) bool {
@@ -149,6 +155,9 @@ func parseCSV(data []byte) (StationRows, error) {
 type noCacheStore struct{ dataDir string }
 
 func (s *noCacheStore) Load(series, stationID string) (StationRows, error) {
+	if !isValidSeries(series) || !isValidStationID(stationID) {
+		return nil, nil
+	}
 	data, err := os.ReadFile(csvPath(s.dataDir, series, stationID))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -171,6 +180,9 @@ type mmapStore struct {
 }
 
 func (s *mmapStore) Load(series, stationID string) (StationRows, error) {
+	if !isValidSeries(series) || !isValidStationID(stationID) {
+		return nil, nil
+	}
 	key := series + "/" + stationID
 	if v, ok := s.mu.Load(key); ok {
 		if v == nil {
