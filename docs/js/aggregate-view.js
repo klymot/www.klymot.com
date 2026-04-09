@@ -37,6 +37,7 @@ let _lastResponses        = { qcu: null, qcf: null };
 let _visible              = false;
 let _getFilterState       = null;  // () → activeSelections, set by app.js
 let _lastStationIds       = null;  // most recent station IDs passed to _loadData
+let _loadGeneration       = 0;    // incremented on each _loadData call; stale responses are dropped
 
 // ── Mode helpers ───────────────────────────────────────────────────────────────
 
@@ -182,12 +183,14 @@ function _pushUrl() {
 async function _loadData(stationIds) {
   const ids = stationIds ? [...stationIds] : [];
   _lastStationIds = ids;
+  const gen = ++_loadGeneration;
 
   _setStatus(ids.length === 0
     ? 'No stations selected — apply a filter to see the aggregate.'
     : `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''}`);
 
   if (ids.length === 0) {
+    _container?.classList.remove('is-loading');
     _lastResponses = { qcu: null, qcf: null };
     for (const c of Object.values(_charts)) c?.load('');
     return;
@@ -195,8 +198,14 @@ async function _loadData(stationIds) {
 
   const base = _apiBase();
 
-  // Fetch both series concurrently.
-  const results = await Promise.all(['qcu', 'qcf'].map(async series => {
+  // Clear stale data immediately so the chart area is blank while loading.
+  for (const c of Object.values(_charts)) c?.load('');
+  _container?.classList.add('is-loading');
+
+  // Start both fetches immediately so they run concurrently with the rAF waits.
+  // We must NOT start the fetch after the rAF — rAF fires before paint, so the
+  // fetch microtasks would complete before the browser ever draws the spinner.
+  const fetchPromise = Promise.all(['qcu', 'qcf'].map(async series => {
     try {
       const resp = await fetch(`${base}/api/v1/aggregate`, {
         method:  'POST',
@@ -211,30 +220,49 @@ async function _loadData(stationIds) {
     }
   }));
 
-  // Compute the union x-range across both series so the charts start and end at
-  // the same point (mirrors the detail panel's cross-chart range synchronisation).
-  let globalMin = Infinity, globalMax = -Infinity;
-  const csvs = {};
+  // Two rAF yields guarantee the spinner is painted at least once.
+  // rAF fires *before* paint; the browser paints between the two callbacks,
+  // so by the time the second one resolves the spinner frame has been drawn.
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
+  if (gen !== _loadGeneration) return; // superseded by a newer call
 
-  for (const { series, data } of results) {
-    _lastResponses[series] = data;
-    if (!data?.start || !data.counts?.length) { csvs[series] = ''; continue; }
-    csvs[series] = _responseToCsv(data);
-    const startYear = parseInt(data.start, 10);
-    const endYear   = startYear + Math.floor((data.counts.length - 1) / 12);
-    if (startYear < globalMin) globalMin = startYear;
-    if (endYear   > globalMax) globalMax = endYear;
+  try {
+    const results = await fetchPromise;
+
+    if (gen !== _loadGeneration) return; // superseded while fetching
+
+    // Compute the union x-range across both series so the charts start and end at
+    // the same point (mirrors the detail panel's cross-chart range synchronisation).
+    let globalMin = Infinity, globalMax = -Infinity;
+    const csvs = {};
+
+    for (const { series, data } of results) {
+      _lastResponses[series] = data;
+      if (!data?.start || !data.counts?.length) { csvs[series] = ''; continue; }
+      csvs[series] = _responseToCsv(data);
+      const startYear = parseInt(data.start, 10);
+      const endYear   = startYear + Math.floor((data.counts.length - 1) / 12);
+      if (startYear < globalMin) globalMin = startYear;
+      if (endYear   > globalMax) globalMax = endYear;
+    }
+
+    for (const series of ['qcu', 'qcf']) {
+      const chart = _charts[series];
+      if (!chart) continue;
+      chart.load(csvs[series] ?? '');
+      if (isFinite(globalMin)) chart.setGlobalRange(globalMin, globalMax + 1);
+    }
+
+    _applyCI();
+    _applyWeightedTrends();
+  } finally {
+    // Only the most recent call clears the spinner; stale calls leave it alone
+    // so the in-progress newer call can manage its own state.
+    if (gen === _loadGeneration) {
+      _container?.classList.remove('is-loading');
+    }
   }
-
-  for (const series of ['qcu', 'qcf']) {
-    const chart = _charts[series];
-    if (!chart) continue;
-    chart.load(csvs[series] ?? '');
-    if (isFinite(globalMin)) chart.setGlobalRange(globalMin, globalMax + 1);
-  }
-
-  _applyCI();
-  _applyWeightedTrends();
 }
 
 /**
@@ -876,6 +904,9 @@ function _seriesPanel(series, hidden) {
   return `
     <div class="section-panel" data-agg-series="${series}"${hidden ? ' hidden' : ''}>
       <div class="temp-chart-section">
+        <div class="aggregate-loading-overlay" aria-hidden="true">
+          <div class="aggregate-loading-spinner"></div>
+        </div>
         <div class="chart-mode-row">
           <button class="chart-mode-arrow chart-mode-prev"
                   aria-label="Previous chart mode" hidden>‹</button>

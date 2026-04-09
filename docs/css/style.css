@@ -1274,6 +1274,7 @@ body {
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
+  position: relative;
 }
 
 .chart-controls {
@@ -1993,6 +1994,33 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.aggregate-loading-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.aggregate-container.is-loading .section-panel:not([hidden]) .aggregate-loading-overlay {
+  display: flex;
+}
+
+.aggregate-container.is-loading .section-panel:not([hidden]) .chart-canvas-wrap {
+  visibility: hidden;
+}
+
+.aggregate-loading-spinner {
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
 }
 
 /* The aggregate container houses .detail-sections directly, which already
