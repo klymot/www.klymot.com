@@ -1072,7 +1072,7 @@ function _seriesPanel(series, hidden) {
             </div>
             <div class="chart-loess-controls" style="visibility:hidden">
               <label class="loess-slider-label">
-                <span class="loess-slider-title">Smoothing</span>
+                <span class="loess-slider-title">LOESS Smoothing</span>
                 <input type="range" class="loess-range"
                        min="10" max="90" step="5" value="30"
                        aria-label="LOESS span">
