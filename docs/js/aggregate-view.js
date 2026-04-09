@@ -489,8 +489,13 @@ function _weightedTrendLine(pts) {
   return { slopePerYear, slopePer100Years: slopePerYear * 100, intercept, se };
 }
 
-/** Slider positions → start years. Index 0 = all data. */
-const _TREND_FROM_STEPS = [0, 1880, 1950];
+/** Convert trend-from slider index → year (0 = all data, 1–201 → 1800–2000). */
+function _trendIdxToYear(idx) { return idx === 0 ? 0 : 1799 + idx; }
+/** Convert year → slider index (0 = all data, 1800–2000 → 1–201; clamp out-of-range). */
+function _trendYearToIdx(year) {
+  if (!year) return 0;
+  return Math.max(1, Math.min(201, year - 1799));
+}
 
 /**
  * Inverse-variance weight for a single monthly mean.
@@ -767,9 +772,7 @@ function _syncControlsToState() {
   _container?.querySelectorAll('.chart-trend-from-controls').forEach(c => {
     c.style.visibility = _sharedShowTrend ? 'visible' : 'hidden';
   });
-  const _trendFromStep = _TREND_FROM_STEPS.indexOf(_trendFromYear);
-  const _trendFromIdx  = _trendFromStep < 0 ? 0 : _trendFromStep;
-  _container?.querySelectorAll('.trend-from-range').forEach(s => { s.value = _trendFromIdx; });
+  _container?.querySelectorAll('.trend-from-range').forEach(s => { s.value = _trendYearToIdx(_trendFromYear); });
   _container?.querySelectorAll('.trend-from-value').forEach(v => {
     v.textContent = _trendFromYear > 0 ? String(_trendFromYear) : 'All';
   });
@@ -881,7 +884,7 @@ function _wireEvents() {
   _container.querySelectorAll('.trend-from-range').forEach(slider => {
     slider.addEventListener('input', () => {
       const idx = parseInt(slider.value, 10);
-      _trendFromYear = _TREND_FROM_STEPS[idx] ?? 0;
+      _trendFromYear = _trendIdxToYear(idx);
       _container.querySelectorAll('.trend-from-range').forEach(s => { s.value = idx; });
       _container.querySelectorAll('.trend-from-value').forEach(v => {
         v.textContent = _trendFromYear > 0 ? String(_trendFromYear) : 'All';
@@ -1080,7 +1083,7 @@ function _seriesPanel(series, hidden) {
               <label class="loess-slider-label">
                 <span class="loess-slider-title">Trend From</span>
                 <input type="range" class="trend-from-range"
-                       min="0" max="2" step="1" value="0"
+                       min="0" max="201" step="1" value="0"
                        aria-label="Trend start year">
                 <span class="trend-from-value">All</span>
               </label>

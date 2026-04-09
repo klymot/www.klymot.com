@@ -177,7 +177,7 @@ export function serialiseStationState(locationId, detail = {}) {
  * @param {boolean} [detail.fullYearsOnly] — whether only complete station-years contribute (default true)
  * @param {boolean} [detail.showCI]        — whether 95% CI bands are shown
  * @param {boolean} [detail.showTrend]     — whether trend line is shown (default true)
- * @param {number}  [detail.trendFromYear] — trend start year: 0=all, 1880, 1950 (default 0)
+ * @param {number}  [detail.trendFromYear] — trend start year: 0=all, 1800–2000 (default 0)
  * @param {boolean} [detail.showLoess]   — whether LOESS is shown (default false)
  * @param {number}  [detail.loessSpan]   — LOESS span 0.1–0.9 (default 0.3)
  * @param {Set<number>} [detail.selectedMonths] — bymonth mode selected months
