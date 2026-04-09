@@ -77,8 +77,8 @@ const PCT_TEMPLATES = [
 const FILTER_META = [
   { id: 'lat',                          label: 'Latitude',   field: 'lat',                          type: 'range',      bands: LAT_BANDS  },
   { id: 'lng',                          label: 'Longitude',  field: 'lng',                          type: 'range',      bands: LNG_BANDS  },
-  { id: 'elevation_m',                  label: 'Elevation',  field: 'elevation_m',                  type: 'range',      bands: ELEV_BANDS },
-  { id: 'ghcn_longest_run_9_months',    label: 'Longest Run', field: 'ghcn_longest_run_9_months',  type: 'range',      bands: RUN_BANDS  },
+  { id: 'elevation_m',                  label: 'Elevation',  field: 'elevation_m',                  type: 'range',      bands: ELEV_BANDS, unit: 'm'  },
+  { id: 'ghcn_longest_run_9_months',    label: 'Longest Run', field: 'ghcn_longest_run_9_months',  type: 'range',      bands: RUN_BANDS,  unit: 'yr' },
   { id: 'bu_2020_1km',                  label: 'BU 1km',     field: 'bu_2020_1km',                  type: 'percentile' },
   { id: 'bu_2020_5km',                  label: 'BU 5km',     field: 'bu_2020_5km',                  type: 'percentile' },
   { id: 'bu_2020_20km',                 label: 'BU 20km',    field: 'bu_2020_20km',                 type: 'percentile' },
@@ -168,7 +168,7 @@ export function getFilterSummary() {
     if (!sel || sel.size === 0) continue;
     const s = def.type === 'percentile'
       ? _pctFilterSummary(def.label, sel)
-      : _rangeFilterSummary(def.label, def.bands, sel);
+      : _rangeFilterSummary(def.label, def.bands, sel, def.unit);
     if (s) parts.push(s);
   }
   return parts.join(' · ');
@@ -200,14 +200,46 @@ function _pctFilterSummary(label, sel) {
   return `${label}: ${rangeStr}`;
 }
 
-function _rangeFilterSummary(label, bands, sel) {
+function _rangeFilterSummary(label, bands, sel, unit) {
   const sorted = [...sel].sort((a, b) => a - b);
   if (sorted.length === bands.length) return `${label}: all`;
-  // Strip parenthetical suffixes for brevity: "Arctic (>66.5°N)" → "Arctic".
-  const labels = sorted
-    .map(i => (bands[i]?.label ?? '').replace(/\s*\([^)]+\)$/, '').trim())
-    .filter(Boolean);
-  return labels.length ? `${label}: ${labels.join(', ')}` : '';
+
+  if (!unit) {
+    // No numeric unit (e.g. lat zones, lng UTC offsets): list labels with
+    // parenthetical suffixes stripped for brevity.
+    const labels = sorted
+      .map(i => (bands[i]?.label ?? '').replace(/\s*\([^)]+\)$/, '').trim())
+      .filter(Boolean);
+    return labels.length ? `${label}: ${labels.join(', ')}` : '';
+  }
+
+  // Numeric range filter: sort bands by minVal and merge contiguous spans,
+  // then format the merged intervals with the unit suffix.
+  const selected = sorted.map(i => bands[i]).filter(Boolean)
+    .sort((a, b) => {
+      if (a.minVal === -Infinity) return -1;
+      if (b.minVal === -Infinity) return  1;
+      return a.minVal - b.minVal;
+    });
+
+  const merged = [];
+  for (const b of selected) {
+    const last = merged.at(-1);
+    if (last && b.minVal <= last.maxVal) {
+      last.maxVal = b.maxVal === Infinity ? Infinity : Math.max(last.maxVal, b.maxVal);
+    } else {
+      merged.push({ minVal: b.minVal, maxVal: b.maxVal });
+    }
+  }
+
+  const rangeStr = merged.map(({ minVal, maxVal }) => {
+    if (minVal === -Infinity && maxVal === Infinity) return 'all';
+    if (minVal === -Infinity || minVal === 0)        return `<${maxVal} ${unit}`;
+    if (maxVal === Infinity)                         return `≥${minVal} ${unit}`;
+    return `${minVal}–${maxVal} ${unit}`;
+  }).join(', ');
+
+  return `${label}: ${rangeStr}`;
 }
 
 export function getActiveSelections() {
