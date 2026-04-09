@@ -122,14 +122,18 @@ func newPrecomputedCache(allIDs []string, store DataStore, meta map[string]Stati
 	}
 }
 
-// startPrecomputation launches one goroutine per entry to eagerly warm the
-// cache.  Each goroutine races against any incoming requests; sync.Once
-// ensures the compute function runs exactly once per entry.
+// startPrecomputation launches a single background goroutine that computes
+// all entries serially.  Running them in parallel would exhaust RAM on
+// memory-constrained servers (each all-station anomaly pass allocates ~600 MB).
+// Any request that arrives before its entry is ready will block in compute()
+// and either wait for the background goroutine or do the work itself via
+// sync.Once — whichever wins the race.
 func (c *precomputedCache) startPrecomputation() {
-	for _, e := range c.entries {
-		e := e
-		go e.compute()
-	}
+	go func() {
+		for _, e := range c.entries {
+			e.compute()
+		}
+	}()
 }
 
 // get returns the cached JSON bytes for req if it targets the full station
