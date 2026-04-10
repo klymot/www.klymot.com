@@ -33,6 +33,8 @@ let _sharedShowTrend      = true;
 let _trendFromYear        = 0;     // 0 = all data, 1880, or 1950
 let _sharedShowLoess      = false;
 let _sharedLoessSpan      = 0.3;
+let _sharedLoessSpanMode  = 'span'; // 'span' | 'years'
+let _sharedLoessYears     = null;   // integer year value when mode='years'
 let _geoGridded           = true;
 let _fullYearsOnly        = true;
 let _showCI               = true;
@@ -125,6 +127,8 @@ export function restoreGraphState(state, stationIds) {
   if (state.trendFromYear != null) _trendFromYear = state.trendFromYear;
   if (state.showLoess)   _sharedShowLoess  = true;
   if (state.loessSpan != null) _sharedLoessSpan = state.loessSpan;
+  if (state.loessSpanMode) _sharedLoessSpanMode = state.loessSpanMode;
+  if (state.loessYears != null) _sharedLoessYears = state.loessYears;
   if (Array.isArray(state.selectedMonths)) {
     _sharedSelectedMonths = new Set(state.selectedMonths);
   }
@@ -184,8 +188,10 @@ function _pushUrl() {
     showCI:        _showCI,
     showTrend:    _sharedShowTrend,
     trendFromYear: _trendFromYear,
-    showLoess: _sharedShowLoess,
-    loessSpan: _sharedLoessSpan,
+    showLoess:     _sharedShowLoess,
+    loessSpan:     _sharedLoessSpan,
+    loessSpanMode: _sharedLoessSpanMode,
+    loessYears:    _sharedLoessYears,
     selectedMonths: _sharedSelectedMonths,
   }, _getFilterState?.()));
   _onUrlChange?.();
@@ -283,6 +289,7 @@ async function _loadData(stationIds) {
       if (isFinite(globalMin)) chart.setGlobalRange(globalMin, globalMax + 1);
     }
 
+    _recomputeYearsModeSpan();
     _updateLoessDisplay();
     _applyCI();
     _applyWeightedTrends();
@@ -805,36 +812,82 @@ function _syncControlsToState() {
     b.setAttribute('aria-pressed', String(_showCI));
   });
 
-  // LOESS span slider
-  _container?.querySelectorAll('.loess-range').forEach(s => { s.value = Math.round(_sharedLoessSpan * 100); });
-  _container?.querySelectorAll('.loess-slider-value').forEach(v => { v.textContent = _sharedLoessSpan.toFixed(2); });
+  // LOESS span slider + mode buttons
+  _applyLoessMode();
+  _updateLoessDisplay();
 
   _syncSliderSep();
   _applySharedMode();
 }
 
-// ── LOESS display helper ───────────────────────────────────────────────────────
+// ── LOESS helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Update every `.loess-slider-value` element to show the current span fraction
- * followed by the effective window width in years, e.g. "0.30 (15 yr)".
- *
- * The effective window width at the centre of a uniform series is
- *   k = max(3, round(span · n))
- * which is exactly the number of neighbours used by the tricube-weighted
- * local regression — identical to a symmetric WMA of that width.
- *
- * Falls back to just the fraction when no chart data is loaded yet.
+ * Convert a target SMA-equivalent year count to a LOESS span.
+ * No clamping — year mode allows span outside the span-mode slider range.
+ */
+function _yearsToSpan(years, n) {
+  const k = Math.max(3, Math.round(years * 1.40));
+  return k / n;
+}
+
+/**
+ * When in year-equivalent mode and chart data is freshly loaded, recompute
+ * _sharedLoessSpan from _sharedLoessYears and push it to all charts.
+ * No-op when in span mode or when no data is loaded yet.
+ */
+function _recomputeYearsModeSpan() {
+  if (_sharedLoessSpanMode !== 'years' || _sharedLoessYears == null) return;
+  let n = null;
+  for (const c of Object.values(_charts)) {
+    const cnt = c?.getYearlyCount?.();
+    if (cnt != null) { n = cnt; break; }
+  }
+  if (n == null) return;
+  const newSpan = _yearsToSpan(_sharedLoessYears, n);
+  if (Math.abs(newSpan - _sharedLoessSpan) > 0.001) {
+    _sharedLoessSpan = newSpan;
+    for (const c of Object.values(_charts)) c?.setLoessSpan(_sharedLoessSpan);
+  }
+}
+
+/**
+ * Sync the slider min/max/value and mode-button active states to the current
+ * _sharedLoessSpanMode.  Called when the mode changes or state is restored.
+ */
+function _applyLoessMode() {
+  const isYears = _sharedLoessSpanMode === 'years';
+  _container?.querySelectorAll('.loess-range').forEach(s => {
+    s.min   = isYears ? '2'  : '1';
+    s.max   = isYears ? '60' : '99';
+    s.step  = '1';
+    s.value = isYears
+      ? String(_sharedLoessYears ?? 10)
+      : String(Math.round(_sharedLoessSpan * 100));
+  });
+  _container?.querySelectorAll('.loess-mode-btn').forEach(b => {
+    const active = b.dataset.loessMode === _sharedLoessSpanMode;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+}
+
+/**
+ * Update the span-button and years-button text to reflect the current values.
+ * Falls back to '— yr' for the years button when no chart data is loaded yet.
  */
 function _updateLoessDisplay() {
-  const span = _sharedLoessSpan;
   let yrs = null;
   for (const c of Object.values(_charts)) {
     const v = c?.getLoessEffectiveYears?.();
     if (v != null) { yrs = v; break; }
   }
-  const text = yrs != null ? `${span.toFixed(2)} (${yrs} yr)` : span.toFixed(2);
-  _container?.querySelectorAll('.loess-slider-value').forEach(el => { el.textContent = text; });
+  _container?.querySelectorAll('.loess-span-btn').forEach(el => {
+    el.textContent = _sharedLoessSpan.toFixed(2);
+  });
+  _container?.querySelectorAll('.loess-years-btn').forEach(el => {
+    el.textContent = yrs != null ? `${yrs} yr` : '— yr';
+  });
 }
 
 // ── Event wiring ───────────────────────────────────────────────────────────────
@@ -977,10 +1030,49 @@ function _wireEvents() {
     });
   });
 
+  // LOESS mode buttons (span / years equivalent).
+  _container.querySelectorAll('.loess-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newMode = btn.dataset.loessMode;
+      if (newMode === _sharedLoessSpanMode) return;
+      if (newMode === 'years') {
+        // Derive current year equivalent, clamped to the year slider range.
+        let yrs = null;
+        for (const c of Object.values(_charts)) {
+          const v = c?.getLoessEffectiveYears?.();
+          if (v != null) { yrs = v; break; }
+        }
+        _sharedLoessYears = yrs != null ? Math.max(2, Math.min(60, yrs)) : 10;
+      } else {
+        // Clamp span to the span-slider range when entering span mode.
+        _sharedLoessSpan = Math.max(0.01, Math.min(0.99, _sharedLoessSpan));
+        for (const c of Object.values(_charts)) c?.setLoessSpan(_sharedLoessSpan);
+        _sharedLoessYears = null;
+      }
+      _sharedLoessSpanMode = newMode;
+      _applyLoessMode();
+      _updateLoessDisplay();
+      _pushUrl();
+    });
+  });
+
   // LOESS span slider — sync both panels' sliders.
   _container.querySelectorAll('.loess-range').forEach(slider => {
     slider.addEventListener('input', () => {
-      _sharedLoessSpan = slider.value / 100;
+      if (_sharedLoessSpanMode === 'years') {
+        _sharedLoessYears = parseInt(slider.value, 10);
+        // Compute span from years using loaded data count.
+        let n = null;
+        for (const c of Object.values(_charts)) {
+          const cnt = c?.getYearlyCount?.();
+          if (cnt != null) { n = cnt; break; }
+        }
+        _sharedLoessSpan = n != null
+          ? _yearsToSpan(_sharedLoessYears, n)
+          : _sharedLoessYears * 1.40 / 100; // rough estimate until data loads
+      } else {
+        _sharedLoessSpan = slider.value / 100;
+      }
       _container.querySelectorAll('.loess-range').forEach(s => { s.value = slider.value; });
       for (const c of Object.values(_charts)) c?.setLoessSpan(_sharedLoessSpan);
       _updateLoessDisplay();
@@ -1114,13 +1206,16 @@ function _seriesPanel(series, hidden) {
             </div>
             <span class="chart-slider-sep" style="visibility:hidden">|</span>
             <div class="chart-loess-controls" style="visibility:hidden">
-              <label class="loess-slider-label">
+              <div class="loess-slider-label">
                 <span class="loess-slider-title">LOESS Smoothing</span>
                 <input type="range" class="loess-range"
-                       min="10" max="90" step="1" value="30"
+                       min="1" max="99" step="1" value="30"
                        aria-label="LOESS span">
-                <span class="loess-slider-value">0.30</span>
-              </label>
+                <button class="loess-mode-btn loess-span-btn active"
+                        data-loess-mode="span" aria-pressed="true">0.30</button>
+                <button class="loess-mode-btn loess-years-btn"
+                        data-loess-mode="years" aria-pressed="false">— yr</button>
+              </div>
             </div>
           </div>
         </div>

@@ -283,7 +283,7 @@ function _loess(pts, span) {
   const valid = (pts ?? []).filter(Boolean);
   if (valid.length < 3) return null;
   const n = valid.length;
-  const k = Math.max(3, Math.round(span * n));
+  const k = Math.min(n, Math.max(3, Math.round(span * n)));
   const result = [];
   for (let i = 0; i < n; i++) {
     const xi = valid[i].x;
@@ -861,9 +861,9 @@ export class TempChart {
    */
   setExternalTrendsByMonth(trends) { this._externalTrendsByMonth = trends ?? null; this._scheduleRender(); }
 
-  /** Set LOESS bandwidth span (0.1–0.9) and recompute all curves. */
+  /** Set LOESS bandwidth span and recompute all curves. */
   setLoessSpan(span) {
-    this._loessSpan   = Math.max(0.1, Math.min(0.9, span));
+    this._loessSpan   = Math.max(0.001, span);
     if (this._monthly) {
       this._loessMonthly = _loess(this._monthly, this._loessSpan);
       this._loessYearly  = _loess(this._yearly,  this._loessSpan);
@@ -895,8 +895,18 @@ export class TempChart {
     if (!this._yearly) return null;
     const n = this._yearly.filter(p => p != null).length;
     if (n < 3) return null;
-    const k = Math.max(3, Math.round(this._loessSpan * n));
+    const k = Math.min(n, Math.max(3, Math.round(this._loessSpan * n)));
     return Math.max(1, Math.round(k / 1.40));
+  }
+
+  /**
+   * Number of non-null yearly data points used by LOESS calculations.
+   * Returns null when no data has been loaded or fewer than 3 points exist.
+   */
+  getYearlyCount() {
+    if (!this._yearly) return null;
+    const n = this._yearly.filter(p => p != null).length;
+    return n >= 3 ? n : null;
   }
 
   /**

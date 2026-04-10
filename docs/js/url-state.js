@@ -14,7 +14,7 @@
  *   mode:     monthly | yearly | heatmap | anomaly | bymonth | 2020 | 1975 | change
  *   zoom:     <min>,<max>  (decimal years)
  *   partial:  'noest' when estimates hidden; 'noci' when est. shown but CI hidden; '-' when both shown (default)
- *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the trend line; 'loess' to enable LOESS; 'loessspan=NN' for span (10–90); combine with commas; '-' for defaults
+ *   anomaly:  'inclsparse' to include years with <9 months; 'center30' to use the 30 centred full years as reference; 'notrend' to hide the trend line; 'loess' to enable LOESS; 'loessspan=NN' for span (1–99, default 30); 'loessspan=NNy' for year-equivalent mode (2–60yr); combine with commas; '-' for defaults
  *   bymonth:  3-hex-digit bitmask of selected months (bit 0 = Jan … bit 11 = Dec); default '041' = Jan+Jul
  *   adjseries: comma-separated flags; 'nototal' hides Total series; 'notob' hides TOB series; 'nopha' hides PHA series; '-' for defaults (all shown)
  *
@@ -82,7 +82,9 @@ export function serialiseMapState(map, projection, filterActive = null) {
  * @param {boolean} [detail.useCenteredAnomalyReference]   — whether anomaly mode uses the 30 full years nearest the record centre (default false)
  * @param {boolean} [detail.showAnomalyTrend]              — whether to show the dashed trend line (default true)
  * @param {boolean} [detail.showLoess]                     — whether to show LOESS smooth line (default false)
- * @param {number}  [detail.loessSpan]                     — LOESS bandwidth span 0.1–0.9 (default 0.3)
+ * @param {number}  [detail.loessSpan]                     — LOESS bandwidth span 0.01–0.99 (default 0.3)
+ * @param {'span'|'years'} [detail.loessSpanMode]          — whether the slider is in span or year-equivalent mode (default 'span')
+ * @param {number}  [detail.loessYears]                    — year-equivalent value when loessSpanMode='years' (2–60)
  * @param {Set<number>} [detail.selectedMonths]            — bymonth mode: which months to display (default Jan+Jul)
  * @param {boolean} [detail.showTotal]                     — show Total series in adj chart (default true)
  * @param {boolean} [detail.showTob]                       — show TOB series in adj chart (default true)
@@ -95,7 +97,7 @@ export function serialiseStationState(locationId, detail = {}) {
   const {
     section, mode, zoomMin, zoomMax, showEst, showCI,
     excludeSparseAnomalyYears, useCenteredAnomalyReference, showAnomalyTrend,
-    showLoess, loessSpan,
+    showLoess, loessSpan, loessSpanMode, loessYears,
     selectedMonths,
     showTotal, showTob, showPha,
   } = detail;
@@ -143,8 +145,12 @@ export function serialiseStationState(locationId, detail = {}) {
   if (showAnomalyTrend === false) anomalyFlags.push('notrend');
   if (showLoess === true) {
     anomalyFlags.push('loess');
-    const spanInt = Math.round((loessSpan ?? 0.3) * 100);
-    if (spanInt !== 30) anomalyFlags.push(`loessspan=${spanInt}`);
+    if (loessSpanMode === 'years' && loessYears != null) {
+      anomalyFlags.push(`loessspan=${Math.max(2, Math.min(60, Math.round(loessYears)))}y`);
+    } else {
+      const spanInt = Math.round((loessSpan ?? 0.3) * 100);
+      if (spanInt !== 30) anomalyFlags.push(`loessspan=${spanInt}`);
+    }
   }
   const anomalyStr  = anomalyFlags.length ? anomalyFlags.join(',') : '-';
   const bymonthStr  = bymonthMask === _BYMONTH_DEFAULT ? '-' : bymonthMask.toString(16).padStart(3, '0');
@@ -179,7 +185,9 @@ export function serialiseStationState(locationId, detail = {}) {
  * @param {boolean} [detail.showTrend]     — whether trend line is shown (default true)
  * @param {number}  [detail.trendFromYear] — trend start year: 0=all, 1800–2000 (default 0)
  * @param {boolean} [detail.showLoess]   — whether LOESS is shown (default false)
- * @param {number}  [detail.loessSpan]   — LOESS span 0.1–0.9 (default 0.3)
+ * @param {number}  [detail.loessSpan]   — LOESS span 0.01–0.99 (default 0.3)
+ * @param {'span'|'years'} [detail.loessSpanMode] — slider mode (default 'span')
+ * @param {number}  [detail.loessYears]  — year-equivalent value when loessSpanMode='years' (2–60)
  * @param {Set<number>} [detail.selectedMonths] — bymonth mode selected months
  * @param {object}  [filterActive]       — active filter selections
  * @returns {string}  e.g. 'graph=qcu/monthly/-/ci,geo'
@@ -189,7 +197,8 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
     series = 'qcu',
     mode   = 'monthly',
     zoomMin, zoomMax,
-    geoGridded, fullYearsOnly, showCI, showTrend, trendFromYear, showLoess, loessSpan,
+    geoGridded, fullYearsOnly, showCI, showTrend, trendFromYear,
+    showLoess, loessSpan, loessSpanMode, loessYears,
     selectedMonths,
   } = detail;
 
@@ -206,8 +215,12 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
   if (trendFromYear) flags.push(`trendfrom=${trendFromYear}`);
   if (showLoess) {
     flags.push('loess');
-    const spanInt = Math.round((loessSpan ?? 0.3) * 100);
-    if (spanInt !== 30) flags.push(`loessspan=${spanInt}`);
+    if (loessSpanMode === 'years' && loessYears != null) {
+      flags.push(`loessspan=${Math.max(2, Math.min(60, Math.round(loessYears)))}y`);
+    } else {
+      const spanInt = Math.round((loessSpan ?? 0.3) * 100);
+      if (spanInt !== 30) flags.push(`loessspan=${spanInt}`);
+    }
   }
   const _BYMONTH_DEFAULT = 0x041;
   let bymonthMask = _BYMONTH_DEFAULT;
@@ -329,7 +342,22 @@ export function parseHash(hash) {
       result.showAnomalyTrend            = !anomalyFlags.has('notrend');
       result.showLoess                   =  anomalyFlags.has('loess');
       const loessSpanFlag = [...anomalyFlags].find(f => f.startsWith('loessspan='));
-      result.loessSpan = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
+      if (loessSpanFlag) {
+        const raw = loessSpanFlag.slice(10);
+        if (raw.endsWith('y')) {
+          result.loessSpanMode = 'years';
+          result.loessYears    = Math.max(2, Math.min(60, parseInt(raw, 10)));
+          result.loessSpan     = 0.3; // placeholder until data loads
+        } else {
+          result.loessSpanMode = 'span';
+          result.loessSpan     = parseInt(raw, 10) / 100;
+          result.loessYears    = null;
+        }
+      } else {
+        result.loessSpanMode = 'span';
+        result.loessSpan     = 0.3;
+        result.loessYears    = null;
+      }
 
       const p6 = parts.length >= 7 ? parts[6] : '-';
       const bymonthMask = (p6 && p6 !== '-') ? parseInt(p6, 16) : 0x041;
@@ -391,7 +419,22 @@ export function parseHash(hash) {
       result.trendFromYear = trendFromFlag ? parseInt(trendFromFlag.slice(10), 10) : 0;
       result.showLoess  =  flagSet.has('loess');
       const loessSpanFlag = [...flagSet].find(f => f.startsWith('loessspan='));
-      result.loessSpan  = loessSpanFlag ? parseInt(loessSpanFlag.slice(10), 10) / 100 : 0.3;
+      if (loessSpanFlag) {
+        const raw = loessSpanFlag.slice(10);
+        if (raw.endsWith('y')) {
+          result.loessSpanMode = 'years';
+          result.loessYears    = Math.max(2, Math.min(60, parseInt(raw, 10)));
+          result.loessSpan     = 0.3; // placeholder until data loads
+        } else {
+          result.loessSpanMode = 'span';
+          result.loessSpan     = parseInt(raw, 10) / 100;
+          result.loessYears    = null;
+        }
+      } else {
+        result.loessSpanMode = 'span';
+        result.loessSpan     = 0.3;
+        result.loessYears    = null;
+      }
       const bymonthFlag = [...flagSet].find(f => f.startsWith('bymonth='));
       if (bymonthFlag) {
         const mask = parseInt(bymonthFlag.slice(8), 16);

@@ -1644,7 +1644,6 @@ body {
   color: var(--text-muted);
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   letter-spacing: 0.03em;
-  cursor: pointer;
 }
 
 .loess-slider-title {
@@ -1691,11 +1690,31 @@ body {
   transform: scale(1.2);
 }
 
-.loess-slider-value {
+.loess-mode-btn {
   min-width: 2rem;
   text-align: right;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 0.6875rem;
+  font-family: inherit;
+  letter-spacing: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: inherit;
+}
+
+.loess-mode-btn.active {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.loess-mode-btn:not(.active)::before { content: '('; }
+.loess-mode-btn:not(.active)::after  { content: ')'; }
+
+.loess-mode-btn:hover:not(.active) {
+  color: var(--text-secondary);
 }
 
 .trend-from-range {
