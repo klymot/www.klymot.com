@@ -1117,7 +1117,7 @@ function _seriesPanel(series, hidden) {
               <label class="loess-slider-label">
                 <span class="loess-slider-title">LOESS Smoothing</span>
                 <input type="range" class="loess-range"
-                       min="10" max="90" step="5" value="30"
+                       min="10" max="90" step="1" value="30"
                        aria-label="LOESS span">
                 <span class="loess-slider-value">0.30</span>
               </label>
