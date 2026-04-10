@@ -585,6 +585,17 @@ export class AdjChart {
     this._scheduleRender();
   }
 
+  /**
+   * Effective smoothing window in years (mirrors TempChart.getLoessEffectiveYears).
+   * Returns null when no yearly data has been loaded yet.
+   */
+  getLoessEffectiveYears() {
+    if (!this._yearly) return null;
+    const n = this._yearly.filter(p => p != null).length;
+    if (n < 3) return null;
+    return Math.max(3, Math.round(this._loessSpan * n));
+  }
+
   /** Show or hide the trend line. @param {boolean} v */
   setShowTrend(v) { this._showTrend = !!v; this._scheduleRender(); }
 

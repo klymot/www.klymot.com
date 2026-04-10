@@ -108,6 +108,29 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 // Display zoom: 32 px × 5 = 160 px. Odd total makes 1-px CSS crosshair centre at 80 px.
 const BU_ZOOM = 5;
 
+// ── LOESS display helper ───────────────────────────────────────────────────────
+
+/**
+ * Update every `.loess-slider-value` element in the temp sections to show
+ * the current span fraction plus the effective window width, e.g. "0.30 (9 yr)".
+ * Falls back to just the fraction when chart data is not yet loaded.
+ */
+function _updateLoessDisplay() {
+  const SECTIONS = ['temp-qcu', 'temp-qcf'];
+  let yrs = null;
+  for (const s of SECTIONS) {
+    const v = _charts[s]?.getLoessEffectiveYears?.();
+    if (v != null) { yrs = v; break; }
+  }
+  const text = yrs != null
+    ? `${_sharedLoessSpan.toFixed(2)} (${yrs} yr)`
+    : _sharedLoessSpan.toFixed(2);
+  SECTIONS.forEach(s => {
+    const el = _panel?.querySelector(`[data-section="${s}"] .loess-slider-value`);
+    if (el) el.textContent = text;
+  });
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -479,6 +502,7 @@ function _initCharts() {
     }
 
     // Re-serialise URL and refresh QR now that the final zoom/inspector are set.
+    _updateLoessDisplay();
     _updateStationUrl();
   }
 
@@ -697,6 +721,7 @@ function _initCharts() {
           const lc = _panel.querySelector(`[data-section="${s}"] .chart-loess-controls`);
           if (lc) lc.style.visibility = _sharedShowLoess ? 'visible' : 'hidden';
         });
+        if (_sharedShowLoess) _updateLoessDisplay();
         _updateStationUrl();
       });
 
@@ -707,10 +732,9 @@ function _initCharts() {
         SECTIONS.forEach(s => {
           _charts[s]?.setLoessSpan(_sharedLoessSpan);
           const r = _panel.querySelector(`[data-section="${s}"] .loess-range`);
-          const v = _panel.querySelector(`[data-section="${s}"] .loess-slider-value`);
           if (r) r.value = e.target.value;
-          if (v) v.textContent = _sharedLoessSpan.toFixed(2);
         });
+        _updateLoessDisplay();
         _updateStationUrl();
       });
 

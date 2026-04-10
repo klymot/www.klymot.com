@@ -875,6 +875,22 @@ export class TempChart {
   getLoessSpan() { return this._loessSpan; }
 
   /**
+   * Effective smoothing window in years.
+   *
+   * At the centre of a time series the LOESS fitted value equals a tricube-weighted
+   * moving average over k = max(3, round(span · n)) data points, where n is the
+   * number of valid (non-null) yearly observations.  This method returns k so the
+   * UI can display the equivalent window width alongside the span fraction.
+   * Returns null when no yearly data has been loaded yet.
+   */
+  getLoessEffectiveYears() {
+    if (!this._yearly) return null;
+    const n = this._yearly.filter(p => p != null).length;
+    if (n < 3) return null;
+    return Math.max(3, Math.round(this._loessSpan * n));
+  }
+
+  /**
    * Get the current view range (same for all modes).
    * @returns {{ min: number, max: number }|null}
    */

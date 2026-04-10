@@ -283,6 +283,7 @@ async function _loadData(stationIds) {
       if (isFinite(globalMin)) chart.setGlobalRange(globalMin, globalMax + 1);
     }
 
+    _updateLoessDisplay();
     _applyCI();
     _applyWeightedTrends();
   } finally {
@@ -812,6 +813,30 @@ function _syncControlsToState() {
   _applySharedMode();
 }
 
+// ── LOESS display helper ───────────────────────────────────────────────────────
+
+/**
+ * Update every `.loess-slider-value` element to show the current span fraction
+ * followed by the effective window width in years, e.g. "0.30 (15 yr)".
+ *
+ * The effective window width at the centre of a uniform series is
+ *   k = max(3, round(span · n))
+ * which is exactly the number of neighbours used by the tricube-weighted
+ * local regression — identical to a symmetric WMA of that width.
+ *
+ * Falls back to just the fraction when no chart data is loaded yet.
+ */
+function _updateLoessDisplay() {
+  const span = _sharedLoessSpan;
+  let yrs = null;
+  for (const c of Object.values(_charts)) {
+    const v = c?.getLoessEffectiveYears?.();
+    if (v != null) { yrs = v; break; }
+  }
+  const text = yrs != null ? `${span.toFixed(2)} (${yrs} yr)` : span.toFixed(2);
+  _container?.querySelectorAll('.loess-slider-value').forEach(el => { el.textContent = text; });
+}
+
 // ── Event wiring ───────────────────────────────────────────────────────────────
 
 function _wireEvents() {
@@ -907,6 +932,7 @@ function _wireEvents() {
       });
       _syncSliderSep();
       for (const c of Object.values(_charts)) c?.setShowLoess(_sharedShowLoess);
+      if (_sharedShowLoess) _updateLoessDisplay();
       _pushUrl();
     });
   });
@@ -956,10 +982,8 @@ function _wireEvents() {
     slider.addEventListener('input', () => {
       _sharedLoessSpan = slider.value / 100;
       _container.querySelectorAll('.loess-range').forEach(s => { s.value = slider.value; });
-      _container.querySelectorAll('.loess-slider-value').forEach(v => {
-        v.textContent = _sharedLoessSpan.toFixed(2);
-      });
       for (const c of Object.values(_charts)) c?.setLoessSpan(_sharedLoessSpan);
+      _updateLoessDisplay();
       _pushUrl();
     });
   });
