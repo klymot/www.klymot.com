@@ -586,14 +586,16 @@ export class AdjChart {
   }
 
   /**
-   * Effective smoothing window in years (mirrors TempChart.getLoessEffectiveYears).
+   * Equivalent uniform-weight SMA window width in years.
+   * Mirrors TempChart.getLoessEffectiveYears — see that method for details.
    * Returns null when no yearly data has been loaded yet.
    */
   getLoessEffectiveYears() {
     if (!this._yearly) return null;
     const n = this._yearly.filter(p => p != null).length;
     if (n < 3) return null;
-    return Math.max(3, Math.round(this._loessSpan * n));
+    const k = Math.max(3, Math.round(this._loessSpan * n));
+    return Math.max(1, Math.round(k / 1.40));
   }
 
   /** Show or hide the trend line. @param {boolean} v */

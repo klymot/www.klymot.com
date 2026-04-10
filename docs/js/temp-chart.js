@@ -875,19 +875,28 @@ export class TempChart {
   getLoessSpan() { return this._loessSpan; }
 
   /**
-   * Effective smoothing window in years.
+   * Equivalent uniform-weight SMA window width in years.
    *
    * At the centre of a time series the LOESS fitted value equals a tricube-weighted
-   * moving average over k = max(3, round(span · n)) data points, where n is the
-   * number of valid (non-null) yearly observations.  This method returns k so the
-   * UI can display the equivalent window width alongside the span fraction.
-   * Returns null when no yearly data has been loaded yet.
+   * moving average over k = max(3, round(span · n)) data points.  A tricube WMA of
+   * k points has the same variance as a simple (uniform-weight) moving average of
+   * k / 1.40 points (Loader 1999, as in the KNMI convention).  This method returns
+   * that SMA-equivalent width in years so the UI can display an intuitive "this
+   * smooths like an N-year running mean" label alongside the span fraction.
+   *
+   * The yearly series is used as the reference for all modes:
+   *   • yearly   – k = round(span · n_yearly)           → k / 1.40  years
+   *   • monthly  – k = round(span · 12·n_yearly) months → k / (1.40 · 12) ≈ same
+   *   • by-month – one pt/yr per month → same as yearly
+   *
+   * Returns null when no data has been loaded yet.
    */
   getLoessEffectiveYears() {
     if (!this._yearly) return null;
     const n = this._yearly.filter(p => p != null).length;
     if (n < 3) return null;
-    return Math.max(3, Math.round(this._loessSpan * n));
+    const k = Math.max(3, Math.round(this._loessSpan * n));
+    return Math.max(1, Math.round(k / 1.40));
   }
 
   /**

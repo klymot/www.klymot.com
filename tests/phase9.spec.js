@@ -160,19 +160,30 @@ async function waitForOverlay(page, timeout = 2000) {
   );
 }
 
+// ── SMA-equivalence helper (must match getLoessEffectiveYears in temp-chart.js) ─
+
+/**
+ * Compute the expected SMA-equivalent window width in years.
+ * k = max(3, round(span · n)) tricube-weighted neighbours;
+ * SMA equiv = max(1, round(k / 1.40))  (Loader 1999 variance-matching factor).
+ */
+function smaEquiv(span, nYears) {
+  const k = Math.max(3, Math.round(span * nYears));
+  return Math.max(1, Math.round(k / 1.40));
+}
+
 // ── AC1: Aggregate graph ──────────────────────────────────────────────────────
 
-test('AC1 – aggregate LOESS slider shows effective years after data loads', async ({ page }) => {
-  // 50 complete years of data: n=50, span=0.30 → k=max(3,round(0.30×50))=15
-  const AGG_YEARS = 50;
-  const AGG_RESPONSE = makeMockAggregateResponse(1970, AGG_YEARS);
-  const EXPECTED_K = Math.max(3, Math.round(0.30 * AGG_YEARS)); // 15
+test('AC1 – aggregate LOESS slider shows SMA-equivalent years after data loads', async ({ page }) => {
+  // 50 complete years: n=50, span=0.30 → k=15 → SMA=round(15/1.40)=11
+  const AGG_YEARS  = 50;
+  const EXPECTED   = smaEquiv(0.30, AGG_YEARS); // 11
 
   await page.route('**/api/v1/aggregate', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(AGG_RESPONSE),
+      body: JSON.stringify(makeMockAggregateResponse(1970, AGG_YEARS)),
     })
   );
 
@@ -185,24 +196,23 @@ test('AC1 – aggregate LOESS slider shows effective years after data loads', as
       const el = document.querySelector('.loess-slider-value');
       return el?.textContent?.includes(`(${expected} yr)`);
     },
-    EXPECTED_K,
+    EXPECTED,
     { timeout: 5000 }
   );
 
   const text = await page.locator('.loess-slider-value').first().textContent();
   expect(text).toMatch(/0\.30 \(\d+ yr\)/);
-  expect(text).toContain(`(${EXPECTED_K} yr)`);
+  expect(text).toContain(`(${EXPECTED} yr)`);
 });
 
-test('AC1 – aggregate LOESS slider updates effective years when span changes', async ({ page }) => {
+test('AC1 – aggregate LOESS slider updates SMA-equivalent years when span changes', async ({ page }) => {
   const AGG_YEARS = 50;
-  const AGG_RESPONSE = makeMockAggregateResponse(1970, AGG_YEARS);
 
   await page.route('**/api/v1/aggregate', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(AGG_RESPONSE),
+      body: JSON.stringify(makeMockAggregateResponse(1970, AGG_YEARS)),
     })
   );
 
@@ -214,8 +224,8 @@ test('AC1 – aggregate LOESS slider updates effective years when span changes',
     { timeout: 5000 }
   );
 
-  // Move slider to span=0.50; expected k = max(3, round(0.50×50)) = 25.
-  const EXPECTED_K_50 = Math.max(3, Math.round(0.50 * AGG_YEARS)); // 25
+  // Move slider to span=0.50; SMA equiv = round(max(3,round(0.50×50))/1.40) = round(25/1.40) = 18.
+  const EXPECTED_50 = smaEquiv(0.50, AGG_YEARS); // 18
   await page.evaluate(() => {
     const slider = document.querySelector('.loess-range');
     if (slider) {
@@ -226,21 +236,21 @@ test('AC1 – aggregate LOESS slider updates effective years when span changes',
 
   await page.waitForFunction(
     (expected) => document.querySelector('.loess-slider-value')?.textContent?.includes(`(${expected} yr)`),
-    EXPECTED_K_50,
+    EXPECTED_50,
     { timeout: 2000 }
   );
 
   const text = await page.locator('.loess-slider-value').first().textContent();
-  expect(text).toContain(`0.50 (${EXPECTED_K_50} yr)`);
+  expect(text).toContain(`0.50 (${EXPECTED_50} yr)`);
 });
 
 // ── AC2: Detail panel ─────────────────────────────────────────────────────────
 
-test('AC2 – detail-panel LOESS slider shows effective years after chart data loads', async ({ page }) => {
-  // 30 complete years of data: n=30, span=0.30 → k=max(3,round(0.30×30))=9
+test('AC2 – detail-panel LOESS slider shows SMA-equivalent years after chart data loads', async ({ page }) => {
+  // 30 complete years: n=30, span=0.30 → k=9 → SMA=round(9/1.40)=6
   const DETAIL_YEARS = 30;
   const CSV_DATA     = makeMockCsv(1990, DETAIL_YEARS);
-  const EXPECTED_K   = Math.max(3, Math.round(0.30 * DETAIL_YEARS)); // 9
+  const EXPECTED     = smaEquiv(0.30, DETAIL_YEARS); // 6
 
   await loadPage(page, {
     detailRoutes: { 'mauna-loa': MOCK_DETAIL_MAUNA_LOA },
@@ -261,16 +271,16 @@ test('AC2 – detail-panel LOESS slider shows effective years after chart data l
       const els = document.querySelectorAll('.detail-panel .loess-slider-value');
       return [...els].some(el => el.textContent?.includes(`(${expected} yr)`));
     },
-    EXPECTED_K,
+    EXPECTED,
     { timeout: 5000 }
   );
 
   const text = await page.locator('.detail-panel .loess-slider-value').first().textContent();
   expect(text).toMatch(/0\.30 \(\d+ yr\)/);
-  expect(text).toContain(`(${EXPECTED_K} yr)`);
+  expect(text).toContain(`(${EXPECTED} yr)`);
 });
 
-test('AC2 – detail-panel LOESS slider updates effective years when span changes', async ({ page }) => {
+test('AC2 – detail-panel LOESS slider updates SMA-equivalent years when span changes', async ({ page }) => {
   const DETAIL_YEARS = 30;
   const CSV_DATA     = makeMockCsv(1990, DETAIL_YEARS);
 
@@ -294,8 +304,8 @@ test('AC2 – detail-panel LOESS slider updates effective years when span change
     { timeout: 5000 }
   );
 
-  // Move slider to span=0.50; k = max(3, round(0.50×30)) = 15.
-  const EXPECTED_K_50 = Math.max(3, Math.round(0.50 * DETAIL_YEARS)); // 15
+  // Move slider to span=0.50; SMA equiv = round(max(3,round(0.50×30))/1.40) = round(15/1.40) = 11.
+  const EXPECTED_50 = smaEquiv(0.50, DETAIL_YEARS); // 11
   await page.evaluate(() => {
     const slider = document.querySelector('.detail-panel .loess-range');
     if (slider) {
@@ -307,10 +317,10 @@ test('AC2 – detail-panel LOESS slider updates effective years when span change
   await page.waitForFunction(
     (expected) => [...document.querySelectorAll('.detail-panel .loess-slider-value')]
       .some(el => el.textContent?.includes(`(${expected} yr)`)),
-    EXPECTED_K_50,
+    EXPECTED_50,
     { timeout: 2000 }
   );
 
   const text = await page.locator('.detail-panel .loess-slider-value').first().textContent();
-  expect(text).toContain(`0.50 (${EXPECTED_K_50} yr)`);
+  expect(text).toContain(`0.50 (${EXPECTED_50} yr)`);
 });
