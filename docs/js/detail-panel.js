@@ -1749,7 +1749,7 @@ function _geographySectionContent(indexEntry) {
               <div class="detail-map-loading" aria-hidden="true">
                 <div class="detail-map-spinner"></div>
               </div>
-              <div class="detail-geo-map" id="detail-geo-map"
+              <div class="detail-geo-map detail-map-media" id="detail-geo-map"
                    style="width:${mapSize}px;height:${mapSize}px"
                    aria-label="Topographic map (20 km box)"></div>
               <div class="detail-bu-crosshair" aria-hidden="true"></div>
@@ -2017,6 +2017,18 @@ async function _preparePrintMediaSnapshots() {
     try {
       _setPrintMediaSnapshot(canvas, canvas.toDataURL('image/png'));
     } catch {}
+  }
+
+  // Snapshot the geography MapLibre canvas.  WebGL canvases are invisible to
+  // html2canvas, so we capture the current frame via MapLibre's own API and
+  // insert it as a .detail-print-media <img> that shows in export/print mode.
+  if (_geoMap) {
+    const geoEl = _panel?.querySelector('#detail-geo-map');
+    if (geoEl) {
+      try {
+        _setPrintMediaSnapshot(geoEl, _geoMap.getCanvas().toDataURL('image/png'));
+      } catch {}
+    }
   }
 }
 

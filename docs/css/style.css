@@ -1274,14 +1274,6 @@ body {
   display: none;
 }
 
-/* Override the global .detail-bu-wrap zoom so MapLibre renders at its own
-   native resolution rather than being blurred by CSS magnification. */
-@container detail (min-width: 720px) and (min-height: 750px) {
-  .geo-map-row .detail-bu-wrap {
-    zoom: 1;
-  }
-}
-
 /* Scale the map tile to 480 px square when the panel is large enough.
  * Only .detail-bu-wrap (the tile + crosshair + scale bar) is zoomed;
  * the legend bar and score text stay at their natural sizes.
