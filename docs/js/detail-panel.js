@@ -99,6 +99,11 @@ let _sharedLoessSpanMode = 'span';
 /** Year-equivalent value used when _sharedLoessSpanMode === 'years'. */
 let _sharedLoessYears = null;
 
+/** MapLibre GL instance for the geography mini-map (created lazily on first tab activate). */
+let _geoMap   = null;
+/** Active tile layer key for the geography map: 'topo' | 'satellite' | 'streets'. */
+let _geoLayer = 'topo';
+
 /** Current mode for the Adjustments chart (independent of temp chart mode). */
 let _adjMode    = 'monthly';
 /** Adj series visibility — persisted to URL when the adj section is active. */
@@ -350,6 +355,9 @@ function _destroyCharts() {
   for (const chart of Object.values(_charts)) chart?.destroy();
   _charts = {};
   _detailRawCsv = { qcu: null, qcf: null, tob: null };
+  _geoMap?.remove();
+  _geoMap   = null;
+  _geoLayer = 'topo';
 }
 
 function _applyChartModeUi(section, mode) {
@@ -1001,6 +1009,11 @@ function _attachHandlers() {
     tab.addEventListener('click', () => _switchYearTab(tab.dataset.tab));
   });
 
+  // Geography layer tab switching.
+  _panel.querySelectorAll('.geo-layer-tab').forEach(tab => {
+    tab.addEventListener('click', () => _switchGeoLayer(tab.dataset.layer));
+  });
+
   // Apply restore state for section tab.
   if (_restoreState?.section) {
     _switchSectionTab(_restoreState.section);
@@ -1009,6 +1022,15 @@ function _attachHandlers() {
   if (_restoreState?.mode &&
       (_restoreState.section === 'bu-surface' || _restoreState.section === 'population')) {
     _switchYearTab(_restoreState.mode);
+  }
+  // Apply restore state for geography layer.
+  if (_restoreState?.section === 'geography' && _restoreState?.mode) {
+    _geoLayer = _restoreState.mode;
+    _panel.querySelectorAll('.geo-layer-tab').forEach(btn => {
+      const active = btn.dataset.layer === _geoLayer;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
   }
 
   _initDetailMapMedia();
@@ -1140,6 +1162,14 @@ function _switchSectionTab(sectionName) {
   // Trigger chart resize — the panel had display:none so clientWidth was 0.
   _charts[sectionName]?.resize();
 
+  // Initialise or resize the geography mini-map when that tab becomes visible.
+  if (sectionName === 'geography') {
+    requestAnimationFrame(() => {
+      if (!_geoMap) _initGeoMap();
+      else _geoMap.resize();
+    });
+  }
+
   trackEvent('detail_tab_change', {
     station_id: _currentLocationId,
     from_tab: currentSection,
@@ -1219,6 +1249,8 @@ function _updateStationUrl() {
     const yearTab = _panel.querySelector('.bu-tab.active') ??
                     _panel.querySelector('.pop-tab.active');
     detail.mode = yearTab?.dataset.tab;
+  } else if (section === 'geography') {
+    detail.mode = _geoLayer;
   }
 
   pushState(serialiseStationState(_currentLocationId, detail));
@@ -1335,6 +1367,12 @@ function _renderDataSections(data, indexEntry, locationId, sprites) {
   if (popContent) {
     tabs.push(`<button class="section-tab" role="tab" data-section="population" aria-selected="false">Population</button>`);
     panels.push(_sectionPanel('population', 'Population', popContent, { hidden: true }));
+  }
+
+  const geoContent = _geographySectionContent(indexEntry);
+  if (geoContent) {
+    tabs.push(`<button class="section-tab" role="tab" data-section="geography" aria-selected="false">Geography</button>`);
+    panels.push(_sectionPanel('geography', 'Geography', geoContent, { hidden: true }));
   }
 
   panels.push(_sectionPanel(
@@ -1682,6 +1720,148 @@ function _popSectionContent(indexEntry, sprites) {
     </div>`;
 }
 
+// ── Geography / Topography section ───────────────────────────────────────────
+
+/**
+ * Build the Geography section HTML.
+ * Contains a Topography subtab (more subtabs can be added later).
+ * The map is a 160×160 px MapLibre canvas locked to the same 20 km × 20 km
+ * area used for the BU/Population bitmaps.
+ */
+function _geographySectionContent(indexEntry) {
+  if (indexEntry?.lat == null || indexEntry?.lng == null) return '';
+  const mapSize = BU_ZOOM * 32; // 160 px — matches BU/POP tile display size
+
+  return `
+    <div class="detail-geo">
+      <div class="geo-layer-tabs" role="tablist" aria-label="Map layer">
+        <button class="geo-layer-tab active" role="tab" data-layer="topo" aria-selected="true">Topography</button>
+        <button class="geo-layer-tab" role="tab" data-layer="satellite" aria-selected="false">Satellite</button>
+        <button class="geo-layer-tab" role="tab" data-layer="streets" aria-selected="false">Streets</button>
+      </div>
+      <div class="geo-map-row">
+        <div class="detail-bu-wrap is-loading">
+          <div class="detail-map-loading" aria-hidden="true">
+            <div class="detail-map-spinner"></div>
+          </div>
+          <div class="detail-geo-map detail-map-media" id="detail-geo-map"
+               style="width:${mapSize}px;height:${mapSize}px"
+               aria-label="Topographic map (20 km box)"></div>
+          <div class="detail-bu-crosshair" aria-hidden="true"></div>
+          <div class="detail-bu-scale" aria-hidden="true">
+            <div class="scale-bar"></div>
+            <div class="scale-label">5 km</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Return a minimal MapLibre style object for the given tile layer key.
+ * @param {'topo'|'satellite'|'streets'} layer
+ */
+function _geoTileStyle(layer) {
+  const LAYERS = {
+    topo: {
+      tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+      attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA) | © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    },
+    satellite: {
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      attribution: '© Esri, Maxar, Earthstar Geographics',
+    },
+    streets: {
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    },
+  };
+  const cfg = LAYERS[layer] ?? LAYERS.topo;
+  return {
+    version: 8,
+    sources: {
+      tiles: { type: 'raster', tiles: cfg.tiles, tileSize: 256, attribution: cfg.attribution },
+    },
+    layers: [{ id: 'tiles', type: 'raster', source: 'tiles' }],
+  };
+}
+
+/**
+ * Initialise the MapLibre mini-map inside #detail-geo-map.
+ * Must be called only when the container is visible (not hidden).
+ */
+function _initGeoMap() {
+  if (typeof maplibregl === 'undefined') return;
+  const container = _panel?.querySelector('#detail-geo-map');
+  if (!container || _geoMap) return;
+
+  const { lat, lng } = _currentIndexEntry ?? {};
+  if (lat == null || lng == null) return;
+
+  // 20 km × 20 km bounding box centred on the station.
+  const halfKm   = 10;
+  const latDelta = halfKm / 111.0;
+  const lngDelta = halfKm / (111.0 * Math.cos(lat * Math.PI / 180));
+  const bbox = [lng - lngDelta, lat - latDelta, lng + lngDelta, lat + latDelta];
+
+  const wrap = container.closest('.detail-bu-wrap');
+
+  _geoMap = new maplibregl.Map({
+    container,
+    style:            _geoTileStyle(_geoLayer),
+    center:           [lng, lat],
+    zoom:             10,
+    attributionControl: false,
+  });
+
+  // Disable all user interactions — static inset map.
+  _geoMap.scrollZoom.disable();
+  _geoMap.boxZoom.disable();
+  _geoMap.dragRotate.disable();
+  _geoMap.dragPan.disable();
+  _geoMap.keyboard.disable();
+  _geoMap.doubleClickZoom.disable();
+  _geoMap.touchZoomRotate.disable();
+  _geoMap.touchPitch?.disable?.();
+
+  _geoMap.once('load', () => {
+    _geoMap.fitBounds(bbox, { animate: false, padding: 0 });
+    wrap?.classList.remove('is-loading');
+  });
+}
+
+/**
+ * Switch the active geography tile layer and update button states.
+ * @param {'topo'|'satellite'|'streets'} layer
+ */
+function _switchGeoLayer(layer) {
+  if (!['topo', 'satellite', 'streets'].includes(layer)) return;
+  _geoLayer = layer;
+
+  _panel.querySelectorAll('.geo-layer-tab').forEach(btn => {
+    const active = btn.dataset.layer === layer;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+
+  if (_geoMap) {
+    const { lat, lng } = _currentIndexEntry ?? {};
+    const halfKm   = 10;
+    const latDelta = halfKm / 111.0;
+    const lngDelta = lng != null && lat != null
+      ? halfKm / (111.0 * Math.cos(lat * Math.PI / 180))
+      : halfKm / 111.0;
+    const bbox = [lng - lngDelta, lat - latDelta, lng + lngDelta, lat + latDelta];
+
+    _geoMap.setStyle(_geoTileStyle(layer));
+    _geoMap.once('styledata', () => {
+      _geoMap.fitBounds(bbox, { animate: false, padding: 0 });
+    });
+  }
+
+  _updateStationUrl();
+}
+
 // ── BU palette inversion ──────────────────────────────────────────────────────
 //
 // Palette stops [built_up_fraction, R, G, B] — mirrors generate_bu_tiles.py.
@@ -1830,6 +2010,18 @@ async function _preparePrintMediaSnapshots() {
     try {
       _setPrintMediaSnapshot(canvas, canvas.toDataURL('image/png'));
     } catch {}
+  }
+
+  // Snapshot the geography MapLibre canvas.  WebGL canvases are invisible to
+  // html2canvas, so we capture the current frame via MapLibre's own API and
+  // insert it as a .detail-print-media <img> that shows in export/print mode.
+  if (_geoMap) {
+    const geoEl = _panel?.querySelector('#detail-geo-map');
+    if (geoEl) {
+      try {
+        _setPrintMediaSnapshot(geoEl, _geoMap.getCanvas().toDataURL('image/png'));
+      } catch {}
+    }
   }
 }
 

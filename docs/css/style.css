@@ -1163,6 +1163,71 @@ body {
   display: none;
 }
 
+/* ── Geography section ────────────────────────────────────────────── */
+
+.detail-geo {
+  padding: 1.25rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+
+/* Layer toggle buttons (Topo / Satellite / Streets) */
+.geo-layer-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.geo-layer-tab {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.geo-layer-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.geo-layer-tab.active {
+  background: var(--btn-active-bg);
+  color: var(--btn-active-text);
+  border-color: var(--btn-active-bg);
+}
+
+/* Row that holds the map wrap */
+.geo-map-row {
+  display: flex;
+  flex-direction: row;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+/* MapLibre canvas container — dimensions set inline via JS */
+.detail-geo-map {
+  display: block;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+}
+
+/* Prevent MapLibre's own controls from showing (we use our own attribution) */
+.detail-geo-map .maplibregl-ctrl-bottom-left,
+.detail-geo-map .maplibregl-ctrl-bottom-right,
+.detail-geo-map .maplibregl-ctrl-top-left,
+.detail-geo-map .maplibregl-ctrl-top-right {
+  display: none;
+}
+
 /* Scale the map tile to 480 px square when the panel is large enough.
  * Only .detail-bu-wrap (the tile + crosshair + scale bar) is zoomed;
  * the legend bar and score text stay at their natural sizes.
