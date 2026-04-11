@@ -26,9 +26,14 @@ window.maplibregl = (() => {
       this._canvas     = { style: { cursor: '' } };
       this._styleLoaded = false;
       this._lastFlyTo  = null;
-      this.dragRotate = { disable() {} };
-      this.touchZoomRotate = { disableRotation() {} };
-      this.touchPitch = { disable() {} };
+      this.dragRotate        = { disable() {} };
+      this.touchZoomRotate   = { disableRotation() {}, disable() {} };
+      this.touchPitch        = { disable() {} };
+      this.scrollZoom        = { disable() {} };
+      this.boxZoom           = { disable() {} };
+      this.dragPan           = { disable() {} };
+      this.keyboard          = { disable() {} };
+      this.doubleClickZoom   = { disable() {} };
 
       // Expose for test access.
       window.__mapInstance = this;
@@ -187,6 +192,12 @@ window.maplibregl = (() => {
 
     // ── Resize ───────────────────────────────────────────────────────
     resize() { /* no-op in mock */ }
+
+    // ── Bounds ───────────────────────────────────────────────────────
+    fitBounds(bounds, opts) { /* no-op in mock */ return this; }
+
+    // ── Lifecycle ────────────────────────────────────────────────────
+    remove() { /* no-op in mock */ }
 
     // ── Canvas ───────────────────────────────────────────────────────
     getCanvas() { return this._canvas; }

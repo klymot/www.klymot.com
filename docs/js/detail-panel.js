@@ -1734,30 +1734,23 @@ function _geographySectionContent(indexEntry) {
 
   return `
     <div class="detail-geo">
-      <div class="geo-subtabs" role="tablist" aria-label="Geography subtab">
-        <button class="geo-subtab active" role="tab" data-subtab="topography" aria-selected="true">Topography</button>
+      <div class="geo-layer-tabs" role="tablist" aria-label="Map layer">
+        <button class="geo-layer-tab active" role="tab" data-layer="topo" aria-selected="true">Topography</button>
+        <button class="geo-layer-tab" role="tab" data-layer="satellite" aria-selected="false">Satellite</button>
+        <button class="geo-layer-tab" role="tab" data-layer="streets" aria-selected="false">Streets</button>
       </div>
-      <div class="geo-subtab-panels">
-        <div class="geo-subtab-panel" data-subtab="topography">
-          <div class="geo-layer-tabs" role="tablist" aria-label="Map layer">
-            <button class="geo-layer-tab active" role="tab" data-layer="topo" aria-selected="true">Topo</button>
-            <button class="geo-layer-tab" role="tab" data-layer="satellite" aria-selected="false">Satellite</button>
-            <button class="geo-layer-tab" role="tab" data-layer="streets" aria-selected="false">Streets</button>
+      <div class="geo-map-row">
+        <div class="detail-bu-wrap is-loading">
+          <div class="detail-map-loading" aria-hidden="true">
+            <div class="detail-map-spinner"></div>
           </div>
-          <div class="geo-map-row">
-            <div class="detail-bu-wrap is-loading">
-              <div class="detail-map-loading" aria-hidden="true">
-                <div class="detail-map-spinner"></div>
-              </div>
-              <div class="detail-geo-map detail-map-media" id="detail-geo-map"
-                   style="width:${mapSize}px;height:${mapSize}px"
-                   aria-label="Topographic map (20 km box)"></div>
-              <div class="detail-bu-crosshair" aria-hidden="true"></div>
-              <div class="detail-bu-scale" aria-hidden="true">
-                <div class="scale-bar"></div>
-                <div class="scale-label">5 km</div>
-              </div>
-            </div>
+          <div class="detail-geo-map detail-map-media" id="detail-geo-map"
+               style="width:${mapSize}px;height:${mapSize}px"
+               aria-label="Topographic map (20 km box)"></div>
+          <div class="detail-bu-crosshair" aria-hidden="true"></div>
+          <div class="detail-bu-scale" aria-hidden="true">
+            <div class="scale-bar"></div>
+            <div class="scale-label">5 km</div>
           </div>
         </div>
       </div>
