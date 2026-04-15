@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Anomaly Baseline UI — Design Mockup</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* ── Mockup chrome ───────────────────────────────────────────────── */
+    html, body { overflow: auto; height: auto; }
+
+    .mockup-page {
+      padding: 1.5rem 1.25rem 4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .mockup-heading {
+      font-family: 'Playfair Display', Georgia, serif;
+      color: var(--accent-primary);
+      font-size: 1.375rem;
+      font-weight: 600;
+    }
+
+    .mockup-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+      line-height: 1.5;
+    }
+
+    .mockup-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      flex-wrap: wrap;
+    }
+
+    .mockup-frame {
+      border: 1px solid var(--border-color);
+      border-radius: 0.5rem;
+      overflow: hidden;
+      background: var(--bg-primary);
+      transition: max-width 0.3s;
+      max-width: 100%;
+    }
+
+    .mockup-frame.is-narrow {
+      max-width: 390px;
+    }
+
+    .mockup-notes {
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+      line-height: 1.65;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .mockup-notes strong { color: var(--text-primary); }
+
+    .note-pill {
+      display: inline-block;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: 0.25rem;
+      padding: 0.125rem 0.375rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6875rem;
+      color: var(--accent-primary);
+    }
+
+    /* ── Simulated series tabs ───────────────────────────────────────── */
+    .mock-tabs-wrap {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    /* ── NEW: Anomaly Reference Row ──────────────────────────────────── */
+    .chart-ref-row {
+      display: flex;
+      align-items: center;
+      padding: 0 1.75rem 0.4375rem;
+      flex-shrink: 0;
+      gap: 0.375rem;
+      /* slide in/out */
+      overflow: hidden;
+      max-height: 3rem;
+      opacity: 1;
+      transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.2s ease;
+    }
+
+    .chart-ref-row[hidden] {
+      /* Override hidden with animation */
+      display: flex !important;
+      max-height: 0;
+      opacity: 0;
+      padding-bottom: 0;
+      pointer-events: none;
+    }
+
+    .chart-ref-label {
+      font-size: 0.5625rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      font-variant-caps: all-small-caps;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      line-height: 1;
+      margin-right: 0.125rem;
+    }
+
+    .chart-ref-scroll {
+      display: flex;
+      gap: 0.25rem;
+      flex: 1;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      align-items: center;
+    }
+    .chart-ref-scroll::-webkit-scrollbar { display: none; }
+
+    .chart-ref-btn {
+      padding: 0.25rem 0.625rem;
+      height: 1.875rem;   /* 30px — taller than chart-ci-btn for better touch */
+      font-size: 0.6875rem;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      background: var(--btn-bg);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 0.3125rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      line-height: 1;
+    }
+
+    .chart-ref-btn:hover {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .chart-ref-btn.active {
+      background: var(--btn-active-bg);
+      color: var(--btn-active-text);
+      border-color: var(--btn-active-bg);
+      font-weight: 600;
+    }
+
+    .chart-ref-btn .resolved {
+      font-weight: 400;
+      opacity: 0.72;
+    }
+
+    /* The fallback toggle sits outside the scroll area, pinned right */
+    .chart-ref-fallback-wrap {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+
+    .chart-ref-fallback-btn {
+      height: 1.875rem;
+      padding: 0 0.5rem;
+      font-size: 0.625rem;
+      font-family: 'JetBrains Mono', monospace;
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      border-radius: 0.3125rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+      letter-spacing: 0.03em;
+    }
+
+    .chart-ref-fallback-btn:hover:not(:disabled) {
+      color: var(--text-secondary);
+      border-color: var(--border-strong);
+    }
+
+    .chart-ref-fallback-btn.active {
+      color: var(--accent-primary);
+      border-color: var(--accent-primary);
+    }
+
+    .chart-ref-fallback-btn:disabled {
+      opacity: 0.28;
+      cursor: default;
+    }
+
+    /* ── NEW: Picker Row ─────────────────────────────────────────────── */
+    .chart-picker-row {
+      display: flex;
+      align-items: stretch;
+      flex-shrink: 0;
+      padding: 0 0 0.5rem;
+      overflow: hidden;
+      max-height: 5rem;
+      opacity: 1;
+      transition: max-height 0.2s ease, opacity 0.2s ease, padding 0.2s ease;
+    }
+
+    .chart-picker-row[hidden] {
+      display: flex !important;
+      max-height: 0;
+      opacity: 0;
+      padding-bottom: 0;
+      pointer-events: none;
+    }
+
+    /* Large-target arrow buttons */
+    .picker-arrow-btn {
+      flex-shrink: 0;
+      width: 2.75rem;     /* 44px */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      font-size: 1.3rem;
+      font-weight: 300;
+      transition: color 0.15s, background 0.15s;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .picker-arrow-btn:first-child {
+      margin-left: 1.75rem;
+      border-right: none;
+      border-radius: 0.375rem 0 0 0.375rem;
+    }
+
+    .picker-arrow-btn:last-child {
+      margin-right: 1.75rem;
+      border-left: none;
+      border-radius: 0 0.375rem 0.375rem 0;
+    }
+
+    .picker-arrow-btn:hover:not(:disabled) {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .picker-arrow-btn:disabled {
+      opacity: 0.2;
+      cursor: default;
+    }
+
+    .picker-scroll {
+      flex: 1;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .picker-scroll::-webkit-scrollbar { display: none; }
+
+    /* The gradient track */
+    .picker-track {
+      position: relative;
+      height: 3.25rem;   /* 52px */
+      display: flex;
+      align-items: stretch;
+      /* gradient set via JS */
+    }
+
+    /* ── Decade chips ── */
+    .decade-chip {
+      flex-shrink: 0;
+      width: 3.625rem;   /* 58px */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.1875rem;
+      background: rgba(0,0,0,0.18);  /* scrim so gradient shows through */
+      border: none;
+      border-right: 1px solid rgba(255,255,255,0.07);
+      color: #fff;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+      transition: background 0.1s;
+      padding: 0;
+    }
+
+    .decade-chip:first-child { border-left: 1px solid rgba(255,255,255,0.07); }
+
+    .decade-chip:hover { background: rgba(255,255,255,0.1); }
+
+    .decade-chip.active {
+      background: var(--btn-active-bg) !important;
+      color: var(--btn-active-text);
+      text-shadow: none;
+      outline: 2px solid rgba(255,255,255,0.35);
+      outline-offset: -2px;
+      z-index: 1;
+    }
+
+    .dc-label {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .dc-count {
+      font-size: 0.5rem;
+      line-height: 1;
+      opacity: 0.7;
+    }
+
+    /* ── Year chips ── */
+    .year-chip {
+      flex-shrink: 0;
+      width: 0.9375rem;   /* 15px */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding-bottom: 0.25rem;
+      background: rgba(0,0,0,0.15);
+      border: none;
+      border-right: 1px solid rgba(255,255,255,0.04);
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.08s;
+    }
+
+    /* Every-10-year chips are a bit wider and always show label */
+    .year-chip.y-labeled {
+      width: 1.0625rem;   /* 17px */
+    }
+
+    .year-chip:first-child { border-left: 1px solid rgba(255,255,255,0.05); }
+
+    .year-chip:hover { background: rgba(255,255,255,0.14); }
+
+    .year-chip.active {
+      background: var(--btn-active-bg) !important;
+      color: var(--btn-active-text);
+      outline: 2px solid rgba(255,255,255,0.4);
+      outline-offset: -2px;
+      z-index: 1;
+    }
+
+    .yr-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.4375rem;  /* 7px */
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+      color: rgba(255,255,255,0.72);
+      text-shadow: 0 0 4px rgba(0,0,0,0.9);
+    }
+
+    .year-chip.active .yr-label {
+      color: var(--btn-active-text);
+      text-shadow: none;
+      font-weight: 700;
+    }
+
+    /* Un-labeled chips hide their label unless hovered or active */
+    .year-chip:not(.y-labeled):not(:hover):not(.active) .yr-label {
+      visibility: hidden;
+    }
+
+    /* ── Simulated chart placeholder ─────────────────────────────────── */
+    .chart-sim {
+      margin: 0 1.75rem 0.625rem;
+      height: 10rem;
+      border: 1px solid var(--border-color);
+      border-radius: 0.375rem;
+      background: repeating-linear-gradient(
+        -45deg,
+        var(--bg-primary),
+        var(--bg-primary) 6px,
+        var(--bg-secondary) 6px,
+        var(--bg-secondary) 7px
+      );
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.6875rem;
+      font-style: italic;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Status bar ───────────────────────────────────────────────────── */
+    .mock-status {
+      padding: 0.125rem 1.75rem 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 1.5rem;
+    }
+
+    .mock-status strong { color: var(--text-primary); }
+    .mock-status .warn  { color: var(--adj-tob); }
+
+    /* ── Mobile responsive tweaks ─────────────────────────────────────── */
+    @media (max-width: 480px) {
+      .chart-ref-label    { display: none; }
+      .picker-arrow-btn   { width: 3rem; }   /* 48px on phones */
+      .picker-arrow-btn:first-child { margin-left: 0; }
+      .picker-arrow-btn:last-child  { margin-right: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="mockup-page">
+
+  <!-- ── Header ── -->
+  <div>
+    <h1 class="mockup-heading">Anomaly Baseline UI — Design Mockup</h1>
+    <p class="mockup-meta">
+      Interactive prototype · aggregate graphs screen · klymot.com<br>
+      Click the new controls to explore states. Use the narrow-view toggle to simulate a phone.
+    </p>
+  </div>
+
+  <!-- ── Top controls ── -->
+  <div class="mockup-controls">
+    <button class="btn-control" id="btnNarrow" onclick="toggleNarrow()">Simulate mobile (390 px)</button>
+    <button class="btn-control" onclick="selectRef('station'); document.querySelectorAll('.chart-mode-btn').forEach(b=>b.classList.toggle('active', b.dataset.mode==='yearly-anomaly'));">Reset to defaults</button>
+  </div>
+
+  <!-- ── Interactive frame ── -->
+  <div class="mockup-frame" id="mockupFrame">
+
+    <!-- Series tabs -->
+    <div class="mock-tabs-wrap">
+      <div class="section-tabs" role="tablist">
+        <button class="section-tab active" role="tab">Unadjusted</button>
+        <button class="section-tab" role="tab">Adjusted</button>
+      </div>
+    </div>
+
+    <div class="temp-chart-section">
+
+      <!-- Mode row — UNCHANGED from current UI -->
+      <div class="chart-mode-row">
+        <button class="chart-mode-arrow chart-mode-prev" hidden aria-label="Previous mode">‹</button>
+        <div class="chart-mode-toggle" role="group" aria-label="Chart mode">
+          <button class="chart-mode-btn" hidden data-mode="monthly"         aria-pressed="false">Monthly</button>
+          <button class="chart-mode-btn" hidden data-mode="bymonth"         aria-pressed="false">By Month</button>
+          <button class="chart-mode-btn" hidden data-mode="yearly"          aria-pressed="false">Annual</button>
+          <button class="chart-mode-btn"       data-mode="monthly-anomaly"  aria-pressed="false">Monthly Anomaly</button>
+          <button class="chart-mode-btn active" data-mode="yearly-anomaly"  aria-pressed="true">Annual Anomaly</button>
+        </div>
+        <button class="chart-mode-arrow chart-mode-next" hidden aria-label="Next mode">›</button>
+      </div>
+
+      <!-- ══ NEW: Anomaly Reference Row ══════════════════════════════ -->
+      <div class="chart-ref-row" id="refRow" aria-label="Anomaly baseline">
+        <span class="chart-ref-label">Baseline</span>
+        <div class="chart-ref-scroll" id="refScroll" role="group" aria-label="Baseline selection">
+          <button class="chart-ref-btn active" data-ref="station"
+                  title="Each station uses its own 30-year midpoint baseline (original behaviour)"
+                  onclick="selectRef('station')">Station</button>
+          <button class="chart-ref-btn" data-ref="auto_decade"
+                  title="API picks the decade present in the most stations"
+                  onclick="selectRef('auto_decade')">Auto Decade<span class="resolved" id="resolvedDecade"></span></button>
+          <button class="chart-ref-btn" data-ref="auto_year"
+                  title="API picks the year present in the most stations"
+                  onclick="selectRef('auto_year')">Auto Year<span class="resolved" id="resolvedYear"></span></button>
+          <button class="chart-ref-btn" data-ref="decade"
+                  title="Pick a specific reference decade"
+                  onclick="selectRef('decade')">Decade ▾</button>
+          <button class="chart-ref-btn" data-ref="year"
+                  title="Pick a specific reference year"
+                  onclick="selectRef('year')">Year ▾</button>
+        </div>
+        <div class="chart-ref-fallback-wrap">
+          <button class="chart-ref-fallback-btn" id="fallbackBtn" disabled
+                  title="When on: stations that lack the chosen period use their nearest available one instead of being excluded"
+                  onclick="toggleFallback()"
+                  aria-pressed="false">~ nearest</button>
+        </div>
+      </div>
+
+      <!-- ══ NEW: Decade / Year Picker Row ═══════════════════════════ -->
+      <div class="chart-picker-row" id="pickerRow" hidden aria-label="Reference period picker">
+        <button class="picker-arrow-btn" id="pickerPrev"
+                aria-label="Scroll picker left"
+                onclick="pickerScroll(-1)">‹</button>
+        <div class="picker-scroll" id="pickerScroll">
+          <div class="picker-track" id="pickerTrack"></div>
+        </div>
+        <button class="picker-arrow-btn" id="pickerNext"
+                aria-label="Scroll picker right"
+                onclick="pickerScroll(1)">›</button>
+      </div>
+
+      <!-- Controls row — UNCHANGED from current UI -->
+      <div class="chart-controls-row">
+        <div class="chart-trend-controls" role="group" aria-label="Chart overlays">
+          <button class="chart-ci-btn active" title="Linear trend line"     aria-pressed="true">Trend</button>
+          <button class="chart-ci-btn"        title="LOESS smooth line"     aria-pressed="false">LOESS</button>
+          <button class="chart-ci-btn active" title="Latitude-weighted stations" aria-pressed="true">Geo-gridded</button>
+          <button class="chart-ci-btn active" title="Station-years with all 12 months" aria-pressed="true">Full years</button>
+          <button class="chart-ci-btn active" title="95% confidence interval shading" aria-pressed="true">95% CI</button>
+        </div>
+        <div class="chart-zoom-controls" role="group" aria-label="Zoom">
+          <button class="chart-zoom-btn" title="Zoom out" aria-label="Zoom out">−</button>
+          <button class="chart-zoom-btn" title="Reset zoom" aria-label="Reset zoom">⊙</button>
+          <button class="chart-zoom-btn" title="Zoom in" aria-label="Zoom in">+</button>
+        </div>
+      </div>
+
+      <!-- Simulated chart canvas -->
+      <div class="chart-sim">chart renders here</div>
+
+      <!-- Status / resolved baseline info (sits where the aggregate-status lives) -->
+      <div class="mock-status" id="mockStatus"></div>
+
+      <!-- Footer — UNCHANGED -->
+      <div class="chart-footer" style="padding-top:0;">
+        <p class="chart-hint">Drag to pan · Hover for temperature</p>
+        <div class="chart-slider-row">
+          <div class="chart-trend-from-controls">
+            <label class="loess-slider-label">
+              <span class="loess-slider-title">Trend From</span>
+              <input type="range" class="trend-from-range" min="0" max="201" step="1" value="0">
+              <span class="trend-from-value">All</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /temp-chart-section -->
+  </div><!-- /mockup-frame -->
+
+  <!-- ── Annotation notes ── -->
+  <div class="mockup-notes">
+    <p><strong>Baseline row</strong> — appears/disappears with the anomaly modes. Sits between the mode row and the controls row, matching the existing row rhythm. Buttons are slightly taller than the existing chart overlay buttons for better touch targets.</p>
+    <p><strong><span class="note-pill">~ nearest</span> fallback toggle</strong> — pinned outside the scroll area on the right. When on, stations without the chosen period contribute using their nearest available period instead of being excluded. Automatically enabled for the Auto modes. Grayed out for Station mode (not applicable).</p>
+    <p><strong>Gradient picker</strong> — spans only the range between the first and last year/decade that has any station coverage. The gradient colour encodes coverage density: <span style="color:var(--text-muted)">dark blue-grey</span> = no/low coverage → <span style="color:var(--accent-primary)">gold</span> = maximum coverage. Decade chips show the count below the label. Year chips show labels on every 10th year (plus whichever is selected/hovered); all years are individually clickable.</p>
+    <p><strong>Left / right arrows</strong> — 44 px wide × full picker height (52 px) touch targets, so they're easy to hit with a thumb. On mobile they expand to 48 px.</p>
+    <p><strong>Status line</strong> — shows the resolved baseline and, for strict mode, how many stations were excluded. E.g. <span class="note-pill">401 / 512 stations · baseline: 1985 (strict — 111 excluded)</span></p>
+  </div>
+
+</div><!-- /mockup-page -->
+
+<script>
+// ── Mock station coverage data ──────────────────────────────────────────────
+
+const TOTAL = 512;
+
+const DECADE_DATA = {
+  1860: 8, 1870: 22, 1880: 55, 1890: 108, 1900: 162,
+  1910: 218, 1920: 275, 1930: 305, 1940: 342, 1950: 389,
+  1960: 443, 1970: 482, 1980: 510, 1990: 505, 2000: 489, 2010: 438
+};
+
+function buildYearData(start, end) {
+  const out = {};
+  const range = end - start;
+  for (let y = start; y <= end; y++) {
+    const t = (y - start) / range;
+    let base;
+    if      (t < 0.07)  base = TOTAL * (t / 0.07) * 0.03;
+    else if (t < 0.45)  base = TOTAL * (0.03 + (t - 0.07) / 0.38 * 0.67);
+    else if (t < 0.87)  base = TOTAL * (0.70 + (t - 0.45) / 0.42 * 0.28);
+    else                base = TOTAL * (0.98 - (t - 0.87) / 0.13 * 0.12);
+    const noise = Math.sin(y * 0.31 + 1.7) * 0.025 * TOTAL
+                + Math.cos(y * 0.73)        * 0.014 * TOTAL;
+    out[y] = Math.max(0, Math.min(TOTAL, Math.round(base + noise)));
+  }
+  // True zeros at the very start
+  for (let y = start; y < start + 4; y++) out[y] = 0;
+  return out;
+}
+
+const YEAR_DATA = buildYearData(1853, 2024);
+
+// ── Colour helpers ──────────────────────────────────────────────────────────
+
+function lerp3(t, lo, hi) {
+  return [
+    Math.round(lo[0] + t * (hi[0] - lo[0])),
+    Math.round(lo[1] + t * (hi[1] - lo[1])),
+    Math.round(lo[2] + t * (hi[2] - lo[2])),
+  ];
+}
+
+function toRgb(c) { return `rgb(${c[0]},${c[1]},${c[2]})`; }
+
+// Dark theme: near-zero → bg-elevated colour, max → accent gold
+const COL_LOW  = [21, 44, 74];    // #152c4a
+const COL_HIGH = [212, 168, 85];  // #d4a855
+
+function buildGradient(data) {
+  const years = Object.keys(data).map(Number).sort((a, b) => a - b);
+  // Trim leading/trailing zeros
+  let lo = 0, hi = years.length - 1;
+  while (lo < hi && data[years[lo]]  === 0) lo++;
+  while (hi > lo && data[years[hi]] === 0) hi--;
+  const slice = years.slice(lo, hi + 1);
+  const maxVal = Math.max(...slice.map(y => data[y]));
+  const span   = slice[slice.length - 1] - slice[0];
+  const stops  = slice.map(y => {
+    const pct       = span > 0 ? ((y - slice[0]) / span * 100).toFixed(2) : '0';
+    const intensity = data[y] / maxVal;
+    return `${toRgb(lerp3(intensity, COL_LOW, COL_HIGH))} ${pct}%`;
+  });
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+
+let activeRef     = 'station';
+let fallbackOn    = false;
+let selDecade     = 1980;
+let selYear       = 1980;
+
+// ── Picker builders ─────────────────────────────────────────────────────────
+
+function buildDecadePicker() {
+  const track  = document.getElementById('pickerTrack');
+  const scroll = document.getElementById('pickerScroll');
+
+  const decades = Object.keys(DECADE_DATA).map(Number).sort((a, b) => a - b);
+  track.style.background = buildGradient(DECADE_DATA);
+  track.innerHTML = '';
+
+  decades.forEach(d => {
+    const pct = Math.round(DECADE_DATA[d] / TOTAL * 100);
+    const btn = document.createElement('button');
+    btn.className = 'decade-chip' + (d === selDecade ? ' active' : '');
+    btn.title     = `${d}s — ${DECADE_DATA[d]} of ${TOTAL} stations (${pct}%)`;
+    btn.setAttribute('aria-label', `${d}s, ${pct}% station coverage`);
+    btn.setAttribute('aria-pressed', String(d === selDecade));
+    btn.innerHTML = `<span class="dc-label">${d}s</span><span class="dc-count">${DECADE_DATA[d]}</span>`;
+    btn.addEventListener('click', () => { selDecade = d; buildDecadePicker(); updateStatus(); });
+    track.appendChild(btn);
+  });
+
+  scrollToActive(scroll, track);
+}
+
+function buildYearPicker() {
+  const track  = document.getElementById('pickerTrack');
+  const scroll = document.getElementById('pickerScroll');
+
+  // Only years with coverage > 0
+  const years = Object.keys(YEAR_DATA).map(Number).sort((a, b) => a - b)
+    .filter(y => YEAR_DATA[y] > 0);
+
+  track.style.background = buildGradient(YEAR_DATA);
+  track.innerHTML = '';
+
+  years.forEach(y => {
+    const isLabeled = (y % 10 === 0);
+    const btn = document.createElement('button');
+    btn.className = 'year-chip'
+      + (isLabeled ? ' y-labeled' : '')
+      + (y === selYear ? ' active' : '');
+    btn.title = `${y} — ${YEAR_DATA[y]} of ${TOTAL} stations`;
+    btn.setAttribute('aria-label', `Year ${y}`);
+    btn.setAttribute('aria-pressed', String(y === selYear));
+
+    // Show label on labeled years, selected year, and (via CSS) hovered years
+    if (isLabeled || y === selYear) {
+      const lbl = document.createElement('span');
+      lbl.className = 'yr-label';
+      lbl.textContent = String(y);
+      btn.appendChild(lbl);
+    }
+
+    btn.addEventListener('click', () => { selYear = y; buildYearPicker(); updateStatus(); });
+    track.appendChild(btn);
+  });
+
+  scrollToActive(scroll, track);
+}
+
+function scrollToActive(scroll, track) {
+  requestAnimationFrame(() => {
+    const active = track.querySelector('.active');
+    if (!active) return;
+    const target = active.offsetLeft - (scroll.clientWidth - active.offsetWidth) / 2;
+    scroll.scrollLeft = Math.max(0, target);
+  });
+}
+
+// ── selectRef ───────────────────────────────────────────────────────────────
+
+function selectRef(ref) {
+  activeRef = ref;
+
+  document.querySelectorAll('.chart-ref-btn').forEach(b => {
+    const on = b.dataset.ref === ref;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+
+  const fb = document.getElementById('fallbackBtn');
+  if (ref === 'station') {
+    fb.disabled = true;
+    fb.classList.remove('active');
+    fallbackOn = false;
+  } else {
+    fb.disabled = false;
+    // Auto modes default to fallback on
+    if (ref.startsWith('auto_')) {
+      fb.classList.add('active');
+      fallbackOn = true;
+    }
+  }
+  fb.setAttribute('aria-pressed', String(fallbackOn && ref !== 'station'));
+
+  const pickerRow = document.getElementById('pickerRow');
+  if (ref === 'decade') {
+    pickerRow.hidden = false;
+    buildDecadePicker();
+  } else if (ref === 'year') {
+    pickerRow.hidden = false;
+    buildYearPicker();
+  } else {
+    pickerRow.hidden = true;
+  }
+
+  updateStatus();
+}
+
+function toggleFallback() {
+  if (activeRef === 'station') return;
+  fallbackOn = !fallbackOn;
+  const fb = document.getElementById('fallbackBtn');
+  fb.classList.toggle('active', fallbackOn);
+  fb.setAttribute('aria-pressed', String(fallbackOn));
+  updateStatus();
+}
+
+// ── Status line ─────────────────────────────────────────────────────────────
+
+function updateStatus() {
+  const el = document.getElementById('mockStatus');
+  const fb = fallbackOn;
+
+  switch (activeRef) {
+    case 'station':
+      el.innerHTML = `512 stations &nbsp;·&nbsp; baseline: per-station 30yr midpoint`;
+      break;
+
+    case 'auto_decade':
+      document.getElementById('resolvedDecade').textContent = ' (1980s)';
+      el.innerHTML = `512 stations &nbsp;·&nbsp; baseline: <strong>1980s</strong> (auto decade${fb ? ', fallback' : ''})`;
+      break;
+
+    case 'auto_year':
+      document.getElementById('resolvedYear').textContent = ' (1983)';
+      el.innerHTML = `${fb ? 512 : 498} stations &nbsp;·&nbsp; baseline: <strong>1983</strong> (auto year${fb ? ', fallback' : ''})`;
+      break;
+
+    case 'decade': {
+      const n = DECADE_DATA[selDecade] ?? 0;
+      const excl = TOTAL - n;
+      el.innerHTML = fb
+        ? `512 stations &nbsp;·&nbsp; baseline: <strong>${selDecade}s</strong> (decade, fallback)`
+        : `${n} / 512 stations &nbsp;·&nbsp; baseline: <strong>${selDecade}s</strong>`
+          + (excl > 0 ? ` &nbsp;<span class="warn">${excl} stations excluded (strict)</span>` : '');
+      break;
+    }
+
+    case 'year': {
+      const n = YEAR_DATA[selYear] ?? 0;
+      const excl = TOTAL - n;
+      el.innerHTML = fb
+        ? `512 stations &nbsp;·&nbsp; baseline: <strong>${selYear}</strong> (year, fallback)`
+        : `${n} / 512 stations &nbsp;·&nbsp; baseline: <strong>${selYear}</strong>`
+          + (excl > 0 ? ` &nbsp;<span class="warn">${excl} stations excluded (strict)</span>` : '');
+      break;
+    }
+  }
+}
+
+// ── Arrow scroll ─────────────────────────────────────────────────────────────
+
+function pickerScroll(dir) {
+  const scroll = document.getElementById('pickerScroll');
+  const step   = scroll.clientWidth * 0.7;
+  scroll.scrollBy({ left: dir * step, behavior: 'smooth' });
+}
+
+// ── Mode row wiring ──────────────────────────────────────────────────────────
+
+document.querySelectorAll('.chart-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.chart-mode-btn').forEach(b => {
+      const on = b === btn;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    const isAnomaly = btn.dataset.mode.endsWith('-anomaly');
+    document.getElementById('refRow').hidden = !isAnomaly;
+    if (!isAnomaly) {
+      document.getElementById('pickerRow').hidden = true;
+      document.getElementById('mockStatus').textContent = '512 stations';
+    } else {
+      if (activeRef === 'decade' || activeRef === 'year') {
+        document.getElementById('pickerRow').hidden = false;
+      }
+      updateStatus();
+    }
+  });
+});
+
+// ── Narrow toggle ─────────────────────────────────────────────────────────────
+
+function toggleNarrow() {
+  const frame = document.getElementById('mockupFrame');
+  const btn   = document.getElementById('btnNarrow');
+  const on    = frame.classList.toggle('is-narrow');
+  btn.textContent = on ? 'Full width' : 'Simulate mobile (390 px)';
+  btn.classList.toggle('active', on);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.getElementById('refRow').hidden    = false;
+document.getElementById('pickerRow').hidden = true;
+updateStatus();
+</script>
+</body>
+</html>
