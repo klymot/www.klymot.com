@@ -43,18 +43,23 @@ func (req aggregateRequest) effectiveAnomalyMode() string {
 // aggregateResponse describes a contiguous monthly time series starting at Start.
 // Each array element corresponds to one calendar month.
 //
-//   - Counts   – number of stations contributing an observation for that month
-//   - Averages – (weighted) mean temperature in °C (0 when Counts[i]==0)
-//   - StdDevs  – population standard deviation in °C (0 when Counts[i]<2)
+//   - StationCount – stations that passed the anomaly-mode filter and contributed
+//     to the result; always present so the UI can flag significant drops when a
+//     strict reference mode excludes stations that lack the chosen period
+//   - Counts      – per-month station counts (subset of StationCount; varies by
+//     data availability within each year)
+//   - Averages    – (weighted) mean temperature in °C (0 when Counts[i]==0)
+//   - StdDevs     – population standard deviation in °C (0 when Counts[i]<2)
 //   - AnomalyMode / AnomalyRef – resolved reference when an auto or specific
 //     reference mode was used; omitted for "station" and no-anomaly modes
 type aggregateResponse struct {
-	Start       string    `json:"start"`
-	Counts      []int     `json:"counts"`
-	Averages    []float64 `json:"averages"`
-	StdDevs     []float64 `json:"std_devs"`
-	AnomalyMode string    `json:"anomaly_mode,omitempty"`
-	AnomalyRef  int       `json:"anomaly_ref,omitempty"`
+	Start        string    `json:"start"`
+	StationCount int       `json:"station_count"`
+	Counts       []int     `json:"counts"`
+	Averages     []float64 `json:"averages"`
+	StdDevs      []float64 `json:"std_devs"`
+	AnomalyMode  string    `json:"anomaly_mode,omitempty"`
+	AnomalyRef   int       `json:"anomaly_ref,omitempty"`
 }
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -661,10 +666,11 @@ func computeAggregate(store DataStore, meta map[string]StationMeta, req aggregat
 	}
 
 	resp := &aggregateResponse{
-		Start:    fmt.Sprintf("%04d-%02d", globalMin, 1),
-		Counts:   counts,
-		Averages: averages,
-		StdDevs:  stdDevs,
+		Start:        fmt.Sprintf("%04d-%02d", globalMin, 1),
+		StationCount: len(stations),
+		Counts:       counts,
+		Averages:     averages,
+		StdDevs:      stdDevs,
 	}
 	// Echo back the resolved mode and reference for auto/specific reference
 	// modes so clients know which baseline was actually used.
