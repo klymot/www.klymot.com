@@ -49,7 +49,7 @@ let _loadGeneration       = 0;    // incremented on each _loadData call; stale r
 let _anomalyMode          = 'station'; // station | auto_decade | auto_year | decade | year
 let _anomalyFallback      = false;     // true → use *_fallback API variant for non-station modes
 let _anomalyRef           = null;      // decade start (multiple of 10) or year; null for auto/station
-let _refCoverageCache     = null;      // { decades: {decade→count}, years: {year→count}, maxCount }
+let _refCoverageCache     = null;      // { decades: {decade→count}, years: {year→count}, maxCount, total }
 let _refCoveragePending   = false;
 
 // ── Mode helpers ───────────────────────────────────────────────────────────────
@@ -78,14 +78,16 @@ async function _fetchRefCoverage(ids, series) {
   if (_refCoveragePending) return;
   _refCoveragePending = true;
   try {
-    const base   = _apiBase();
-    const params = new URLSearchParams({ series });
-    for (const id of ids) params.append('station_ids', id);
-    const resp = await fetch(`${base}/api/v1/refcoverage?${params}`);
+    const base = _apiBase();
+    const resp = await fetch(`${base}/api/v1/reference-coverage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ station_ids: ids, series }),
+    });
     if (!resp.ok) return;
     const raw = await resp.json(); // { decades: {year: count}, years: {year: count} }
     const allCounts = [...Object.values(raw.decades ?? {}), ...Object.values(raw.years ?? {})];
-    _refCoverageCache = { decades: raw.decades ?? {}, years: raw.years ?? {}, maxCount: Math.max(1, ...allCounts) };
+    _refCoverageCache = { decades: raw.decades ?? {}, years: raw.years ?? {}, maxCount: Math.max(1, ...allCounts), total: ids.length };
     // Rebuild picker if visible
     _container?.querySelectorAll('.chart-picker-row:not([hidden])').forEach(_buildPickerChips);
   } catch {
@@ -349,6 +351,12 @@ async function _loadData(stationIds) {
                     ?? results.find(r => r.data)?.data
                     ?? null;
     _setStatus(_buildStatusText(ids.length, activeData));
+
+    // If the picker is visible but coverage was cleared (station IDs changed), re-fetch.
+    const pickerVisible = _anomalyMode === 'decade' || _anomalyMode === 'year';
+    if (pickerVisible && !_refCoverageCache && !_refCoveragePending && ids.length) {
+      _fetchRefCoverage(ids, 'qcf');
+    }
   } finally {
     // Only the most recent call clears the spinner; stale calls leave it alone
     // so the in-progress newer call can manage its own state.
@@ -869,6 +877,11 @@ function _applyRefRows() {
   const isAnomaly = _isAnomalyMode(_sharedMode);
   const showPicker = isAnomaly && (_anomalyMode === 'decade' || _anomalyMode === 'year');
 
+  // Eagerly start coverage fetch when picker becomes visible.
+  if (showPicker && !_refCoverageCache && !_refCoveragePending && _lastStationIds?.length) {
+    _fetchRefCoverage(_lastStationIds, 'qcf');
+  }
+
   _container?.querySelectorAll('.chart-ref-row').forEach(refRow => {
     refRow.hidden = !isAnomaly;
     if (!isAnomaly) return;
@@ -890,12 +903,18 @@ function _buildPickerChips(pickerRow) {
 
   const isDecade = _anomalyMode === 'decade';
   const cov  = _refCoverageCache;
-  const data = cov ? (isDecade ? cov.decades : cov.years) : {};
-  const maxC = cov?.maxCount || 1;
+  const data  = cov ? (isDecade ? cov.decades : cov.years) : {};
+  const maxC  = cov?.maxCount || 1;                              // gradient normalisation
+  const total = _lastStationIds?.length || cov?.total || maxC;  // tooltip denominator
 
   let keys;
   if (cov) {
     keys = Object.keys(data).map(Number).sort((a, b) => a - b);
+    // Trim leading/trailing zeros
+    let lo = 0, hi = keys.length - 1;
+    while (lo < hi && (data[keys[lo]]  ?? 0) === 0) lo++;
+    while (hi > lo && (data[keys[hi]] ?? 0) === 0) hi--;
+    keys = keys.slice(lo, hi + 1);
   } else if (isDecade) {
     keys = [];
     for (let d = 1850; d <= 2020; d += 10) keys.push(d);
@@ -904,18 +923,56 @@ function _buildPickerChips(pickerRow) {
     for (let y = 1850; y <= new Date().getFullYear(); y++) keys.push(y);
   }
 
+  // Build a linear gradient across the full track width encoding coverage density.
+  // Colours interpolate from --bg-elevated (low/no coverage) to --accent-primary (max).
+  const cs  = getComputedStyle(document.documentElement);
+  const lo  = _hexToRgb(cs.getPropertyValue('--bg-elevated').trim())  ?? [21, 44, 74];
+  const hi  = _hexToRgb(cs.getPropertyValue('--accent-primary').trim()) ?? [212, 168, 85];
+  const span = keys.length > 1 ? keys[keys.length - 1] - keys[0] : 1;
+  const stops = keys.map(k => {
+    const t    = span > 0 ? (k - keys[0]) / span : 0;
+    const intensity = maxC > 0 ? (data[k] ?? 0) / maxC : 0;
+    const r = Math.round(lo[0] + intensity * (hi[0] - lo[0]));
+    const g = Math.round(lo[1] + intensity * (hi[1] - lo[1]));
+    const b = Math.round(lo[2] + intensity * (hi[2] - lo[2]));
+    return `rgb(${r},${g},${b}) ${(t * 100).toFixed(2)}%`;
+  });
+  track.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
+
   const frag = document.createDocumentFragment();
   for (const k of keys) {
     const count  = data[k] ?? 0;
-    const cov01  = maxC > 0 ? count / maxC : 0;
     const active = k === _anomalyRef;
     const noData = count === 0 && cov != null;
     const btn    = document.createElement('button');
-    btn.className = 'picker-chip' + (active ? ' active' : '') + (noData ? ' no-data' : '');
+    const pct    = total > 0 ? Math.round(count / total * 100) : 0;
+
+    if (isDecade) {
+      btn.className = 'decade-chip' + (active ? ' active' : '') + (noData ? ' no-data' : '');
+      btn.title = `${k}s — ${count} of ${total} stations (${pct}%)`;
+      const label = document.createElement('span');
+      label.className = 'dc-label';
+      label.textContent = `${k}s`;
+      const countEl = document.createElement('span');
+      countEl.className = 'dc-count';
+      countEl.textContent = count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+      btn.appendChild(label);
+      btn.appendChild(countEl);
+    } else {
+      const isLabelYear = k % 10 === 0;
+      btn.className = 'year-chip' + (isLabelYear ? ' y-label' : '') + (active ? ' active' : '') + (noData ? ' no-data' : '');
+      btn.title = `${k} — ${count} of ${total} stations (${pct}%)`;
+      if (isLabelYear || active) {
+        const labelEl = document.createElement('span');
+        labelEl.className = 'yr-label';
+        labelEl.textContent = String(k);
+        btn.appendChild(labelEl);
+      }
+    }
+
     btn.dataset.val = String(k);
-    btn.style.setProperty('--cov', cov01.toFixed(3));
     btn.setAttribute('aria-pressed', String(active));
-    btn.textContent = isDecade ? `${k}s` : String(k);
+    btn.setAttribute('aria-label', isDecade ? `${k}s, ${pct}% coverage` : `${k}, ${pct}% coverage`);
     if (noData) { btn.disabled = true; btn.setAttribute('aria-disabled', 'true'); }
     btn.addEventListener('click', () => {
       _anomalyRef = k;
@@ -928,8 +985,17 @@ function _buildPickerChips(pickerRow) {
   track.replaceChildren(frag);
 
   requestAnimationFrame(() => {
-    pickerRow.querySelector('.picker-chip.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+    pickerRow.querySelector('.decade-chip.active, .year-chip.active')
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
   });
+}
+
+/** Parse a CSS hex colour string (#rrggbb or #rgb) to [r, g, b]. Returns null if unparseable. */
+function _hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  if (h.length === 6) return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  if (h.length === 3) return [parseInt(h[0]+h[0],16), parseInt(h[1]+h[1],16), parseInt(h[2]+h[2],16)];
+  return null;
 }
 
 function _pickerStep(dir) {
@@ -950,16 +1016,16 @@ function _pickerStep(dir) {
 
 function _firstAvailableDecade() {
   if (!_refCoverageCache) return 1950;
-  const keys = Object.keys(_refCoverageCache.decades).map(Number)
-    .filter(k => _refCoverageCache.decades[k] > 0).sort((a, b) => a - b);
-  return keys[Math.floor(keys.length / 2)] ?? 1950;
+  const data = _refCoverageCache.decades;
+  return Object.keys(data).map(Number).reduce((best, k) =>
+    (data[k] ?? 0) > (data[best] ?? 0) ? k : best, 0) || 1950;
 }
 
 function _firstAvailableYear() {
   if (!_refCoverageCache) return 1961;
-  const keys = Object.keys(_refCoverageCache.years).map(Number)
-    .filter(k => _refCoverageCache.years[k] > 0).sort((a, b) => a - b);
-  return keys[Math.floor(keys.length / 2)] ?? 1961;
+  const data = _refCoverageCache.years;
+  return Object.keys(data).map(Number).reduce((best, k) =>
+    (data[k] ?? 0) > (data[best] ?? 0) ? k : best, 0) || 1961;
 }
 
 /** Sync all toggle button visual states to module state (used after restoreGraphState). */
@@ -1395,9 +1461,14 @@ function _initRefRows() {
       const ref = popover?.dataset.pendingRef;   // 'decade' or 'year'
       if (ref) _anomalyMode = ref;
       _anomalyFallback = opt.dataset.fallback === 'nearest';
-      // Initialise ref to first available value if not already set
-      if (_anomalyMode === 'decade' && _anomalyRef == null) _anomalyRef = _firstAvailableDecade();
-      if (_anomalyMode === 'year'   && _anomalyRef == null) _anomalyRef = _firstAvailableYear();
+      // Coerce or initialise ref for the new mode.
+      if (_anomalyMode === 'decade') {
+        // Floor year ref to decade boundary; if null or zero-coverage use best available.
+        const floored = _anomalyRef != null ? Math.floor(_anomalyRef / 10) * 10 : null;
+        const hasCoverage = floored != null && (_refCoverageCache?.decades[floored] ?? 0) > 0;
+        _anomalyRef = (floored != null && (hasCoverage || !_refCoverageCache)) ? floored : _firstAvailableDecade();
+      }
+      if (_anomalyMode === 'year' && _anomalyRef == null) _anomalyRef = _firstAvailableYear();
       _closeFallbackPopovers();
       _applyRefRows();
       if (_lastStationIds !== null) _loadData(_lastStationIds);
