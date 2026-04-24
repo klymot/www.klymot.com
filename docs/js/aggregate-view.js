@@ -257,13 +257,10 @@ async function _loadData(stationIds) {
   const gen = ++_loadGeneration;
   if (stationIdsChanged) { _refCoverageCache = null; _refCoveragePending = false; }
 
-  const _filterSummary = ids.length > 0 ? (_getFilterSummary?.() ?? '') : '';
   _setStatus(
     ids.length === 0
       ? 'No stations selected — apply a filter to see the aggregate.'
-      : _filterSummary
-        ? `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''} · ${_filterSummary}`
-        : `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''}`
+      : _buildStatusText(ids.length, null)
   );
 
   if (ids.length === 0) {
@@ -346,6 +343,12 @@ async function _loadData(stationIds) {
     _updateLoessDisplay();
     _applyCI();
     _applyWeightedTrends();
+
+    // Update status with resolved baseline period and matched station count.
+    const activeData = results.find(r => r.series === _activeSeries)?.data
+                    ?? results.find(r => r.data)?.data
+                    ?? null;
+    _setStatus(_buildStatusText(ids.length, activeData));
   } finally {
     // Only the most recent call clears the spinner; stale calls leave it alone
     // so the in-progress newer call can manage its own state.
@@ -719,6 +722,53 @@ function _setStatus(text) {
   if (!el) return;
   el.classList.remove('is-error');
   el.textContent = text;
+}
+
+/**
+ * Build the status line text shown in the aggregate header.
+ * @param {number}  totalIds     - number of station IDs in the request
+ * @param {object|null} respData - aggregate API response for the active series (may be null)
+ */
+function _buildStatusText(totalIds, respData) {
+  const filterSummary = _getFilterSummary?.() ?? '';
+
+  if (!_isAnomalyMode(_sharedMode) || !respData) {
+    // Non-anomaly or load failed: just show total count + filter
+    const base = `${totalIds.toLocaleString()} station${totalIds !== 1 ? 's' : ''}`;
+    return filterSummary ? `${base} · ${filterSummary}` : base;
+  }
+
+  // Use server-resolved mode/ref (auto modes get resolved to a specific period).
+  const resolvedMode = respData.anomaly_mode || _anomalyMode;
+  const resolvedRef  = respData.anomaly_ref  ?? _anomalyRef;
+  const matched      = respData.station_count ?? totalIds;
+
+  // Baseline period label
+  let periodLabel = '';
+  if (resolvedMode === 'station' || !resolvedMode) {
+    // Station baseline — no period label needed, just show count
+  } else {
+    const isAuto     = resolvedMode.startsWith('auto_');
+    const isFallback = resolvedMode.endsWith('_fallback');
+    const core       = resolvedMode.replace(/^auto_/, '').replace(/_fallback$/, '');
+    if (core === 'decade' && resolvedRef) {
+      periodLabel = `${isAuto ? 'auto ' : ''}${resolvedRef}s baseline`;
+    } else if (core === 'year' && resolvedRef) {
+      periodLabel = `${isAuto ? 'auto ' : ''}${resolvedRef} baseline`;
+    }
+    if (periodLabel && isFallback) periodLabel += ' (nearest match)';
+  }
+
+  // Station count fragment: "N of M stations" when strict mode excluded some
+  const excluded    = totalIds - matched;
+  const countPart   = excluded > 0
+    ? `${matched.toLocaleString()} of ${totalIds.toLocaleString()} stations`
+    : `${totalIds.toLocaleString()} station${totalIds !== 1 ? 's' : ''}`;
+
+  const parts = [countPart];
+  if (periodLabel) parts.push(periodLabel);
+  if (filterSummary) parts.push(filterSummary);
+  return parts.join(' · ');
 }
 
 function _setOverloadStatus(retryAfterSecs) {
