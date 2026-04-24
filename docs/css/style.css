@@ -1350,6 +1350,30 @@ body {
   flex-wrap: wrap;
 }
 
+/* ── Scroll-fade affordance ──────────────────────────────────────
+   Wrap any overflow-x:auto button row in .scroll-fade-wrap.
+   JS toggles .can-scroll-right when scrollWidth > clientWidth and
+   the scroll position isn't at the right end. */
+.scroll-fade-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.scroll-fade-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 2.75rem;
+  background: linear-gradient(to right, transparent, var(--bg-primary));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.scroll-fade-wrap.can-scroll-right::after {
+  opacity: 1;
+}
+
 /* ── Chart mode row (scrollable subtabs) ─────────────────────── */
 .chart-mode-row {
   display: flex;

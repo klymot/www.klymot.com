@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="css/style.css">
   <style>
     /* ── Mockup chrome ───────────────────────────────────────────────── */
-    html, body { overflow: auto; height: auto; }
+    html, body { overflow-x: hidden; overflow-y: auto; height: auto; }
 
     .mockup-page {
       padding: 1.5rem 1.25rem 4rem;
@@ -16,6 +16,13 @@
       gap: 1.5rem;
       max-width: 860px;
       margin: 0 auto;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .mockup-frame {
+      min-width: 0;
     }
 
     .mockup-heading {
@@ -117,7 +124,6 @@
     .chart-ref-scroll {
       display: flex;
       gap: 0.25rem;
-      flex: 1;
       overflow-x: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
@@ -159,41 +165,66 @@
       opacity: 0.72;
     }
 
-    /* The fallback toggle sits outside the scroll area, pinned right */
-    .chart-ref-fallback-wrap {
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
+    /* ── Fallback popover (dropdown from Decade ▾ / Year ▾ buttons) ────── */
+
+    /* position:fixed so it escapes overflow:hidden on the ref row */
+    .ref-fallback-popover {
+      position: fixed;
+      z-index: 200;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 0.375rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+      min-width: 15rem;
+      overflow: hidden;
+      /* top/left set by JS */
     }
 
-    .chart-ref-fallback-btn {
+    /* .scroll-fade-wrap + .can-scroll-right defined in style.css */
+
+    /* Ref-row scroll arrows — match the ref button height */
+    #refScrollPrev, #refScrollNext {
       height: 1.875rem;
-      padding: 0 0.5rem;
-      font-size: 0.625rem;
-      font-family: 'JetBrains Mono', monospace;
+      width: 1.625rem;
+      flex-shrink: 0;
+    }
+
+    .rfp-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.5rem 0.75rem;
       background: transparent;
-      color: var(--text-muted);
-      border: 1px solid var(--border-color);
-      border-radius: 0.3125rem;
+      border: none;
+      border-bottom: 1px solid var(--border-color);
       cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.15s;
-      letter-spacing: 0.03em;
-    }
-
-    .chart-ref-fallback-btn:hover:not(:disabled) {
+      text-align: left;
       color: var(--text-secondary);
-      border-color: var(--border-strong);
+      font-size: 0.75rem;
+      transition: background 0.1s, color 0.1s;
+      line-height: 1.35;
     }
 
-    .chart-ref-fallback-btn.active {
+    .rfp-option:last-child { border-bottom: none; }
+
+    .rfp-option:hover { background: var(--btn-hover); color: var(--text-primary); }
+
+    .rfp-option.selected { color: var(--text-primary); }
+
+    .rfp-check {
+      width: 0.875rem;
+      flex-shrink: 0;
       color: var(--accent-primary);
-      border-color: var(--accent-primary);
+      font-size: 0.8125rem;
+      margin-top: 0.0625rem;
     }
 
-    .chart-ref-fallback-btn:disabled {
-      opacity: 0.28;
-      cursor: default;
+    .rfp-sub {
+      display: block;
+      font-size: 0.625rem;
+      color: var(--text-muted);
+      margin-top: 0.1875rem;
     }
 
     /* ── NEW: Picker Row ─────────────────────────────────────────────── */
@@ -453,56 +484,17 @@
 
       <!-- Mode row — UNCHANGED from current UI -->
       <div class="chart-mode-row">
-        <button class="chart-mode-arrow chart-mode-prev" hidden aria-label="Previous mode">‹</button>
-        <div class="chart-mode-toggle" role="group" aria-label="Chart mode">
+        <button class="chart-mode-arrow chart-mode-prev" id="modeScrollPrev" hidden aria-label="Previous mode">‹</button>
+        <div class="scroll-fade-wrap" id="modeToggleWrap">
+        <div class="chart-mode-toggle" id="modeToggle" role="group" aria-label="Chart mode">
           <button class="chart-mode-btn" hidden data-mode="monthly"         aria-pressed="false">Monthly</button>
           <button class="chart-mode-btn" hidden data-mode="bymonth"         aria-pressed="false">By Month</button>
           <button class="chart-mode-btn" hidden data-mode="yearly"          aria-pressed="false">Annual</button>
           <button class="chart-mode-btn"       data-mode="monthly-anomaly"  aria-pressed="false">Monthly Anomaly</button>
           <button class="chart-mode-btn active" data-mode="yearly-anomaly"  aria-pressed="true">Annual Anomaly</button>
         </div>
-        <button class="chart-mode-arrow chart-mode-next" hidden aria-label="Next mode">›</button>
-      </div>
-
-      <!-- ══ NEW: Anomaly Reference Row ══════════════════════════════ -->
-      <div class="chart-ref-row" id="refRow" aria-label="Anomaly baseline">
-        <span class="chart-ref-label">Baseline</span>
-        <div class="chart-ref-scroll" id="refScroll" role="group" aria-label="Baseline selection">
-          <button class="chart-ref-btn active" data-ref="station"
-                  title="Each station uses its own 30-year midpoint baseline (original behaviour)"
-                  onclick="selectRef('station')">Station</button>
-          <button class="chart-ref-btn" data-ref="auto_decade"
-                  title="API picks the decade present in the most stations"
-                  onclick="selectRef('auto_decade')">Auto Decade<span class="resolved" id="resolvedDecade"></span></button>
-          <button class="chart-ref-btn" data-ref="auto_year"
-                  title="API picks the year present in the most stations"
-                  onclick="selectRef('auto_year')">Auto Year<span class="resolved" id="resolvedYear"></span></button>
-          <button class="chart-ref-btn" data-ref="decade"
-                  title="Pick a specific reference decade"
-                  onclick="selectRef('decade')">Decade ▾</button>
-          <button class="chart-ref-btn" data-ref="year"
-                  title="Pick a specific reference year"
-                  onclick="selectRef('year')">Year ▾</button>
-        </div>
-        <div class="chart-ref-fallback-wrap">
-          <button class="chart-ref-fallback-btn" id="fallbackBtn" disabled
-                  title="When on: stations that lack the chosen period use their nearest available one instead of being excluded"
-                  onclick="toggleFallback()"
-                  aria-pressed="false">~ nearest</button>
-        </div>
-      </div>
-
-      <!-- ══ NEW: Decade / Year Picker Row ═══════════════════════════ -->
-      <div class="chart-picker-row" id="pickerRow" hidden aria-label="Reference period picker">
-        <button class="picker-arrow-btn" id="pickerPrev"
-                aria-label="Scroll picker left"
-                onclick="pickerScroll(-1)">‹</button>
-        <div class="picker-scroll" id="pickerScroll">
-          <div class="picker-track" id="pickerTrack"></div>
-        </div>
-        <button class="picker-arrow-btn" id="pickerNext"
-                aria-label="Scroll picker right"
-                onclick="pickerScroll(1)">›</button>
+        </div><!-- /scroll-fade-wrap -->
+        <button class="chart-mode-arrow chart-mode-next" id="modeScrollNext" hidden aria-label="Next mode">›</button>
       </div>
 
       <!-- Controls row — UNCHANGED from current UI -->
@@ -541,16 +533,69 @@
         </div>
       </div>
 
+      <!-- ══ Anomaly Reference Row — below sliders ══════════════════ -->
+      <div class="chart-ref-row" id="refRow" aria-label="Anomaly baseline"
+           style="border-top: 1px solid var(--border-color); padding-top: 0.4375rem; margin-top: 0.125rem;">
+        <span class="chart-ref-label">Baseline</span>
+        <button class="chart-mode-arrow" id="refScrollPrev" hidden aria-label="Scroll baseline left">‹</button>
+        <div class="scroll-fade-wrap" id="refScrollWrap">
+        <div class="chart-ref-scroll" id="refScroll" role="group" aria-label="Baseline selection">
+          <button class="chart-ref-btn active" data-ref="station"
+                  title="Each station uses its own 30-year midpoint baseline (original behaviour)"
+                  onclick="selectRef('station')">Station</button>
+          <button class="chart-ref-btn" data-ref="auto_decade"
+                  title="API picks the decade present in the most stations"
+                  onclick="selectRef('auto_decade')">Auto Decade<span class="resolved" id="resolvedDecade"></span></button>
+          <button class="chart-ref-btn" data-ref="auto_year"
+                  title="API picks the year present in the most stations"
+                  onclick="selectRef('auto_year')">Auto Year<span class="resolved" id="resolvedYear"></span></button>
+          <button class="chart-ref-btn" data-ref="decade"
+                  title="Pick a specific reference decade; click ▾ to choose strict or nearest-match"
+                  onclick="openFallbackPopover(this, 'decade')">Decade ▾</button>
+          <button class="chart-ref-btn" data-ref="year"
+                  title="Pick a specific reference year; click ▾ to choose strict or nearest-match"
+                  onclick="openFallbackPopover(this, 'year')">Year ▾</button>
+        </div>
+        </div><!-- /scroll-fade-wrap -->
+        <button class="chart-mode-arrow" id="refScrollNext" hidden aria-label="Scroll baseline right">›</button>
+        <!-- Fallback popover — anchored inside the ref row -->
+        <div class="ref-fallback-popover" id="fallbackPopover" hidden role="menu">
+          <button class="rfp-option selected" data-fallback="strict" role="menuitem" onclick="setFallback('strict')">
+            <span class="rfp-check">✓</span>
+            <span>Strict<span class="rfp-sub">exclude stations without this period</span></span>
+          </button>
+          <button class="rfp-option" data-fallback="nearest" role="menuitem" onclick="setFallback('nearest')">
+            <span class="rfp-check"></span>
+            <span>Nearest match<span class="rfp-sub">use closest available period for missing stations</span></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ══ Decade / Year Picker Row ═══════════════════════════════ -->
+      <div class="chart-picker-row" id="pickerRow" hidden aria-label="Reference period picker">
+        <button class="picker-arrow-btn" id="pickerPrev"
+                aria-label="Previous year/decade"
+                onmousedown="pickerHoldStart(-1)" onmouseup="pickerHoldEnd()" onmouseleave="pickerHoldEnd()"
+                ontouchstart="pickerHoldStart(-1);event.preventDefault();" ontouchend="pickerHoldEnd()">‹</button>
+        <div class="picker-scroll" id="pickerScroll">
+          <div class="picker-track" id="pickerTrack"></div>
+        </div>
+        <button class="picker-arrow-btn" id="pickerNext"
+                aria-label="Next year/decade"
+                onmousedown="pickerHoldStart(1)" onmouseup="pickerHoldEnd()" onmouseleave="pickerHoldEnd()"
+                ontouchstart="pickerHoldStart(1);event.preventDefault();" ontouchend="pickerHoldEnd()">›</button>
+      </div>
+
     </div><!-- /temp-chart-section -->
   </div><!-- /mockup-frame -->
 
   <!-- ── Annotation notes ── -->
   <div class="mockup-notes">
-    <p><strong>Baseline row</strong> — appears/disappears with the anomaly modes. Sits between the mode row and the controls row, matching the existing row rhythm. Buttons are slightly taller than the existing chart overlay buttons for better touch targets.</p>
-    <p><strong><span class="note-pill">~ nearest</span> fallback toggle</strong> — pinned outside the scroll area on the right. When on, stations without the chosen period contribute using their nearest available period instead of being excluded. Automatically enabled for the Auto modes. Grayed out for Station mode (not applicable).</p>
+    <p><strong>Baseline row</strong> — appears/disappears with the anomaly modes. Now sits <em>below</em> the trend/LOESS sliders so it doesn't interrupt the chart–controls flow. Separated by a subtle top border.</p>
+    <p><strong>Strict by default</strong> — the fallback is never on by default. <span class="note-pill">Decade ▾</span> and <span class="note-pill">Year ▾</span> open a two-option dropdown: <em>Strict</em> (exclude stations without the chosen period) or <em>Nearest match</em> (substitute the closest available period). When nearest match is active the button label changes to <span class="note-pill">Decade ≈</span> / <span class="note-pill">Year ≈</span>. Auto modes are always strict (they pick the period with the broadest coverage, so a fallback would be redundant).</p>
     <p><strong>Gradient picker</strong> — spans only the range between the first and last year/decade that has any station coverage. The gradient colour encodes coverage density: <span style="color:var(--text-muted)">dark blue-grey</span> = no/low coverage → <span style="color:var(--accent-primary)">gold</span> = maximum coverage. Decade chips show the count below the label. Year chips show labels on every 10th year (plus whichever is selected/hovered); all years are individually clickable.</p>
     <p><strong>Left / right arrows</strong> — 44 px wide × full picker height (52 px) touch targets, so they're easy to hit with a thumb. On mobile they expand to 48 px.</p>
-    <p><strong>Status line</strong> — shows the resolved baseline and, for strict mode, how many stations were excluded. E.g. <span class="note-pill">401 / 512 stations · baseline: 1985 (strict — 111 excluded)</span></p>
+    <p><strong>Status line</strong> — shows the resolved baseline and how many stations were excluded in strict mode. E.g. <span class="note-pill">401 / 512 stations · baseline: 1985 · 111 excluded (strict)</span></p>
   </div>
 
 </div><!-- /mockup-page -->
@@ -623,7 +668,8 @@ function buildGradient(data) {
 // ── State ───────────────────────────────────────────────────────────────────
 
 let activeRef     = 'station';
-let fallbackOn    = false;
+let fallbackOn    = false;   // default: strict (never fallback by default)
+let pendingRef    = null;    // ref whose popover is currently open
 let selDecade     = 1980;
 let selYear       = 1980;
 
@@ -706,22 +752,13 @@ function selectRef(ref) {
     const on = b.dataset.ref === ref;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', String(on));
-  });
-
-  const fb = document.getElementById('fallbackBtn');
-  if (ref === 'station') {
-    fb.disabled = true;
-    fb.classList.remove('active');
-    fallbackOn = false;
-  } else {
-    fb.disabled = false;
-    // Auto modes default to fallback on
-    if (ref.startsWith('auto_')) {
-      fb.classList.add('active');
-      fallbackOn = true;
+    // Update label to show ≈ indicator when fallback is active
+    if (b.dataset.ref === 'decade') {
+      b.childNodes[0].textContent = 'Decade ' + (on && fallbackOn ? '≈' : '▾');
+    } else if (b.dataset.ref === 'year') {
+      b.childNodes[0].textContent = 'Year ' + (on && fallbackOn ? '≈' : '▾');
     }
-  }
-  fb.setAttribute('aria-pressed', String(fallbackOn && ref !== 'station'));
+  });
 
   const pickerRow = document.getElementById('pickerRow');
   if (ref === 'decade') {
@@ -734,23 +771,56 @@ function selectRef(ref) {
     pickerRow.hidden = true;
   }
 
+  if (ref === 'station') fallbackOn = false;
+
   updateStatus();
 }
 
-function toggleFallback() {
-  if (activeRef === 'station') return;
-  fallbackOn = !fallbackOn;
-  const fb = document.getElementById('fallbackBtn');
-  fb.classList.toggle('active', fallbackOn);
-  fb.setAttribute('aria-pressed', String(fallbackOn));
-  updateStatus();
+// ── Fallback popover ─────────────────────────────────────────────────────────
+
+function openFallbackPopover(btn, ref) {
+  pendingRef = ref;
+
+  // Update check marks to reflect current state for this ref
+  const isNearest = (ref === activeRef && fallbackOn);
+  document.querySelectorAll('.rfp-option').forEach(o => {
+    const isThis = o.dataset.fallback === (isNearest ? 'nearest' : 'strict');
+    o.classList.toggle('selected', isThis);
+    o.querySelector('.rfp-check').textContent = isThis ? '✓' : '';
+  });
+
+  // Position popover using fixed coords so it escapes overflow:hidden
+  const popover = document.getElementById('fallbackPopover');
+  const btnRect = btn.getBoundingClientRect();
+  const popoverWidth = 240;
+  let left = btnRect.left;
+  // Clamp so popover doesn't overflow the right edge of the viewport
+  left = Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8));
+  popover.style.top  = (btnRect.bottom + 4) + 'px';
+  popover.style.left = left + 'px';
+  popover.hidden = false;
 }
+
+function setFallback(mode) {
+  fallbackOn = (mode === 'nearest');
+  document.getElementById('fallbackPopover').hidden = true;
+  selectRef(pendingRef);
+  pendingRef = null;
+}
+
+// Close popover on outside click
+document.addEventListener('click', e => {
+  const popover = document.getElementById('fallbackPopover');
+  if (!popover.hidden && !popover.contains(e.target) && !e.target.closest('.chart-ref-btn[data-ref="decade"],.chart-ref-btn[data-ref="year"]')) {
+    popover.hidden = true;
+    pendingRef = null;
+  }
+});
 
 // ── Status line ─────────────────────────────────────────────────────────────
 
 function updateStatus() {
   const el = document.getElementById('mockStatus');
-  const fb = fallbackOn;
 
   switch (activeRef) {
     case 'station':
@@ -759,43 +829,40 @@ function updateStatus() {
 
     case 'auto_decade':
       document.getElementById('resolvedDecade').textContent = ' (1980s)';
-      el.innerHTML = `512 stations &nbsp;·&nbsp; baseline: <strong>1980s</strong> (auto decade${fb ? ', fallback' : ''})`;
+      el.innerHTML = '512 stations &nbsp;&middot;&nbsp; baseline: <strong>1980s</strong> (auto decade, strict)';
       break;
 
     case 'auto_year':
       document.getElementById('resolvedYear').textContent = ' (1983)';
-      el.innerHTML = `${fb ? 512 : 498} stations &nbsp;·&nbsp; baseline: <strong>1983</strong> (auto year${fb ? ', fallback' : ''})`;
+      el.innerHTML = '498 stations &nbsp;&middot;&nbsp; baseline: <strong>1983</strong> (auto year, strict) &nbsp;<span class="warn">14 excluded</span>';
       break;
 
     case 'decade': {
       const n = DECADE_DATA[selDecade] ?? 0;
       const excl = TOTAL - n;
-      el.innerHTML = fb
-        ? `512 stations &nbsp;·&nbsp; baseline: <strong>${selDecade}s</strong> (decade, fallback)`
-        : `${n} / 512 stations &nbsp;·&nbsp; baseline: <strong>${selDecade}s</strong>`
-          + (excl > 0 ? ` &nbsp;<span class="warn">${excl} stations excluded (strict)</span>` : '');
+      if (fallbackOn) {
+        el.innerHTML = '512 stations &nbsp;&middot;&nbsp; baseline: <strong>' + selDecade + 's</strong> (decade, nearest match)';
+      } else {
+        el.innerHTML = n + ' / 512 stations &nbsp;&middot;&nbsp; baseline: <strong>' + selDecade + 's</strong>'
+          + (excl > 0 ? ' &nbsp;<span class="warn">' + excl + ' stations excluded (strict)</span>' : '');
+      }
       break;
     }
 
     case 'year': {
       const n = YEAR_DATA[selYear] ?? 0;
       const excl = TOTAL - n;
-      el.innerHTML = fb
-        ? `512 stations &nbsp;·&nbsp; baseline: <strong>${selYear}</strong> (year, fallback)`
-        : `${n} / 512 stations &nbsp;·&nbsp; baseline: <strong>${selYear}</strong>`
-          + (excl > 0 ? ` &nbsp;<span class="warn">${excl} stations excluded (strict)</span>` : '');
+      if (fallbackOn) {
+        el.innerHTML = '512 stations &nbsp;&middot;&nbsp; baseline: <strong>' + selYear + '</strong> (year, nearest match)';
+      } else {
+        el.innerHTML = n + ' / 512 stations &nbsp;&middot;&nbsp; baseline: <strong>' + selYear + '</strong>'
+          + (excl > 0 ? ' &nbsp;<span class="warn">' + excl + ' stations excluded (strict)</span>' : '');
+      }
       break;
     }
   }
 }
 
-// ── Arrow scroll ─────────────────────────────────────────────────────────────
-
-function pickerScroll(dir) {
-  const scroll = document.getElementById('pickerScroll');
-  const step   = scroll.clientWidth * 0.7;
-  scroll.scrollBy({ left: dir * step, behavior: 'smooth' });
-}
 
 // ── Mode row wiring ──────────────────────────────────────────────────────────
 
@@ -817,8 +884,84 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
       }
       updateStatus();
     }
+    setTimeout(refreshScrollRows, 50);
   });
 });
+
+// ── Generic scroll-row init ───────────────────────────────────────────────────
+// Manages ‹/› arrow visibility + right-edge fade for any overflow-x button row.
+
+function initScrollRow({ scrollEl, wrapEl, prevBtn, nextBtn, scrollPx = 110 }) {
+  function update() {
+    const canLeft  = scrollEl.scrollLeft > 2;
+    const canRight = scrollEl.scrollLeft + scrollEl.clientWidth < scrollEl.scrollWidth - 2;
+    if (prevBtn) prevBtn.hidden = !canLeft;
+    if (nextBtn) nextBtn.hidden = !canRight;
+    if (wrapEl)  wrapEl.classList.toggle('can-scroll-right', canRight);
+  }
+  if (prevBtn) prevBtn.addEventListener('click', () =>
+    scrollEl.scrollBy({ left: -scrollPx, behavior: 'smooth' }));
+  if (nextBtn) nextBtn.addEventListener('click', () =>
+    scrollEl.scrollBy({ left:  scrollPx, behavior: 'smooth' }));
+  scrollEl.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(scrollEl);
+  requestAnimationFrame(update);  // run once layout is complete
+  return update;
+}
+
+let _updateModeRow, _updateRefRow;
+
+function initScrollRows() {
+  _updateModeRow = initScrollRow({
+    scrollEl: document.getElementById('modeToggle'),
+    wrapEl:   document.getElementById('modeToggleWrap'),
+    prevBtn:  document.getElementById('modeScrollPrev'),
+    nextBtn:  document.getElementById('modeScrollNext'),
+  });
+  _updateRefRow = initScrollRow({
+    scrollEl: document.getElementById('refScroll'),
+    wrapEl:   document.getElementById('refScrollWrap'),
+    prevBtn:  document.getElementById('refScrollPrev'),
+    nextBtn:  document.getElementById('refScrollNext'),
+  });
+}
+
+function refreshScrollRows() {
+  _updateModeRow && _updateModeRow();
+  _updateRefRow  && _updateRefRow();
+}
+
+// ── Picker: step by one item + hold-to-repeat ─────────────────────────────────
+
+function pickerStep(dir) {
+  if (activeRef === 'decade') {
+    const list = Object.keys(DECADE_DATA).map(Number).sort((a, b) => a - b);
+    const i    = list.indexOf(selDecade);
+    const ni   = Math.max(0, Math.min(list.length - 1, i + dir));
+    if (ni !== i) { selDecade = list[ni]; buildDecadePicker(); updateStatus(); }
+  } else if (activeRef === 'year') {
+    const list = Object.keys(YEAR_DATA).map(Number).sort((a, b) => a - b)
+                       .filter(y => YEAR_DATA[y] > 0);
+    const i    = list.indexOf(selYear);
+    const ni   = Math.max(0, Math.min(list.length - 1, i + dir));
+    if (ni !== i) { selYear = list[ni]; buildYearPicker(); updateStatus(); }
+  }
+}
+
+let _holdTimer = null, _holdInterval = null;
+
+function pickerHoldStart(dir) {
+  pickerStep(dir);
+  _holdTimer = setTimeout(() => {
+    _holdInterval = setInterval(() => pickerStep(dir), 100);
+  }, 350);
+}
+
+function pickerHoldEnd() {
+  clearTimeout(_holdTimer);
+  clearInterval(_holdInterval);
+  _holdTimer = _holdInterval = null;
+}
 
 // ── Narrow toggle ─────────────────────────────────────────────────────────────
 
@@ -828,6 +971,8 @@ function toggleNarrow() {
   const on    = frame.classList.toggle('is-narrow');
   btn.textContent = on ? 'Full width' : 'Simulate mobile (390 px)';
   btn.classList.toggle('active', on);
+  // Re-measure after the CSS transition finishes
+  setTimeout(refreshScrollRows, 320);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -835,6 +980,7 @@ function toggleNarrow() {
 document.getElementById('refRow').hidden    = false;
 document.getElementById('pickerRow').hidden = true;
 updateStatus();
+initScrollRows();
 </script>
 </body>
 </html>
