@@ -111,7 +111,9 @@ export function renderSourcesContent({ includeShell = true } = {}) {
           </li>
           <li class="sources-item">
             <div class="sources-item-name">Aggregate graph — anomaly baseline modes</div>
-            <div class="sources-item-desc">In anomaly modes (Monthly Anomaly, Annual Anomaly) each station's temperatures are expressed as departures from a per-station, per-calendar-month baseline before aggregation. The Baseline selector offers five modes that differ in how that reference period is chosen:
+            <div class="sources-item-desc">In anomaly modes (Monthly Anomaly, Annual Anomaly) each station's temperatures are expressed as departures from a per-station, per-calendar-month baseline before aggregation.
+            <br><br>
+            In aggregate mode the Baseline selector offers five modes that differ in how that reference period is chosen:
             <br><br>
             <b>Station</b> — the default. Each station's baseline is derived from up to 30 "full years" (years where all 12 months are non-missing) selected as close as possible to the centre of that station's own record. The record midpoint is the average of the first and last years with any data; full years are ranked by absolute distance from this midpoint, with ties broken in favour of earlier years, and the nearest 30 are used. This approach removes the effect of stations entering or leaving the network and makes multi-station means comparable across time, but the baselines differ between stations so the resulting anomaly series cannot be directly compared to a fixed-period climatology such as the WMO 1991–2020 normals.
             <br><br>
