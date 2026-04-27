@@ -99,13 +99,15 @@ func isValidSeries(series string) bool {
 }
 
 // isValidStationID rejects any station ID that could enable path traversal.
-// Valid IDs are purely alphanumeric (e.g. "USW00003822").
+// Valid IDs contain only ASCII letters, digits, and hyphens — the full set
+// that appears in GHCN data (e.g. "USW00003822", "CA001012475-C").
 func isValidStationID(id string) bool {
 	if len(id) == 0 || len(id) > 32 {
 		return false
 	}
-	for _, c := range id {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
 			return false
 		}
 	}

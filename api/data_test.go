@@ -120,7 +120,7 @@ func TestIsValidStationID(t *testing.T) {
 		{"US W00003822", false},               // space
 		{"USW00003822!", false},               // punctuation
 		{"USW00003822.csv", false},            // dot
-		{"USW00003822-A", false},              // hyphen not allowed
+		{"CA001012475-C", true},               // hyphen is valid in GHCN IDs
 		{"USW0000382200000000000000000000000000", false}, // too long
 	}
 	for _, tc := range tests {
