@@ -88,8 +88,11 @@ func newDataStore(strategy, dataDir string) (DataStore, error) {
 }
 
 // csvPath constructs the path to a station CSV file.
+// filepath.Base is applied to both user-supplied components so that directory
+// traversal sequences (e.g. "../..") are stripped to their last element even
+// if the upstream validation is somehow bypassed.
 func csvPath(dataDir, series, stationID string) string {
-	return filepath.Join(dataDir, series, stationID+".csv")
+	return filepath.Join(dataDir, filepath.Base(series), filepath.Base(stationID)+".csv")
 }
 
 // isValidSeries rejects any series name that is not one of the two known
