@@ -59,7 +59,7 @@ func newReferenceCoverageHandler(store DataStore, q *calcQueue) http.HandlerFunc
 			return
 		}
 		for _, id := range req.StationIDs {
-			if !validStationID(id) {
+			if !isValidStationID(id) {
 				http.Error(w, fmt.Sprintf("invalid station_id %q", id), http.StatusBadRequest)
 				return
 			}

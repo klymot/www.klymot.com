@@ -105,9 +105,9 @@ func TestParseCSV_blankLines(t *testing.T) {
 	}
 }
 
-// ── validStationID ────────────────────────────────────────────────────────────
+// ── isValidStationID ──────────────────────────────────────────────────────────
 
-func TestValidStationID(t *testing.T) {
+func TestIsValidStationID(t *testing.T) {
 	tests := []struct {
 		id   string
 		want bool
@@ -117,15 +117,16 @@ func TestValidStationID(t *testing.T) {
 		{"ASN00066062", true},
 		{"", false},
 		{"../etc/passwd", false},
-		{"US W00003822", false},  // space
-		{"USW00003822!", false},  // punctuation
-		{"USW00003822.csv", false}, // dot
+		{"US W00003822", false},               // space
+		{"USW00003822!", false},               // punctuation
+		{"USW00003822.csv", false},            // dot
+		{"USW00003822-A", false},              // hyphen not allowed
 		{"USW0000382200000000000000000000000000", false}, // too long
 	}
 	for _, tc := range tests {
-		got := validStationID(tc.id)
+		got := isValidStationID(tc.id)
 		if got != tc.want {
-			t.Errorf("validStationID(%q) = %v, want %v", tc.id, got, tc.want)
+			t.Errorf("isValidStationID(%q) = %v, want %v", tc.id, got, tc.want)
 		}
 	}
 }

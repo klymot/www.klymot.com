@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"time"
-	"unicode"
 )
 
 // ── Request / Response types ──────────────────────────────────────────────────
@@ -122,7 +121,7 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 			}
 		}
 		for _, id := range req.StationIDs {
-			if !validStationID(id) {
+			if !isValidStationID(id) {
 				http.Error(w, fmt.Sprintf("invalid station_id %q", id), http.StatusBadRequest)
 				return
 			}
@@ -171,18 +170,6 @@ func newAggregateHandler(store DataStore, meta map[string]StationMeta, pc *preco
 	}
 }
 
-// validStationID returns true for purely alphanumeric IDs (prevents path traversal).
-func validStationID(id string) bool {
-	if len(id) == 0 || len(id) > 32 {
-		return false
-	}
-	for _, c := range id {
-		if !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '-' {
-			return false
-		}
-	}
-	return true
-}
 
 // ── Decade / Year reference helpers ──────────────────────────────────────────
 
