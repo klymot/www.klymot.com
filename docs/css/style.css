@@ -1350,6 +1350,30 @@ body {
   flex-wrap: wrap;
 }
 
+/* ── Scroll-fade affordance ──────────────────────────────────────
+   Wrap any overflow-x:auto button row in .scroll-fade-wrap.
+   JS toggles .can-scroll-right when scrollWidth > clientWidth and
+   the scroll position isn't at the right end. */
+.scroll-fade-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.scroll-fade-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 2.75rem;
+  background: linear-gradient(to right, transparent, var(--bg-primary));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.scroll-fade-wrap.can-scroll-right::after {
+  opacity: 1;
+}
+
 /* ── Chart mode row (scrollable subtabs) ─────────────────────── */
 .chart-mode-row {
   display: flex;
@@ -1825,6 +1849,256 @@ body {
   font-size: 0.6875rem;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
 }
+
+/* ── Anomaly baseline ref row ──────────────────────────────────────── */
+.chart-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.4375rem;
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.chart-ref-row[hidden] { display: none; }
+
+.chart-ref-label {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  white-space: nowrap;
+  padding-right: 0.125rem;
+}
+
+.chart-ref-scroll {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chart-ref-scroll::-webkit-scrollbar { display: none; }
+
+.chart-ref-btn {
+  flex-shrink: 0;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.chart-ref-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+.chart-ref-btn.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+/* ── Fallback mode popover (position:fixed to escape overflow:hidden) ── */
+.ref-fallback-popover {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  min-width: 15rem;
+  overflow: hidden;
+}
+.ref-fallback-popover[hidden] { display: none; }
+
+.rfp-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.35;
+  transition: background 0.1s;
+}
+.rfp-option:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.rfp-option.selected { color: var(--text-primary); }
+
+.rfp-check {
+  flex-shrink: 0;
+  width: 0.875rem;
+  text-align: center;
+  color: var(--accent-primary);
+  font-size: 0.75rem;
+  margin-top: 0.05rem;
+}
+
+.rfp-sub {
+  display: block;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+}
+
+/* Ref-row scroll arrows — taller to match the ref button height */
+.chart-ref-prev,
+.chart-ref-next {
+  height: 1.875rem;
+  width: 1.625rem;
+}
+
+/* ── Decade / Year chip picker row ──────────────────────────────────── */
+.chart-picker-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 0.375rem;
+  flex-shrink: 0;
+  min-width: 0;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+.chart-picker-row[hidden] { display: none; }
+
+/* Big touch-friendly arrows — same height as the picker track */
+.picker-arrow-btn {
+  flex-shrink: 0;
+  width: 2.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  font-size: 1.3rem;
+  font-weight: 300;
+  transition: color 0.15s, background 0.15s;
+  user-select: none;
+  line-height: 1;
+  padding: 0;
+}
+.picker-arrow-btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.picker-arrow-btn:disabled { opacity: 0.2; cursor: default; }
+.picker-arrow-btn.picker-prev { border-right: 1px solid var(--border-color); }
+.picker-arrow-btn.picker-next { border-left:  1px solid var(--border-color); }
+
+.picker-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.picker-scroll::-webkit-scrollbar { display: none; }
+
+/* Gradient background is set by JS; chips sit as scrims on top */
+.picker-track {
+  height: 3.25rem;
+  min-width: max-content;  /* prevent flex squeeze from cutting the gradient short */
+  display: flex;
+  align-items: stretch;
+}
+
+/* Scrim colour adapts to theme so chips stay readable */
+:root         { --picker-scrim: rgba(0,0,0,0.18);   --picker-scrim-hover: rgba(255,255,255,0.10); }
+[data-theme="light"] { --picker-scrim: rgba(255,255,255,0.45); --picker-scrim-hover: rgba(0,0,0,0.08); }
+
+.decade-chip,
+.year-chip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--picker-scrim);
+  border: none;
+  border-right: 1px solid rgba(255,255,255,0.07);
+  color: #fff;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.75);
+  transition: background 0.1s;
+  padding: 0;
+}
+[data-theme="light"] .decade-chip,
+[data-theme="light"] .year-chip {
+  color: var(--text-primary);
+  text-shadow: 0 1px 3px rgba(255,255,255,0.85);
+}
+.decade-chip:first-child,
+.year-chip:first-child { border-left: 1px solid rgba(255,255,255,0.07); }
+
+.decade-chip:hover,
+.year-chip:hover { background: var(--picker-scrim-hover); }
+
+.decade-chip.active,
+.year-chip.active {
+  /* keep gradient showing through the scrim — only the border indicates selection */
+  outline: 2px solid rgba(255,255,255,0.75);
+  outline-offset: -2px;
+  z-index: 1;
+}
+[data-theme="light"] .decade-chip.active,
+[data-theme="light"] .year-chip.active {
+  outline-color: rgba(0,0,0,0.55);
+}
+
+.decade-chip.no-data,
+.year-chip.no-data { opacity: 0.3; cursor: not-allowed; }
+
+/* Decade chip: fixed width, two-line label + count */
+.decade-chip { width: 3.625rem; gap: 0.1875rem; }
+
+.dc-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.dc-count {
+  font-size: 0.5rem;
+  line-height: 1;
+  opacity: 0.72;
+}
+
+/* Year chip: narrow; wider + label on multiples of 10 */
+.year-chip         { width: 0.9375rem; justify-content: flex-end; padding-bottom: 0.25rem; }
+.year-chip.y-label { width: 1.0625rem; }
+
+.yr-label {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 0.4375rem;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  color: rgba(255,255,255,0.72);
+  text-shadow: 0 0 4px rgba(0,0,0,0.9);
+}
+[data-theme="light"] .yr-label { color: var(--text-secondary); text-shadow: 0 0 3px rgba(255,255,255,0.9); }
 
 /* ── Heatmap colour-scale legend ──────────────────────────────────── */
 

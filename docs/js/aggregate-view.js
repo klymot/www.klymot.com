@@ -45,10 +45,57 @@ let _onUrlChange          = null;  // () → void, called after every _pushUrl()
 let _lastStationIds       = null;  // most recent station IDs passed to _loadData
 let _loadGeneration       = 0;    // incremented on each _loadData call; stale responses are dropped
 
+// Anomaly baseline state
+let _anomalyMode          = 'station'; // station | auto_decade | auto_year | decade | year
+let _anomalyFallback      = false;     // true → use *_fallback API variant for non-station modes
+let _anomalyRef           = null;      // decade start (multiple of 10) or year; null for auto/station
+let _refCoverageCache     = null;      // { decades: {decade→count}, years: {year→count}, maxCount, total }
+let _refCoveragePending   = false;
+
 // ── Mode helpers ───────────────────────────────────────────────────────────────
 
 /** Returns true if the mode requires an anomaly fetch from the API. */
 function _isAnomalyMode(mode) { return mode.endsWith('-anomaly'); }
+
+/** Build the POST body for /api/v1/aggregate. */
+function _buildAggregateBody(ids, series) {
+  const body = { station_ids: ids, series, geo_gridded: _geoGridded, full_years_only: _fullYearsOnly };
+  if (!_isAnomalyMode(_sharedMode)) {
+    body.anomaly_mode = 'none';
+  } else if (_anomalyMode === 'station') {
+    body.anomaly_mode = 'station';
+  } else {
+    body.anomaly_mode = _anomalyFallback ? `${_anomalyMode}_fallback` : _anomalyMode;
+    if (_anomalyMode === 'decade' || _anomalyMode === 'year') {
+      body.anomaly_ref = _anomalyRef ?? 0;
+    }
+  }
+  return body;
+}
+
+/** Fetch coverage data and cache it; lazily called before opening the picker. */
+async function _fetchRefCoverage(ids, series) {
+  if (_refCoveragePending) return;
+  _refCoveragePending = true;
+  try {
+    const base = _apiBase();
+    const resp = await fetch(`${base}/api/v1/reference-coverage`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ station_ids: ids, series }),
+    });
+    if (!resp.ok) return;
+    const raw = await resp.json(); // { decades: {year: count}, years: {year: count} }
+    const allCounts = [...Object.values(raw.decades ?? {}), ...Object.values(raw.years ?? {})];
+    _refCoverageCache = { decades: raw.decades ?? {}, years: raw.years ?? {}, maxCount: Math.max(1, ...allCounts), total: ids.length };
+    // Rebuild picker if visible
+    _container?.querySelectorAll('.chart-picker-row:not([hidden])').forEach(_buildPickerChips);
+  } catch {
+    // non-fatal — picker will fall back to synthetic range
+  } finally {
+    _refCoveragePending = false;
+  }
+}
 
 /** Returns the TempChart mode string (strips '-anomaly' suffix). */
 function _chartMode(mode) {
@@ -132,6 +179,9 @@ export function restoreGraphState(state, stationIds) {
   if (Array.isArray(state.selectedMonths)) {
     _sharedSelectedMonths = new Set(state.selectedMonths);
   }
+  if (state.anomalyMode)              _anomalyMode     = state.anomalyMode;
+  if (state.anomalyFallback === true) _anomalyFallback = true;
+  if (state.anomalyRef != null)       _anomalyRef      = state.anomalyRef;
 
   showAggregateView(stationIds);
 
@@ -192,7 +242,10 @@ function _pushUrl() {
     loessSpan:     _sharedLoessSpan,
     loessSpanMode: _sharedLoessSpanMode,
     loessYears:    _sharedLoessYears,
-    selectedMonths: _sharedSelectedMonths,
+    selectedMonths:   _sharedSelectedMonths,
+    anomalyMode:      _isAnomalyMode(_sharedMode) ? _anomalyMode : undefined,
+    anomalyFallback:  _isAnomalyMode(_sharedMode) && _anomalyFallback ? true : undefined,
+    anomalyRef:       _isAnomalyMode(_sharedMode) && _anomalyRef != null ? _anomalyRef : undefined,
   }, _getFilterState?.()));
   _onUrlChange?.();
 }
@@ -201,16 +254,15 @@ function _pushUrl() {
 
 async function _loadData(stationIds) {
   const ids = stationIds ? [...stationIds] : [];
+  const stationIdsChanged = JSON.stringify(ids) !== JSON.stringify(_lastStationIds);
   _lastStationIds = ids;
   const gen = ++_loadGeneration;
+  if (stationIdsChanged) { _refCoverageCache = null; _refCoveragePending = false; }
 
-  const _filterSummary = ids.length > 0 ? (_getFilterSummary?.() ?? '') : '';
   _setStatus(
     ids.length === 0
       ? 'No stations selected — apply a filter to see the aggregate.'
-      : _filterSummary
-        ? `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''} · ${_filterSummary}`
-        : `${ids.length.toLocaleString()} station${ids.length !== 1 ? 's' : ''}`
+      : _buildStatusText(ids.length, null)
   );
 
   if (ids.length === 0) {
@@ -234,7 +286,7 @@ async function _loadData(stationIds) {
       const resp = await fetch(`${base}/api/v1/aggregate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ station_ids: ids, series, geo_gridded: _geoGridded, anomaly: _isAnomalyMode(_sharedMode), full_years_only: _fullYearsOnly }),
+        body: JSON.stringify(_buildAggregateBody(ids, series)),
       });
       if (resp.status === 503) {
         const retryAfter = parseInt(resp.headers.get('Retry-After') ?? '0', 10);
@@ -293,6 +345,18 @@ async function _loadData(stationIds) {
     _updateLoessDisplay();
     _applyCI();
     _applyWeightedTrends();
+
+    // Update status with resolved baseline period and matched station count.
+    const activeData = results.find(r => r.series === _activeSeries)?.data
+                    ?? results.find(r => r.data)?.data
+                    ?? null;
+    _setStatus(_buildStatusText(ids.length, activeData));
+
+    // If the picker is visible but coverage was cleared (station IDs changed), re-fetch.
+    const pickerVisible = _anomalyMode === 'decade' || _anomalyMode === 'year';
+    if (pickerVisible && !_refCoverageCache && !_refCoveragePending && ids.length) {
+      _fetchRefCoverage(ids, 'qcf');
+    }
   } finally {
     // Only the most recent call clears the spinner; stale calls leave it alone
     // so the in-progress newer call can manage its own state.
@@ -668,6 +732,53 @@ function _setStatus(text) {
   el.textContent = text;
 }
 
+/**
+ * Build the status line text shown in the aggregate header.
+ * @param {number}  totalIds     - number of station IDs in the request
+ * @param {object|null} respData - aggregate API response for the active series (may be null)
+ */
+function _buildStatusText(totalIds, respData) {
+  const filterSummary = _getFilterSummary?.() ?? '';
+
+  if (!_isAnomalyMode(_sharedMode) || !respData) {
+    // Non-anomaly or load failed: just show total count + filter
+    const base = `${totalIds.toLocaleString()} station${totalIds !== 1 ? 's' : ''}`;
+    return filterSummary ? `${base} · ${filterSummary}` : base;
+  }
+
+  // Use server-resolved mode/ref (auto modes get resolved to a specific period).
+  const resolvedMode = respData.anomaly_mode || _anomalyMode;
+  const resolvedRef  = respData.anomaly_ref  ?? _anomalyRef;
+  const matched      = respData.station_count ?? totalIds;
+
+  // Baseline period label
+  let periodLabel = '';
+  if (resolvedMode === 'station' || !resolvedMode) {
+    // Station baseline — no period label needed, just show count
+  } else {
+    const isAuto     = resolvedMode.startsWith('auto_');
+    const isFallback = resolvedMode.endsWith('_fallback');
+    const core       = resolvedMode.replace(/^auto_/, '').replace(/_fallback$/, '');
+    if (core === 'decade' && resolvedRef) {
+      periodLabel = `${isAuto ? 'auto ' : ''}${resolvedRef}s baseline`;
+    } else if (core === 'year' && resolvedRef) {
+      periodLabel = `${isAuto ? 'auto ' : ''}${resolvedRef} baseline`;
+    }
+    if (periodLabel && isFallback) periodLabel += ' (nearest match)';
+  }
+
+  // Station count fragment: "N of M stations" when strict mode excluded some
+  const excluded    = totalIds - matched;
+  const countPart   = excluded > 0
+    ? `${matched.toLocaleString()} of ${totalIds.toLocaleString()} stations`
+    : `${totalIds.toLocaleString()} station${totalIds !== 1 ? 's' : ''}`;
+
+  const parts = [countPart];
+  if (periodLabel) parts.push(periodLabel);
+  if (filterSummary) parts.push(filterSummary);
+  return parts.join(' · ');
+}
+
 function _setOverloadStatus(retryAfterSecs) {
   const el = _container?.querySelector('.aggregate-status');
   if (!el) return;
@@ -758,6 +869,163 @@ function _applySharedMode() {
   // Swap CI bands and weighted trends for the new mode.
   _applyCI();
   _applyWeightedTrends();
+  _applyRefRows();
+}
+
+/** Sync ref row and picker row UI to _anomalyMode / _anomalyRef / _anomalyFallback. */
+function _applyRefRows() {
+  const isAnomaly = _isAnomalyMode(_sharedMode);
+  const showPicker = isAnomaly && (_anomalyMode === 'decade' || _anomalyMode === 'year');
+
+  // Eagerly start coverage fetch when picker becomes visible.
+  if (showPicker && !_refCoverageCache && !_refCoveragePending && _lastStationIds?.length) {
+    _fetchRefCoverage(_lastStationIds, 'qcf');
+  }
+
+  _container?.querySelectorAll('.chart-ref-row').forEach(refRow => {
+    refRow.hidden = !isAnomaly;
+    if (!isAnomaly) return;
+
+    refRow.querySelectorAll('.chart-ref-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.ref === _anomalyMode);
+    });
+
+    const pickerRow = refRow.closest('.chart-footer').querySelector('.chart-picker-row');
+    if (!pickerRow) return;
+    pickerRow.hidden = !showPicker;
+    if (showPicker) _buildPickerChips(pickerRow);
+  });
+}
+
+function _buildPickerChips(pickerRow) {
+  const track = pickerRow.querySelector('.picker-track');
+  if (!track) return;
+
+  const isDecade = _anomalyMode === 'decade';
+  const cov  = _refCoverageCache;
+  const data  = cov ? (isDecade ? cov.decades : cov.years) : {};
+  const maxC  = cov?.maxCount || 1;                              // gradient normalisation
+  const total = _lastStationIds?.length || cov?.total || maxC;  // tooltip denominator
+
+  let keys;
+  if (cov) {
+    keys = Object.keys(data).map(Number).sort((a, b) => a - b);
+    // Trim leading/trailing zeros
+    let lo = 0, hi = keys.length - 1;
+    while (lo < hi && (data[keys[lo]]  ?? 0) === 0) lo++;
+    while (hi > lo && (data[keys[hi]] ?? 0) === 0) hi--;
+    keys = keys.slice(lo, hi + 1);
+  } else if (isDecade) {
+    keys = [];
+    for (let d = 1850; d <= 2020; d += 10) keys.push(d);
+  } else {
+    keys = [];
+    for (let y = 1850; y <= new Date().getFullYear(); y++) keys.push(y);
+  }
+
+  // Build a linear gradient across the full track width encoding coverage density.
+  // Colours interpolate from --bg-elevated (low/no coverage) to --accent-primary (max).
+  const cs  = getComputedStyle(document.documentElement);
+  const lo  = _hexToRgb(cs.getPropertyValue('--bg-elevated').trim())  ?? [21, 44, 74];
+  const hi  = _hexToRgb(cs.getPropertyValue('--accent-primary').trim()) ?? [212, 168, 85];
+  const span = keys.length > 1 ? keys[keys.length - 1] - keys[0] : 1;
+  const stops = keys.map(k => {
+    const t    = span > 0 ? (k - keys[0]) / span : 0;
+    const intensity = maxC > 0 ? (data[k] ?? 0) / maxC : 0;
+    const r = Math.round(lo[0] + intensity * (hi[0] - lo[0]));
+    const g = Math.round(lo[1] + intensity * (hi[1] - lo[1]));
+    const b = Math.round(lo[2] + intensity * (hi[2] - lo[2]));
+    return `rgb(${r},${g},${b}) ${(t * 100).toFixed(2)}%`;
+  });
+  track.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
+
+  const frag = document.createDocumentFragment();
+  for (const k of keys) {
+    const count  = data[k] ?? 0;
+    const active = k === _anomalyRef;
+    const noData = count === 0 && cov != null;
+    const btn    = document.createElement('button');
+    const pct    = total > 0 ? Math.round(count / total * 100) : 0;
+
+    if (isDecade) {
+      btn.className = 'decade-chip' + (active ? ' active' : '') + (noData ? ' no-data' : '');
+      btn.title = `${k}s — ${count} of ${total} stations (${pct}%)`;
+      const label = document.createElement('span');
+      label.className = 'dc-label';
+      label.textContent = `${k}s`;
+      const countEl = document.createElement('span');
+      countEl.className = 'dc-count';
+      countEl.textContent = count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+      btn.appendChild(label);
+      btn.appendChild(countEl);
+    } else {
+      const isLabelYear = k % 10 === 0;
+      btn.className = 'year-chip' + (isLabelYear ? ' y-label' : '') + (active ? ' active' : '') + (noData ? ' no-data' : '');
+      btn.title = `${k} — ${count} of ${total} stations (${pct}%)`;
+      if (isLabelYear || active) {
+        const labelEl = document.createElement('span');
+        labelEl.className = 'yr-label';
+        labelEl.textContent = String(k);
+        btn.appendChild(labelEl);
+      }
+    }
+
+    btn.dataset.val = String(k);
+    btn.setAttribute('aria-pressed', String(active));
+    btn.setAttribute('aria-label', isDecade ? `${k}s, ${pct}% coverage` : `${k}, ${pct}% coverage`);
+    if (noData) { btn.disabled = true; btn.setAttribute('aria-disabled', 'true'); }
+    btn.addEventListener('click', () => {
+      _anomalyRef = k;
+      _applyRefRows();
+      if (_lastStationIds !== null) _loadData(_lastStationIds);
+      _pushUrl();
+    });
+    frag.appendChild(btn);
+  }
+  track.replaceChildren(frag);
+
+  requestAnimationFrame(() => {
+    pickerRow.querySelector('.decade-chip.active, .year-chip.active')
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  });
+}
+
+/** Parse a CSS hex colour string (#rrggbb or #rgb) to [r, g, b]. Returns null if unparseable. */
+function _hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  if (h.length === 6) return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  if (h.length === 3) return [parseInt(h[0]+h[0],16), parseInt(h[1]+h[1],16), parseInt(h[2]+h[2],16)];
+  return null;
+}
+
+function _pickerStep(dir) {
+  const isDecade = _anomalyMode === 'decade';
+  const data = _refCoverageCache ? (isDecade ? _refCoverageCache.decades : _refCoverageCache.years) : {};
+  const keys = Object.keys(data).map(Number).filter(k => (data[k] ?? 0) > 0).sort((a, b) => a - b);
+  if (keys.length === 0) return;
+  const cur = _anomalyRef ?? keys[0];
+  const i   = keys.indexOf(cur);
+  const ni  = Math.max(0, Math.min(keys.length - 1, (i === -1 ? 0 : i) + dir));
+  if (keys[ni] !== cur) {
+    _anomalyRef = keys[ni];
+    _applyRefRows();
+    if (_lastStationIds !== null) _loadData(_lastStationIds);
+    _pushUrl();
+  }
+}
+
+function _firstAvailableDecade() {
+  if (!_refCoverageCache) return 1950;
+  const data = _refCoverageCache.decades;
+  return Object.keys(data).map(Number).reduce((best, k) =>
+    (data[k] ?? 0) > (data[best] ?? 0) ? k : best, 0) || 1950;
+}
+
+function _firstAvailableYear() {
+  if (!_refCoverageCache) return 1961;
+  const data = _refCoverageCache.years;
+  return Object.keys(data).map(Number).reduce((best, k) =>
+    (data[k] ?? 0) > (data[best] ?? 0) ? k : best, 0) || 1961;
 }
 
 /** Sync all toggle button visual states to module state (used after restoreGraphState). */
@@ -1081,6 +1349,26 @@ function _wireEvents() {
   });
 
   _initModeArrows();
+  _initRefRows();
+}
+
+// ── Generic scroll-row helper ──────────────────────────────────────────────────
+// Manages ‹/› visibility, right-edge fade, and smooth scroll for any
+// overflow-x row wrapped in .scroll-fade-wrap.
+function _initScrollRow({ scrollEl, wrapEl, prevBtn, nextBtn, scrollPx = 110 }) {
+  function update() {
+    const canLeft  = scrollEl.scrollLeft > 2;
+    const canRight = scrollEl.scrollLeft + scrollEl.clientWidth < scrollEl.scrollWidth - 2;
+    if (prevBtn) prevBtn.hidden = !canLeft;
+    if (nextBtn) nextBtn.hidden = !canRight;
+    if (wrapEl)  wrapEl.classList.toggle('can-scroll-right', canRight);
+  }
+  if (prevBtn) prevBtn.addEventListener('click', () => scrollEl.scrollBy({ left: -scrollPx, behavior: 'smooth' }));
+  if (nextBtn) nextBtn.addEventListener('click', () => scrollEl.scrollBy({ left:  scrollPx, behavior: 'smooth' }));
+  scrollEl.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(scrollEl);
+  requestAnimationFrame(update);
+  return update;
 }
 
 function _initModeArrows() {
@@ -1113,6 +1401,119 @@ function _initModeArrows() {
     modeRow._updateArrows = updateArrows;
     requestAnimationFrame(updateArrows);
   });
+}
+
+function _initRefRows() {
+  _container.querySelectorAll('.chart-ref-row').forEach(refRow => {
+    const scrollEl = refRow.querySelector('.chart-ref-scroll');
+    const wrapEl   = refRow.querySelector('.chart-ref-scroll-wrap');
+    const prevBtn  = refRow.querySelector('.chart-ref-prev');
+    const nextBtn  = refRow.querySelector('.chart-ref-next');
+    if (!scrollEl) return;
+
+    _initScrollRow({ scrollEl, wrapEl, prevBtn, nextBtn, scrollPx: 100 });
+
+    // Ref button clicks
+    refRow.querySelectorAll('.chart-ref-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const ref = btn.dataset.ref;
+        if (ref === 'decade' || ref === 'year') {
+          _openFallbackPopover(btn, refRow, ref);
+        } else {
+          _anomalyMode = ref;
+          _anomalyRef  = null;
+          _applyRefRows();
+          if (_lastStationIds !== null) _loadData(_lastStationIds);
+          _pushUrl();
+        }
+      });
+    });
+
+    // Picker hold-to-repeat
+    const pickerRow  = refRow.closest('.chart-footer').querySelector('.chart-picker-row');
+    if (pickerRow) {
+      let _holdTimer = null, _holdInterval = null;
+      const holdStart = dir => {
+        _pickerStep(dir);
+        _holdTimer = setTimeout(() => {
+          _holdInterval = setInterval(() => _pickerStep(dir), 100);
+        }, 350);
+      };
+      const holdEnd = () => { clearTimeout(_holdTimer); clearInterval(_holdInterval); _holdTimer = _holdInterval = null; };
+
+      const pp = pickerRow.querySelector('.picker-prev');
+      const pn = pickerRow.querySelector('.picker-next');
+      pp.addEventListener('mousedown', () => holdStart(-1));
+      pn.addEventListener('mousedown', () => holdStart(1));
+      [pp, pn].forEach(b => {
+        b.addEventListener('mouseup',    holdEnd);
+        b.addEventListener('mouseleave', holdEnd);
+        b.addEventListener('touchstart', e => { holdStart(b === pp ? -1 : 1); e.preventDefault(); }, { passive: false });
+        b.addEventListener('touchend',   holdEnd);
+      });
+    }
+  });
+
+  // Fallback popover option clicks
+  _container.querySelectorAll('.rfp-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const popover = opt.closest('.ref-fallback-popover');
+      const ref = popover?.dataset.pendingRef;   // 'decade' or 'year'
+      if (ref) _anomalyMode = ref;
+      _anomalyFallback = opt.dataset.fallback === 'nearest';
+      // Coerce or initialise ref for the new mode.
+      if (_anomalyMode === 'decade') {
+        // Floor year ref to decade boundary; if null or zero-coverage use best available.
+        const floored = _anomalyRef != null ? Math.floor(_anomalyRef / 10) * 10 : null;
+        const hasCoverage = floored != null && (_refCoverageCache?.decades[floored] ?? 0) > 0;
+        _anomalyRef = (floored != null && (hasCoverage || !_refCoverageCache)) ? floored : _firstAvailableDecade();
+      }
+      if (_anomalyMode === 'year' && _anomalyRef == null) _anomalyRef = _firstAvailableYear();
+      _closeFallbackPopovers();
+      _applyRefRows();
+      if (_lastStationIds !== null) _loadData(_lastStationIds);
+      _pushUrl();
+    });
+  });
+
+  // Close popover on outside click
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.ref-fallback-popover') && !e.target.closest('.chart-ref-btn[data-ref="decade"]') && !e.target.closest('.chart-ref-btn[data-ref="year"]')) {
+      _closeFallbackPopovers();
+    }
+  }, { capture: true });
+}
+
+function _openFallbackPopover(btn, refRow, ref) {
+  // Position the popover (fixed, escapes overflow:hidden ancestors)
+  const popover     = refRow.querySelector('.ref-fallback-popover');
+  const btnRect     = btn.getBoundingClientRect();
+  const popoverW    = 240;
+  const left        = Math.max(8, Math.min(btnRect.left, window.innerWidth - popoverW - 8));
+
+  // Update selected state to reflect current settings for this ref type
+  const isNearest = (_anomalyMode === ref && _anomalyFallback);
+  popover.querySelectorAll('.rfp-option').forEach(o => {
+    const sel = o.dataset.fallback === (isNearest ? 'nearest' : 'strict');
+    o.classList.toggle('selected', sel);
+    o.querySelector('.rfp-check').textContent = sel ? '✓' : '';
+  });
+
+  // Store which ref type this popover invocation is for so the option click knows
+  popover.dataset.pendingRef = ref;
+
+  popover.style.top  = (btnRect.bottom + 4) + 'px';
+  popover.style.left = left + 'px';
+  popover.hidden = false;
+
+  // Lazily fetch coverage so chip gradient tints are ready when picker opens
+  if (!_refCoverageCache && _lastStationIds?.length) {
+    _fetchRefCoverage(_lastStationIds, 'qcf');
+  }
+}
+
+function _closeFallbackPopovers() {
+  _container?.querySelectorAll('.ref-fallback-popover').forEach(p => { p.hidden = true; });
 }
 
 // ── HTML builders ──────────────────────────────────────────────────────────────
@@ -1217,6 +1618,35 @@ function _seriesPanel(series, hidden) {
                         data-loess-mode="years" aria-pressed="false">— yr</button>
               </div>
             </div>
+          </div>
+          <div class="chart-ref-row" hidden aria-label="Anomaly baseline">
+            <span class="chart-ref-label">Baseline</span>
+            <button class="chart-mode-arrow chart-ref-prev" aria-label="Scroll baseline left" hidden>‹</button>
+            <div class="scroll-fade-wrap chart-ref-scroll-wrap">
+              <div class="chart-ref-scroll" role="group">
+                <button class="chart-ref-btn active" data-ref="station">Station</button>
+                <button class="chart-ref-btn" data-ref="auto_decade">Auto Decade…</button>
+                <button class="chart-ref-btn" data-ref="auto_year">Auto Year…</button>
+                <button class="chart-ref-btn" data-ref="decade">Decade ▾</button>
+                <button class="chart-ref-btn" data-ref="year">Year ▾</button>
+              </div>
+            </div>
+            <button class="chart-mode-arrow chart-ref-next" aria-label="Scroll baseline right" hidden>›</button>
+            <div class="ref-fallback-popover" hidden role="menu" aria-label="Fallback mode">
+              <button class="rfp-option selected" data-fallback="strict">
+                <span class="rfp-check">✓</span>
+                <span>Strict<span class="rfp-sub">exclude stations without this period</span></span>
+              </button>
+              <button class="rfp-option" data-fallback="nearest">
+                <span class="rfp-check"></span>
+                <span>Nearest match<span class="rfp-sub">use closest available period for missing stations</span></span>
+              </button>
+            </div>
+          </div>
+          <div class="chart-picker-row" hidden>
+            <button class="picker-arrow-btn picker-prev" aria-label="Previous">‹</button>
+            <div class="picker-scroll"><div class="picker-track"></div></div>
+            <button class="picker-arrow-btn picker-next" aria-label="Next">›</button>
           </div>
         </div>
       </div>

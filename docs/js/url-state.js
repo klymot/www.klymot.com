@@ -200,6 +200,7 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
     geoGridded, fullYearsOnly, showCI, showTrend, trendFromYear,
     showLoess, loessSpan, loessSpanMode, loessYears,
     selectedMonths,
+    anomalyMode, anomalyFallback, anomalyRef,
   } = detail;
 
   let zoomStr = '-';
@@ -231,6 +232,11 @@ export function serialiseGraphState(detail = {}, filterActive = null) {
   if (bymonthMask !== _BYMONTH_DEFAULT) {
     flags.push(`bymonth=${bymonthMask.toString(16).padStart(3, '0')}`);
   }
+
+  // Anomaly baseline ref flags (only relevant when mode ends in -anomaly)
+  if (anomalyMode && anomalyMode !== 'station') flags.push(`ref=${anomalyMode}`);
+  if (anomalyFallback) flags.push('fallback');
+  if (anomalyRef != null) flags.push(`refval=${anomalyRef}`);
 
   const flagStr = flags.length ? flags.join(',') : '-';
   const base = `graph=${series}/${mode}/${zoomStr}/${flagStr}`;
@@ -443,6 +449,16 @@ export function parseHash(hash) {
           for (let i = 0; i < 12; i++) { if (mask & (1 << i)) months.push(i); }
           result.selectedMonths = months;
         }
+      }
+
+      // Anomaly baseline ref flags
+      const refFlag = [...flagSet].find(f => f.startsWith('ref='));
+      if (refFlag) result.anomalyMode = refFlag.slice(4);
+      result.anomalyFallback = flagSet.has('fallback');
+      const refValFlag = [...flagSet].find(f => f.startsWith('refval='));
+      if (refValFlag) {
+        const v = parseInt(refValFlag.slice(7), 10);
+        if (!isNaN(v)) result.anomalyRef = v;
       }
 
       // Optional 5th field: filters=...
