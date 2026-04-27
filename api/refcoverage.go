@@ -154,7 +154,7 @@ func seedReferenceCoverage(dc *diskCache, store DataStore, allIDs []string) {
 			log.Printf("seed: marshal ref-coverage %s: %v", series, err)
 			continue
 		}
-		key := diskCacheKey("/api/v1/reference-coverage", body)
+		key := diskCacheKey(cacheEndpointReferenceCoverage, body)
 		if _, ok := dc.get(key); ok {
 			log.Printf("seed: ref-coverage %s already cached", series)
 			continue

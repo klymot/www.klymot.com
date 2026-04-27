@@ -91,17 +91,19 @@ func main() {
 		}()
 	}
 
-	cache := newPostCacheMiddleware(dc)
-
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/aggregate",
 		corsMiddleware(*flagProd)(
-			cache(http.HandlerFunc(newAggregateHandler(store, meta, pc, queue))),
+			newPostCacheMiddleware(dc, cacheEndpointAggregate)(
+				http.HandlerFunc(newAggregateHandler(store, meta, pc, queue)),
+			),
 		),
 	)
 	mux.Handle("/api/v1/reference-coverage",
 		corsMiddleware(*flagProd)(
-			cache(http.HandlerFunc(newReferenceCoverageHandler(store, queue))),
+			newPostCacheMiddleware(dc, cacheEndpointReferenceCoverage)(
+				http.HandlerFunc(newReferenceCoverageHandler(store, queue)),
+			),
 		),
 	)
 	mux.Handle("/api/v1/status",

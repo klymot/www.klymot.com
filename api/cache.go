@@ -209,19 +209,28 @@ func (c *diskCache) put(key [32]byte, data []byte) {
 
 // ── Disk cache key derivation ─────────────────────────────────────────────────
 
-// diskCacheKey returns SHA-256(urlPath + "\n" + normalisedBody).
+// Compile-time endpoint discriminators keep different API endpoints from
+// colliding in the cache while ensuring no user-controlled data ever enters
+// the key derivation (r.URL.Path is not used).
+const (
+	cacheEndpointAggregate         byte = 0x01
+	cacheEndpointReferenceCoverage byte = 0x02
+)
+
+// diskCacheKey returns SHA-256(endpoint || normalised_body).
+// Using a compile-time endpoint byte instead of the URL path means no
+// user-controlled data flows into the filesystem path derived from this key.
 // normalisedBody has JSON object keys in Go's default map sort order and all
 // purely-string JSON arrays sorted, so semantically identical requests
 // (e.g. with station_ids in different orders) hash identically.
-func diskCacheKey(urlPath string, body []byte) [32]byte {
+func diskCacheKey(endpoint byte, body []byte) [32]byte {
 	norm, err := normaliseJSONBody(body)
 	if err != nil {
 		// Fall back to raw body on parse failure.
 		norm = body
 	}
 	h := sha256.New()
-	h.Write([]byte(urlPath))
-	h.Write([]byte{'\n'})
+	h.Write([]byte{endpoint})
 	h.Write(norm)
 	var out [32]byte
 	copy(out[:], h.Sum(nil))
@@ -284,13 +293,15 @@ func sortJSONValue(v interface{}) interface{} {
 
 // newPostCacheMiddleware returns an HTTP middleware that:
 //  1. Reads and re-injects the POST body so the inner handler still sees it.
-//  2. Checks the disk cache by key = SHA-256(path + normalised body).
+//  2. Checks the disk cache by key = SHA-256(endpoint || normalised body).
 //  3. On hit: writes the cached JSON directly (gzip is applied by an outer layer).
 //  4. On miss: wraps the ResponseWriter to capture the response, calls the inner
 //     handler, then stores 200 OK JSON responses to the disk cache.
 //
+// endpoint is a compile-time constant (cacheEndpoint*) that distinguishes
+// different API routes without using the user-supplied URL path.
 // Passing a nil cache disables caching (requests pass straight through).
-func newPostCacheMiddleware(dc *diskCache) func(http.Handler) http.Handler {
+func newPostCacheMiddleware(dc *diskCache, endpoint byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || dc == nil {
@@ -307,7 +318,7 @@ func newPostCacheMiddleware(dc *diskCache) func(http.Handler) http.Handler {
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			key := diskCacheKey(r.URL.Path, body)
+			key := diskCacheKey(endpoint, body)
 
 			if cached, ok := dc.get(key); ok {
 				w.Header().Set("Content-Type", "application/json")
