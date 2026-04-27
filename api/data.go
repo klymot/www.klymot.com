@@ -268,7 +268,7 @@ func newMemoryStore(dataDir string) (*memoryStore, error) {
 				continue
 			}
 			stationID := strings.TrimSuffix(e.Name(), ".csv")
-			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			raw, err := os.ReadFile(filepath.Join(dir, filepath.Base(e.Name())))
 			if err != nil {
 				log.Printf("warning: reading %s/%s: %v", series, e.Name(), err)
 				continue

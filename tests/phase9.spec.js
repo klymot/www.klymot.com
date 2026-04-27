@@ -78,10 +78,11 @@ function makeMockCsv(startYear, numYears, value = 1500) {
 function makeMockAggregateResponse(startYear, numYears) {
   const numMonths = numYears * 12;
   return {
-    start:    `${startYear}-01-01`,
-    counts:   Array(numMonths).fill(5),      // 5 stations per month slot
-    averages: Array(numMonths).fill(15.0),   // 15 °C
-    std_devs: Array(numMonths).fill(0.5),
+    start:         `${startYear}-01`,
+    station_count: 5,
+    counts:        Array(numMonths).fill(5),
+    averages:      Array(numMonths).fill(15.0),
+    std_devs:      Array(numMonths).fill(0.5),
   };
 }
 
@@ -105,6 +106,9 @@ async function loadPage(page, {
   );
   await page.route('**/api/v1/status', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+  );
+  await page.route('**/api/v1/reference-coverage', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"years":{},"decades":{}}' })
   );
   await page.route('**/data/index.json', route =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_INDEX) })
