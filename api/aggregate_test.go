@@ -623,8 +623,8 @@ func newTestHandler() http.HandlerFunc {
 		"qcu/TST00000001": makeRows(2000, uniform(500)),
 	}}
 	meta := map[string]StationMeta{"TST00000001": {Lat: 10}}
-	// Use a disabled LRU cache and no pre-computed cache in tests.
-	return newAggregateHandler(store, meta, newPrecomputedCache(nil, store, meta), newLRUCache(0), newCalcQueue(1, 45))
+	// No pre-computed cache in tests; disk cache handled by middleware (not set here).
+	return newAggregateHandler(store, meta, newPrecomputedCache(nil, store, meta), newCalcQueue(1, 45))
 }
 
 func postJSON(t *testing.T, handler http.Handler, body interface{}) *httptest.ResponseRecorder {

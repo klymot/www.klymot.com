@@ -1,14 +1,21 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"hash/fnv"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 )
 
-// ── Fingerprinting ────────────────────────────────────────────────────────────
+// ── Station-set fingerprint (for precomputed cache matching) ──────────────────
 
 // stationSetFingerprint returns an FNV-1a hash of the station IDs sorted
 // lexicographically, so request order does not affect the key.
@@ -16,38 +23,22 @@ func stationSetFingerprint(ids []string) uint64 {
 	sorted := make([]string, len(ids))
 	copy(sorted, ids)
 	sort.Strings(sorted)
-	h := fnv.New64a()
-	for _, id := range sorted {
-		h.Write([]byte(id))
-		h.Write([]byte{0}) // null separator prevents "ab","c" ≡ "a","bc"
-	}
-	return h.Sum64()
-}
 
-// requestFingerprint hashes all fields of an aggregateRequest into a uint64
-// suitable for use as an LRU cache key.  Station IDs are sorted before
-// hashing so request order does not matter.
-func requestFingerprint(req aggregateRequest) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(req.Series))
-	flags := [3]byte{}
-	if req.GeoGridded {
-		flags[0] = 1
+	// Use a simple FNV-1a accumulator.
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	h := uint64(offset64)
+	for _, id := range sorted {
+		for i := 0; i < len(id); i++ {
+			h ^= uint64(id[i])
+			h *= prime64
+		}
+		h ^= 0 // null separator
+		h *= prime64
 	}
-	if req.Anomaly {
-		flags[1] = 1
-	}
-	if req.FullYearsOnly {
-		flags[2] = 1
-	}
-	h.Write(flags[:])
-	// Mix in the station-set hash as 8 big-endian bytes.
-	sh := stationSetFingerprint(req.StationIDs)
-	h.Write([]byte{
-		byte(sh >> 56), byte(sh >> 48), byte(sh >> 40), byte(sh >> 32),
-		byte(sh >> 24), byte(sh >> 16), byte(sh >> 8), byte(sh),
-	})
-	return h.Sum64()
+	return h
 }
 
 // ── Pre-computed all-station cache ────────────────────────────────────────────
@@ -61,8 +52,8 @@ type precomputedKey struct {
 
 type precomputedEntry struct {
 	once sync.Once
-	fn   func() []byte // set once before any goroutine calls once.Do
-	data []byte        // written inside once.Do, safe to read after
+	fn   func() []byte
+	data []byte
 }
 
 func (e *precomputedEntry) compute() []byte {
@@ -70,19 +61,15 @@ func (e *precomputedEntry) compute() []byte {
 	return e.data
 }
 
-// precomputedCache holds 8 always-available all-station aggregations
-// (2 series × 2 anomaly × 2 geo_gridded), computed with full_years_only=false.
-// Entries are never evicted.  A request that arrives before background
-// computation finishes will block in compute() until the result is ready.
+// precomputedCache holds 16 always-available all-station aggregations
+// (2 series × 2 anomaly modes × 2 geo_gridded × 2 full_years_only).
+// Only the "" (no anomaly) and "station" anomaly modes are pre-computed.
 type precomputedCache struct {
 	allCount int
-	allHash  uint64 // FNV-1a hash of sorted station IDs
+	allHash  uint64
 	entries  map[precomputedKey]*precomputedEntry
 }
 
-// newPrecomputedCache creates the cache and wires up a compute function for
-// each of the 16 key combinations.  Call startPrecomputation() to kick off
-// background computation; requests that arrive first will compute on demand.
 func newPrecomputedCache(allIDs []string, store DataStore, meta map[string]StationMeta) *precomputedCache {
 	entries := make(map[precomputedKey]*precomputedEntry, 16)
 	for _, series := range []string{"qcf", "qcu"} {
@@ -126,12 +113,8 @@ func newPrecomputedCache(allIDs []string, store DataStore, meta map[string]Stati
 	}
 }
 
-// startPrecomputation launches a single background goroutine that computes
-// all entries serially.  Running them in parallel would exhaust RAM on
-// memory-constrained servers (each all-station anomaly pass allocates ~600 MB).
-// Any request that arrives before its entry is ready will block in compute()
-// and either wait for the background goroutine or do the work itself via
-// sync.Once — whichever wins the race.
+// startPrecomputation launches a background goroutine that computes all entries
+// serially to avoid RAM spikes on memory-constrained servers.
 func (c *precomputedCache) startPrecomputation() {
 	go func() {
 		for _, e := range c.entries {
@@ -140,133 +123,234 @@ func (c *precomputedCache) startPrecomputation() {
 	}()
 }
 
-// get returns the cached JSON bytes for req if it targets the full station
-// set, blocking until the entry is ready.
-// Returns nil, false when the request does not match the pre-computed set.
+// get returns the cached JSON bytes for req if it targets the full station set
+// and uses a pre-computed anomaly mode ("" or "station"), blocking until ready.
 func (c *precomputedCache) get(req aggregateRequest) ([]byte, bool) {
+	mode := req.effectiveAnomalyMode()
+	if mode != "" && mode != "station" {
+		return nil, false // other modes are not pre-computed
+	}
 	if len(req.StationIDs) != c.allCount {
 		return nil, false
 	}
 	if stationSetFingerprint(req.StationIDs) != c.allHash {
 		return nil, false
 	}
-	key := precomputedKey{req.Series, req.Anomaly, req.GeoGridded, req.FullYearsOnly}
+	key := precomputedKey{
+		series:        req.Series,
+		anomaly:       mode == "station",
+		geoGridded:    req.GeoGridded,
+		fullYearsOnly: req.FullYearsOnly,
+	}
 	e, ok := c.entries[key]
 	if !ok {
 		return nil, false
 	}
-	data := e.compute() // blocks until ready
+	data := e.compute()
 	if data == nil {
-		return nil, false // computation failed; fall through to live compute
+		return nil, false
 	}
 	return data, true
 }
 
-// ── LRU response cache ────────────────────────────────────────────────────────
+// ── Disk response cache ───────────────────────────────────────────────────────
 
-type lruItem struct {
-	key        uint64
-	data       []byte
-	prev, next *lruItem
+// diskCache stores serialised HTTP responses on disk, keyed by a SHA-256
+// digest of the request URL path and normalised JSON body.
+//
+// The cache directory is purged on creation (call newDiskCache at startup).
+// Writes are atomic: content is written to a ".tmp" file then renamed, so
+// concurrent writers of the same key are safe (last rename wins; both produce
+// identical content for deterministic endpoints).
+type diskCache struct {
+	dir string
 }
 
-// lruCache is a size-bounded, thread-safe LRU cache for JSON-encoded aggregate
-// responses.  maxBytes <= 0 disables the cache entirely.
-type lruCache struct {
-	maxBytes int64
-	mu       sync.Mutex
-	curBytes int64
-	items    map[uint64]*lruItem
-	head     *lruItem // most recently used
-	tail     *lruItem // least recently used
-}
-
-func newLRUCache(maxBytes int64) *lruCache {
-	return &lruCache{
-		maxBytes: maxBytes,
-		items:    make(map[uint64]*lruItem),
+// newDiskCache purges dir and re-creates it, then returns a ready cache.
+// Returns nil, nil when dir is empty (disk cache disabled).
+func newDiskCache(dir string) (*diskCache, error) {
+	if dir == "" {
+		return nil, nil
 	}
+	if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("purge disk cache %s: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create disk cache dir %s: %w", dir, err)
+	}
+	log.Printf("disk cache: initialised at %s (purged)", dir)
+	return &diskCache{dir: dir}, nil
 }
 
-func (c *lruCache) get(key uint64) ([]byte, bool) {
-	if c.maxBytes <= 0 {
+func (c *diskCache) path(key [32]byte) string {
+	return filepath.Join(c.dir, hex.EncodeToString(key[:]))
+}
+
+func (c *diskCache) get(key [32]byte) ([]byte, bool) {
+	data, err := os.ReadFile(c.path(key))
+	if err != nil {
 		return nil, false
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	item, ok := c.items[key]
-	if !ok {
-		return nil, false
-	}
-	c.moveToFront(item)
-	return item.data, true
+	return data, true
 }
 
-func (c *lruCache) put(key uint64, data []byte) {
-	if c.maxBytes <= 0 || int64(len(data)) > c.maxBytes {
+func (c *diskCache) put(key [32]byte, data []byte) {
+	p := c.path(key)
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		log.Printf("disk cache: write %s: %v", p, err)
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if item, ok := c.items[key]; ok {
-		c.curBytes += int64(len(data)) - int64(len(item.data))
-		item.data = data
-		c.moveToFront(item)
-	} else {
-		item := &lruItem{key: key, data: data}
-		c.items[key] = item
-		c.curBytes += int64(len(data))
-		c.pushFront(item)
-	}
-	for c.curBytes > c.maxBytes && c.tail != nil {
-		c.evict(c.tail)
+	if err := os.Rename(tmp, p); err != nil {
+		log.Printf("disk cache: rename %s: %v", p, err)
+		os.Remove(tmp) //nolint:errcheck
 	}
 }
 
-func (c *lruCache) pushFront(item *lruItem) {
-	item.prev = nil
-	item.next = c.head
-	if c.head != nil {
-		c.head.prev = item
+// ── Disk cache key derivation ─────────────────────────────────────────────────
+
+// Compile-time endpoint discriminators keep different API endpoints from
+// colliding in the cache while ensuring no user-controlled data ever enters
+// the key derivation (r.URL.Path is not used).
+const (
+	cacheEndpointAggregate         byte = 0x01
+	cacheEndpointReferenceCoverage byte = 0x02
+)
+
+// diskCacheKey returns SHA-256(endpoint || normalised_body).
+// Using a compile-time endpoint byte instead of the URL path means no
+// user-controlled data flows into the filesystem path derived from this key.
+// normalisedBody has JSON object keys in Go's default map sort order and all
+// purely-string JSON arrays sorted, so semantically identical requests
+// (e.g. with station_ids in different orders) hash identically.
+func diskCacheKey(endpoint byte, body []byte) [32]byte {
+	norm, err := normaliseJSONBody(body)
+	if err != nil {
+		// Fall back to raw body on parse failure.
+		norm = body
 	}
-	c.head = item
-	if c.tail == nil {
-		c.tail = item
+	h := sha256.New()
+	h.Write([]byte{endpoint})
+	h.Write(norm)
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// normaliseJSONBody parses body as JSON and re-encodes it with:
+//   - object keys in Go map sort order (alphabetical)
+//   - purely-string arrays sorted lexicographically
+func normaliseJSONBody(body []byte) ([]byte, error) {
+	var v interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(sortJSONValue(v))
+}
+
+func sortJSONValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			out[k] = sortJSONValue(val)
+		}
+		return out
+	case []interface{}:
+		if len(t) == 0 {
+			return t
+		}
+		// Sort purely-string arrays (e.g. station_ids).
+		allStr := true
+		for _, x := range t {
+			if _, ok := x.(string); !ok {
+				allStr = false
+				break
+			}
+		}
+		if allStr {
+			strs := make([]string, len(t))
+			for i, x := range t {
+				strs[i] = x.(string)
+			}
+			sort.Strings(strs)
+			out := make([]interface{}, len(strs))
+			for i, s := range strs {
+				out[i] = s
+			}
+			return out
+		}
+		out := make([]interface{}, len(t))
+		for i, x := range t {
+			out[i] = sortJSONValue(x)
+		}
+		return out
+	}
+	return v
+}
+
+// ── POST caching middleware ───────────────────────────────────────────────────
+
+// newPostCacheMiddleware returns an HTTP middleware that:
+//  1. Reads and re-injects the POST body so the inner handler still sees it.
+//  2. Checks the disk cache by key = SHA-256(endpoint || normalised body).
+//  3. On hit: writes the cached JSON directly (gzip is applied by an outer layer).
+//  4. On miss: wraps the ResponseWriter to capture the response, calls the inner
+//     handler, then stores 200 OK JSON responses to the disk cache.
+//
+// endpoint is a compile-time constant (cacheEndpoint*) that distinguishes
+// different API routes without using the user-supplied URL path.
+// Passing a nil cache disables caching (requests pass straight through).
+func newPostCacheMiddleware(dc *diskCache, endpoint byte) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || dc == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Buffer body (limit matches the aggregate handler's own limit).
+			body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+			r.Body.Close()
+			if err != nil {
+				http.Error(w, "failed to read request body", http.StatusBadRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+
+			key := diskCacheKey(endpoint, body)
+
+			if cached, ok := dc.get(key); ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(cached) //nolint:errcheck
+				return
+			}
+
+			// Capture the response so we can store it after the handler runs.
+			cap := &captureWriter{ResponseWriter: w}
+			next.ServeHTTP(cap, r)
+
+			if (cap.status == 0 || cap.status == http.StatusOK) && len(cap.body) > 0 {
+				dc.put(key, cap.body)
+			}
+		})
 	}
 }
 
-func (c *lruCache) moveToFront(item *lruItem) {
-	if item == c.head {
-		return
-	}
-	if item.prev != nil {
-		item.prev.next = item.next
-	}
-	if item.next != nil {
-		item.next.prev = item.prev
-	}
-	if item == c.tail {
-		c.tail = item.prev
-	}
-	item.prev = nil
-	item.next = c.head
-	if c.head != nil {
-		c.head.prev = item
-	}
-	c.head = item
+// captureWriter tees every Write to its internal buffer while also passing
+// through to the wrapped ResponseWriter.
+type captureWriter struct {
+	http.ResponseWriter
+	status int
+	body   []byte
 }
 
-func (c *lruCache) evict(item *lruItem) {
-	delete(c.items, item.key)
-	c.curBytes -= int64(len(item.data))
-	if item.prev != nil {
-		item.prev.next = item.next
-	} else {
-		c.head = item.next
-	}
-	if item.next != nil {
-		item.next.prev = item.prev
-	} else {
-		c.tail = item.prev
-	}
+func (cw *captureWriter) WriteHeader(code int) {
+	cw.status = code
+	cw.ResponseWriter.WriteHeader(code)
+}
+
+func (cw *captureWriter) Write(b []byte) (int, error) {
+	cw.body = append(cw.body, b...)
+	return cw.ResponseWriter.Write(b)
 }

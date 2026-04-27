@@ -20,15 +20,15 @@ import (
 )
 
 var (
-	flagDataDir      = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
-	flagCache        = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
-	flagProd         = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
-	flagCertDir      = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
-	flagDomain       = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
-	flagPort         = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
-	flagIndex        = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
-	flagResponseCache  = flag.Int("response-cache", 10, "LRU response cache size in MiB (0 to disable)")
-	flagConcurrency    = flag.Int("concurrency", 0, "max concurrent aggregate computations (0 = number of CPU cores)")
+	flagDataDir     = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
+	flagCache       = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
+	flagProd        = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
+	flagCertDir     = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
+	flagDomain      = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
+	flagPort        = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
+	flagIndex       = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
+	flagDiskCache   = flag.String("disk-cache", "", "directory for disk response cache (empty = disabled)")
+	flagConcurrency = flag.Int("concurrency", 0, "max concurrent aggregate computations (0 = number of CPU cores)")
 )
 
 func main() {
@@ -49,45 +49,72 @@ func main() {
 
 	store, err := newDataStore(*flagCache, *flagDataDir)
 	if err != nil {
-		log.Fatalf("initializing data store (%s): %v", *flagCache, err)
+		log.Fatalf("initialising data store (%s): %v", *flagCache, err)
 	}
 	log.Printf("data store ready (cache=%s)", *flagCache)
 
-	// Build sorted list of all station IDs for pre-computation.
+	// Build sorted list of all station IDs.
 	allIDs := make([]string, 0, len(meta))
 	for id := range meta {
 		allIDs = append(allIDs, id)
 	}
 	sort.Strings(allIDs)
 
-	// Pre-compute all-station aggregations (8 combinations) in background goroutines.
-	// Requests that arrive before a computation finishes will block until it is ready.
+	// Disk cache: purged on startup so stale results never survive a data update
+	// (the service is restarted whenever data changes).
+	dc, err := newDiskCache(*flagDiskCache)
+	if err != nil {
+		log.Fatalf("initialising disk cache: %v", err)
+	}
+	if dc != nil {
+		log.Printf("disk cache: ready at %s", *flagDiskCache)
+	} else {
+		log.Printf("disk cache: disabled")
+	}
+
+	// Pre-compute all-station aggregations (16 combos) in the background.
+	// These are kept in memory for fast cold responses on the all-station view.
 	pc := newPrecomputedCache(allIDs, store, meta)
 	pc.startPrecomputation()
 	log.Printf("pre-computing 16 all-station graphs in background (%d stations)", len(allIDs))
 
-	// LRU cache for other commonly-requested aggregations.
-	lru := newLRUCache(int64(*flagResponseCache) * 1024 * 1024)
-	if *flagResponseCache > 0 {
-		log.Printf("response cache: %d MiB LRU", *flagResponseCache)
-	} else {
-		log.Printf("response cache: disabled")
-	}
-
 	queue := newCalcQueue(*flagConcurrency, 45.0)
 	log.Printf("computation queue: max %d concurrent, 45s reject threshold", queue.concurrency())
 
+	// Seed the disk cache with the reference-coverage for all stations.
+	// This runs concurrently with precomputation so startup is not delayed.
+	if dc != nil {
+		go func() {
+			log.Printf("seed: computing reference coverage for all stations...")
+			seedReferenceCoverage(dc, store, allIDs)
+			log.Printf("seed: complete")
+		}()
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/aggregate", corsMiddleware(*flagProd)(
-		http.HandlerFunc(newAggregateHandler(store, meta, pc, lru, queue)),
-	))
-	mux.Handle("/api/v1/status", corsMiddleware(*flagProd)(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"ok":true}`)) //nolint:errcheck
-		}),
-	))
+	mux.Handle("/api/v1/aggregate",
+		corsMiddleware(*flagProd)(
+			newPostCacheMiddleware(dc, cacheEndpointAggregate)(
+				http.HandlerFunc(newAggregateHandler(store, meta, pc, queue)),
+			),
+		),
+	)
+	mux.Handle("/api/v1/reference-coverage",
+		corsMiddleware(*flagProd)(
+			newPostCacheMiddleware(dc, cacheEndpointReferenceCoverage)(
+				http.HandlerFunc(newReferenceCoverageHandler(store, queue)),
+			),
+		),
+	)
+	mux.Handle("/api/v1/status",
+		corsMiddleware(*flagProd)(
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"ok":true}`)) //nolint:errcheck
+			}),
+		),
+	)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -129,7 +156,6 @@ func runProd(ctx context.Context, handler http.Handler) {
 		HostPolicy: autocert.HostWhitelist(*flagDomain),
 	}
 
-	// :80 handles ACME HTTP-01 challenges and redirects everything else to HTTPS.
 	httpSrv := &http.Server{
 		Addr:         ":80",
 		Handler:      m.HTTPHandler(http.HandlerFunc(redirectHTTPS)),
@@ -200,7 +226,7 @@ func gzipMiddleware(next http.Handler) http.Handler {
 		}()
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Add("Vary", "Accept-Encoding")
-		w.Header().Del("Content-Length") // length will be wrong after compression
+		w.Header().Del("Content-Length")
 		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
 	})
 }
@@ -212,9 +238,7 @@ type gzipResponseWriter struct {
 
 func (g *gzipResponseWriter) Write(b []byte) (int, error) { return g.gz.Write(b) }
 
-// loggingMiddleware logs one line per request:
-//
-//	METHOD /path status bytes duration remoteAddr
+// loggingMiddleware logs one line per request.
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -252,7 +276,6 @@ var prodOrigins = map[string]bool{
 }
 
 // corsMiddleware sets CORS headers for requests from known origins.
-// In non-production mode, localhost origins are also permitted.
 func corsMiddleware(prod bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

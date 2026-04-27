@@ -88,8 +88,11 @@ func newDataStore(strategy, dataDir string) (DataStore, error) {
 }
 
 // csvPath constructs the path to a station CSV file.
+// filepath.Base is applied to both user-supplied components so that directory
+// traversal sequences (e.g. "../..") are stripped to their last element even
+// if the upstream validation is somehow bypassed.
 func csvPath(dataDir, series, stationID string) string {
-	return filepath.Join(dataDir, series, stationID+".csv")
+	return filepath.Join(dataDir, filepath.Base(series), filepath.Base(stationID)+".csv")
 }
 
 // isValidSeries rejects any series name that is not one of the two known
@@ -99,13 +102,15 @@ func isValidSeries(series string) bool {
 }
 
 // isValidStationID rejects any station ID that could enable path traversal.
-// Valid IDs are purely alphanumeric (e.g. "USW00003822").
+// Valid IDs contain only ASCII letters, digits, and hyphens — the full set
+// that appears in GHCN data (e.g. "USW00003822", "CA001012475-C").
 func isValidStationID(id string) bool {
 	if len(id) == 0 || len(id) > 32 {
 		return false
 	}
-	for _, c := range id {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
 			return false
 		}
 	}
@@ -263,7 +268,7 @@ func newMemoryStore(dataDir string) (*memoryStore, error) {
 				continue
 			}
 			stationID := strings.TrimSuffix(e.Name(), ".csv")
-			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			raw, err := os.ReadFile(filepath.Join(dir, filepath.Base(e.Name())))
 			if err != nil {
 				log.Printf("warning: reading %s/%s: %v", series, e.Name(), err)
 				continue
