@@ -8,6 +8,6 @@
     "generate:bu": "uv run scripts/generate_bu_tiles.py"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1"
+    "@playwright/test": "^1.60.0"
   }
 }
