@@ -7,6 +7,7 @@ on:
 
 jobs:
   update:
+    if: ${{ false }} # Temporarily disabled: upstream is publishing empty files.
     name: Fetch and commit latest GHCN data
     runs-on: ubuntu-latest
 

@@ -6,3 +6,4 @@ playwright-report/
 .venv/
 .DS_Store
 scripts/__pycache__/
+.playwright-mcp/
