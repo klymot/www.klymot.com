@@ -680,6 +680,7 @@ function _initCharts() {
           _charts[s]?.setMode(mode);
         });
         _updateStationUrl();
+        trackEvent('detail_chart_mode', { station_id: _currentLocationId, mode });
       });
     });
 

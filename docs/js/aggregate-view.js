@@ -20,6 +20,7 @@
 
 import { TempChart, MONTHS, MONTH_DASH, BYMONTH_DEFAULT_MASK } from './temp-chart.js?v=20260406';
 import { pushState, serialiseGraphState } from './url-state.js?v=20260406';
+import { trackEvent } from './analytics.js?v=20260406';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -138,6 +139,13 @@ export function showAggregateView(stationIds) {
   _syncControlsToState();
   _loadData(stationIds);
   _pushUrl();
+  trackEvent('graph_open', {
+    series:          _activeSeries,
+    mode:            _sharedMode,
+    geo_gridded:     _geoGridded,
+    full_years_only: _fullYearsOnly,
+    station_count:   stationIds.length,
+  });
 }
 
 /** Hide the view and free chart resources. */
@@ -837,6 +845,7 @@ function _switchSeries(series) {
   const otherZoom = _charts[other]?.getZoom();
   if (otherZoom) _charts[series]?.setZoom(otherZoom.min, otherZoom.max);
 
+  trackEvent('graph_series_change', { series });
   _pushUrl();
 }
 
@@ -1173,6 +1182,7 @@ function _wireEvents() {
       _sharedMode = btn.dataset.mode;
       _applySharedMode();
       _pushUrl();
+      trackEvent('graph_mode_change', { mode: _sharedMode, series: _activeSeries });
       // Refetch if anomaly status changed (different API response needed).
       if (_isAnomalyMode(_sharedMode) !== prevAnomaly && _lastStationIds !== null) {
         _loadData(_lastStationIds);

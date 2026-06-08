@@ -406,6 +406,15 @@ function init() {
       _currentFilteredIds = filteredIds;
       setColumnFilters(filteredIds);
       setFilteredLocations(filteredIds);
+      const summary = getFilterSummary();
+      if (summary) {
+        trackEvent('filter_applied', {
+          filter_summary: summary,
+          result_count: filteredIds ? filteredIds.size : getLocations().length,
+        });
+      } else {
+        trackEvent('filter_cleared');
+      }
       if (isAggregateVisible()) {
         const ids = filteredIds ? [...filteredIds] : getLocations().map(l => l.id);
         refreshAggregateView(ids);

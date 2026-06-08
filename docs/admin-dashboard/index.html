@@ -522,17 +522,20 @@
       data: {
         labels,
         datasets: [
-          { label: 'Page views',       data: views,
+          { label: 'Page views',      data: views,
             borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,.1)',
-            borderWidth: 2, pointRadius: 2, tension: .35, fill: true },
-          { label: 'Unique visitors',  data: uniques,
+            borderWidth: 2, pointRadius: 2, tension: .35, fill: true,
+            yAxisID: 'yViews' },
+          { label: 'Unique visitors', data: uniques,
             borderColor: '#3ecf8e', backgroundColor: 'rgba(62,207,142,.07)',
-            borderWidth: 2, pointRadius: 2, tension: .35, fill: true },
+            borderWidth: 2, pointRadius: 2, tension: .35, fill: true,
+            yAxisID: 'yUniques' },
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { labels: { color: '#6b7a95', font: { size: 11 }, boxWidth: 12, padding: 16 } },
           tooltip: {
@@ -543,8 +546,20 @@
         scales: {
           x: { ticks: { color: '#6b7a95', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 10 },
                grid: { color: '#222c3c' } },
-          y: { ticks: { color: '#6b7a95', font: { size: 10 } },
-               grid: { color: '#222c3c' }, beginAtZero: true }
+          yViews: {
+            position: 'left',
+            beginAtZero: true,
+            ticks: { color: '#4a9eff', font: { size: 10 } },
+            grid: { color: '#222c3c' },
+            title: { display: true, text: 'Page views', color: '#4a9eff', font: { size: 10 } },
+          },
+          yUniques: {
+            position: 'right',
+            beginAtZero: true,
+            ticks: { color: '#3ecf8e', font: { size: 10 } },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'Unique visitors', color: '#3ecf8e', font: { size: 10 } },
+          },
         }
       }
     });
