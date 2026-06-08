@@ -6,6 +6,7 @@ const API_BASE = 'https://api.klymot.com';
 // browser family and OS family, then discards the originals.
 function _beacon(path) {
   if (typeof navigator === 'undefined') return;
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return;
   const payload = JSON.stringify({ path, referrer: document.referrer || '' });
   // text/plain = CORS simple request, no preflight, works reliably with sendBeacon.
   const blob = new Blob([payload], { type: 'text/plain' });
