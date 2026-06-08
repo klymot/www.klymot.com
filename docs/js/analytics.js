@@ -7,7 +7,9 @@ const API_BASE = 'https://api.klymot.com';
 function sendBeacon(path) {
   if (typeof navigator === 'undefined') return;
   const payload = JSON.stringify({ path, referrer: document.referrer || '' });
-  const blob = new Blob([payload], { type: 'application/json' });
+  // text/plain is a CORS "simple" request — no preflight, works reliably with sendBeacon.
+  // The Go server's json.NewDecoder ignores Content-Type so it still parses fine.
+  const blob = new Blob([payload], { type: 'text/plain' });
   if (navigator.sendBeacon) {
     navigator.sendBeacon(API_BASE + '/api/v1/usage', blob);
   } else {
