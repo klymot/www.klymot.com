@@ -340,10 +340,11 @@ type StatsResponse struct {
 		Uniques int64 `json:"uniques"`
 	} `json:"totals"`
 	ByDate    []DatePoint `json:"by_date"`
-	ByPage    []KV        `json:"by_page"`
 	ByCountry []KV        `json:"by_country"`
 	ByBrowser []KV        `json:"by_browser"`
 	ByOS      []KV        `json:"by_os"`
+	ByFeature []KV        `json:"by_feature"` // /__feature__/* beacons
+	ByConsent []KV        `json:"by_consent"` // /__consent__/* beacons
 }
 
 func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
@@ -372,20 +373,30 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		t.mu.Unlock()
 
 		// Aggregate over the last 90 days.
+		// Synthetic paths (/__feature__/*, /__consent__/*) are bucketed separately
+		// so they don't inflate real page-view totals.
 		cutoff := time.Now().UTC().AddDate(0, 0, -90).Format("2006-01-02")
-		pages := make(map[string]int64)
 		countries := make(map[string]int64)
 		browsers := make(map[string]int64)
 		oses := make(map[string]int64)
 		dateViews := make(map[string]int64)
+		features := make(map[string]int64)
+		consent := make(map[string]int64)
 		var totalViews int64
 
 		for k, v := range countsCopy {
 			if k.Date < cutoff {
 				continue
 			}
+			if strings.HasPrefix(k.Path, "/__feature__/") {
+				features[strings.TrimPrefix(k.Path, "/__feature__/")] += v
+				continue
+			}
+			if strings.HasPrefix(k.Path, "/__consent__/") {
+				consent[strings.TrimPrefix(k.Path, "/__consent__/")] += v
+				continue
+			}
 			totalViews += v
-			pages[k.Path] += v
 			if k.Country != "ZZ" {
 				countries[k.Country] += v
 			}
@@ -415,10 +426,11 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		resp.Totals.Views = totalViews
 		resp.Totals.Uniques = totalUniques
 		resp.ByDate = dates
-		resp.ByPage = topN(pages, 20)
 		resp.ByCountry = topN(countries, 30)
 		resp.ByBrowser = topN(browsers, 10)
 		resp.ByOS = topN(oses, 10)
+		resp.ByFeature = topN(features, 30)
+		resp.ByConsent = topN(consent, 10)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck

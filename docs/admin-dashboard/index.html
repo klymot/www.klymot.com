@@ -343,8 +343,12 @@
       </div>
       <div class="tables-grid">
         <div class="table-card">
-          <div class="card-title">Top pages</div>
-          <table class="stat-table" id="tbl-pages"></table>
+          <div class="card-title">Feature usage</div>
+          <table class="stat-table" id="tbl-features"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">GA consent</div>
+          <table class="stat-table" id="tbl-consent"></table>
         </div>
         <div class="table-card">
           <div class="card-title">By country</div>
@@ -370,6 +374,36 @@
 
   // ── Utilities ───────────────────────────────────────────────
   function fmt(n) { return Number(n).toLocaleString(); }
+  function pct(n, total) { return total > 0 ? Math.round((n / total) * 100) + '%' : '—'; }
+
+  // Human-readable labels for synthetic /__feature__/* paths.
+  const FEATURE_LABELS = {
+    'station-detail':        'Station detail opened',
+    'graph':                 'Graph view opened',
+    'filter':                'Filter applied',
+    'filter-cleared':        'Filter cleared',
+    'view-table':            'View: Table',
+    'view-aggregate':        'View: Graph',
+    'view-globe':            'View: Globe',
+    'view-mercator':         'View: Mercator',
+    'tab-temp-qcu':          'Tab: Unadjusted temp',
+    'tab-temp-qcf':          'Tab: Adjusted temp',
+    'tab-adj':               'Tab: Adjustments',
+    'tab-geography':         'Tab: Geography',
+    'tab-about':             'Tab: About',
+    'chart-annual':          'Chart: Annual',
+    'chart-monthly':         'Chart: Monthly',
+    'chart-bymonth':         'Chart: By Month',
+    'chart-annual-anomaly':  'Chart: Annual Anomaly',
+    'chart-monthly-anomaly': 'Chart: Monthly Anomaly',
+    'graph-yearly-anomaly':  'Graph: Annual Anomaly',
+    'graph-monthly-anomaly': 'Graph: Monthly Anomaly',
+    'graph-yearly':          'Graph: Annual',
+    'graph-monthly':         'Graph: Monthly',
+    'graph-bymonth':         'Graph: By Month',
+    'series-qcu':            'Graph series: Unadjusted',
+    'series-qcf':            'Graph series: Adjusted',
+  };
 
   function countryFlag(code) {
     if (!code || code === 'ZZ') return '🌍 ';
@@ -451,7 +485,7 @@
 
   function clearDashboard() {
     if (_chart) { _chart.destroy(); _chart = null; }
-    ['tbl-pages', 'tbl-countries', 'tbl-browsers', 'tbl-os']
+    ['tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
       .forEach(id => { document.getElementById(id).replaceChildren(); });
     document.getElementById('dash-content').hidden = true;
     document.getElementById('loading').style.display = 'flex';
@@ -500,7 +534,8 @@
 
     renderChart(data.by_date || []);
 
-    renderTable('tbl-pages',     data.by_page    || [], k => k);
+    renderTable('tbl-features',  data.by_feature || [], k => FEATURE_LABELS[k] || k);
+    renderConsentTable('tbl-consent', data.by_consent || []);
     renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);
     renderTable('tbl-browsers',  data.by_browser || [], k => k);
     renderTable('tbl-os',        data.by_os      || [], k => k);
@@ -609,6 +644,38 @@
       const td2 = tr.insertCell();
       td2.style.cssText = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;color:var(--muted);padding:.45rem 0;padding-left:1rem;white-space:nowrap';
       td2.textContent = fmt(value);
+    }
+  }
+
+  function renderConsentTable(id, rows) {
+    const tbl = document.getElementById(id);
+    tbl.replaceChildren();
+    const ORDER   = ['accepted', 'declined', 'pending'];
+    const LABELS  = { accepted: 'Accepted GA', declined: 'Declined GA', pending: 'Banner shown' };
+    const byKey   = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const total   = ORDER.reduce((s, k) => s + (byKey[k] || 0), 0);
+
+    if (total === 0) {
+      const tr = tbl.insertRow();
+      const td = tr.insertCell();
+      td.style.color = 'var(--muted)';
+      td.style.padding = '.4rem 0';
+      td.textContent = 'No data yet';
+      return;
+    }
+
+    for (const key of ORDER) {
+      const count = byKey[key] || 0;
+      const tr  = tbl.insertRow();
+      tr.style.borderTop = '1px solid var(--border)';
+
+      const td1 = tr.insertCell();
+      td1.style.padding = '.45rem 0';
+      td1.textContent = LABELS[key] || key;
+
+      const td2 = tr.insertCell();
+      td2.style.cssText = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;color:var(--muted);padding:.45rem 0;padding-left:1rem;white-space:nowrap';
+      td2.textContent = pct(count, total) + ' (' + fmt(count) + ')';
     }
   }
 

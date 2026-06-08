@@ -14,10 +14,10 @@ function loadGA() {
   gtag('config', GA_ID);
 }
 
-// Send a fire-and-forget usage beacon without importing the full analytics module
-// (consent.js loads before the module graph is resolved).
+// Beacon the GA consent status as a synthetic path so the self-hosted tracker
+// can show a consent breakdown without needing any backend changes.
 function beaconConsent(status) {
-  const payload = JSON.stringify({ path: '/__consent__', referrer: status });
+  const payload = JSON.stringify({ path: `/__consent__/${status}`, referrer: '' });
   const blob = new Blob([payload], { type: 'text/plain' });
   const url = 'https://api.klymot.com/api/v1/usage';
   if (navigator.sendBeacon) {
@@ -32,17 +32,17 @@ export function initConsent() {
 
   if (stored === 'accepted') {
     loadGA();
-    beaconConsent('ga:accepted');
+    beaconConsent('accepted');
     return;
   }
 
   if (stored === 'declined') {
-    beaconConsent('ga:declined');
+    beaconConsent('declined');
     return;
   }
 
-  // No decision recorded yet — beacon that the banner was shown.
-  beaconConsent('ga:pending');
+  // No decision yet — banner is about to be shown.
+  beaconConsent('pending');
 
   const banner = document.getElementById('cookie-banner');
   if (!banner) return;
@@ -52,12 +52,12 @@ export function initConsent() {
     localStorage.setItem(CONSENT_KEY, 'accepted');
     banner.hidden = true;
     loadGA();
-    beaconConsent('ga:accepted');
+    beaconConsent('accepted');
   });
 
   document.getElementById('cookie-decline')?.addEventListener('click', () => {
     localStorage.setItem(CONSENT_KEY, 'declined');
     banner.hidden = true;
-    beaconConsent('ga:declined');
+    beaconConsent('declined');
   });
 }
