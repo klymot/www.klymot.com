@@ -395,9 +395,11 @@
       const ok = await loadStats(pw);
       if (ok) {
         _password = pw;
+        localStorage.setItem('klymot-admin-pw', pw);
         $loginScreen.style.display = 'none';
         $dashboard.style.display = 'flex';
       } else {
+        localStorage.removeItem('klymot-admin-pw');
         $loginError.hidden = false;
         $pwInput.select();
       }
@@ -416,12 +418,36 @@
   // ── Logout ──────────────────────────────────────────────────
   document.getElementById('logout-btn').addEventListener('click', () => {
     _password = null;
+    localStorage.removeItem('klymot-admin-pw');
     $dashboard.style.display = 'none';
     $loginScreen.style.display = 'flex';
     $pwInput.value = '';
     $loginError.hidden = true;
     clearDashboard();
   });
+
+  // Auto-login if a saved password exists.
+  (async () => {
+    const saved = localStorage.getItem('klymot-admin-pw');
+    if (!saved) return;
+    $loginBtn.disabled = true;
+    $loginBtn.textContent = 'Signing in…';
+    try {
+      const ok = await loadStats(saved);
+      if (ok) {
+        _password = saved;
+        $loginScreen.style.display = 'none';
+        $dashboard.style.display = 'flex';
+      } else {
+        localStorage.removeItem('klymot-admin-pw');
+      }
+    } catch (_) {
+      // Network error — leave login screen up so user can retry.
+    } finally {
+      $loginBtn.disabled = false;
+      $loginBtn.textContent = 'Sign in';
+    }
+  })();
 
   function clearDashboard() {
     if (_chart) { _chart.destroy(); _chart = null; }
