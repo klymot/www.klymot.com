@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>klymot — Admin</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=Source+Sans+3:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:        #0e1117;
+      --surface:   #161b24;
+      --border:    #222c3c;
+      --text:      #d4dbe8;
+      --muted:     #6b7a95;
+      --accent:    #4a9eff;
+      --green:     #3ecf8e;
+      --red:       #f97066;
+      --radius:    8px;
+      --font-body: 'Source Sans 3', system-ui, sans-serif;
+      --font-head: 'Playfair Display', Georgia, serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.5;
+      min-height: 100dvh;
+    }
+
+    /* ── Login ─────────────────────────────────────────────── */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 1.5rem;
+    }
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 360px;
+    }
+    .login-logo {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      margin-bottom: 1.75rem;
+    }
+    .login-wordmark {
+      font-family: var(--font-head);
+      font-size: 1.4rem;
+      color: var(--text);
+      letter-spacing: -.01em;
+    }
+    .login-wordmark .sub {
+      font-family: var(--font-body);
+      font-weight: 300;
+      font-size: .85rem;
+      color: var(--muted);
+      margin-left: .4rem;
+    }
+    .form-label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: .4rem;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: .9rem;
+      padding: .6rem .85rem;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .btn-primary {
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: .65rem 1rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font-body);
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+    .login-error {
+      margin-top: .9rem;
+      padding: .55rem .8rem;
+      background: color-mix(in srgb, var(--red) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+      border-radius: var(--radius);
+      color: var(--red);
+      font-size: .88rem;
+    }
+
+    /* ── Dashboard ─────────────────────────────────────────── */
+    #dashboard {
+      display: none;
+      flex-direction: column;
+      min-height: 100dvh;
+    }
+    .dash-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: .9rem 1.5rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .dash-wordmark {
+      font-family: var(--font-head);
+      font-size: 1.15rem;
+      color: var(--text);
+      flex: 1;
+    }
+    .dash-wordmark .sub {
+      font-family: var(--font-body);
+      font-weight: 300;
+      font-size: .8rem;
+      color: var(--muted);
+      margin-left: .35rem;
+    }
+    .dash-updated {
+      font-size: .78rem;
+      color: var(--muted);
+      font-family: var(--font-mono);
+    }
+    .btn-logout {
+      padding: .38rem .85rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      font-size: .82rem;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-logout:hover { border-color: var(--accent); color: var(--accent); }
+    .dash-main {
+      flex: 1;
+      padding: 1.5rem;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.2rem;
+    }
+    .stat-label {
+      font-size: .75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      margin-bottom: .35rem;
+    }
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: 1.75rem;
+      color: var(--text);
+      line-height: 1;
+    }
+    .stat-sub {
+      font-size: .78rem;
+      color: var(--muted);
+      margin-top: .3rem;
+    }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.2rem 1.4rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-title {
+      font-size: .78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .chart-wrap { height: 200px; position: relative; }
+    .tables-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.2rem;
+      overflow: hidden;
+    }
+    .stat-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .stat-table tr + tr td { border-top: 1px solid var(--border); }
+    .stat-table td { padding: .45rem 0; }
+    .stat-table td:last-child {
+      text-align: right;
+      font-family: var(--font-mono);
+      font-size: .82rem;
+      color: var(--muted);
+      padding-left: 1rem;
+      white-space: nowrap;
+    }
+    .bar-wrap { display: flex; align-items: center; gap: .6rem; }
+    .bar-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+    .bar-track { flex: 0 0 56px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    .spinner-row {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: 4rem;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .dash-error {
+      background: color-mix(in srgb, var(--red) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+      border-radius: var(--radius);
+      color: var(--red);
+      padding: .8rem 1rem;
+      font-size: .88rem;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Login ───────────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" width="26" height="26">
+        <circle cx="16" cy="16" r="13" stroke="currentColor" stroke-width="1.25"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.2" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+        <ellipse cx="16" cy="9.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+        <ellipse cx="16" cy="22.5" rx="10" ry="2.8" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+        <ellipse cx="16" cy="16" rx="3" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+        <ellipse cx="16" cy="16" rx="9" ry="13" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+        <circle cx="19.5" cy="10.5" r="4" stroke="currentColor" stroke-width="1" fill="none" opacity="0.4"/>
+        <circle cx="19.5" cy="10.5" r="2" fill="currentColor"/>
+      </svg>
+      <div class="login-wordmark">klymot<span class="sub">admin</span></div>
+    </div>
+    <label class="form-label" for="pw-input">Password</label>
+    <input id="pw-input" class="form-input" type="password" autocomplete="current-password"
+           placeholder="Enter admin password" autofocus>
+    <div id="login-error" class="login-error" hidden>Incorrect password — please try again.</div>
+    <button id="login-btn" class="btn-primary">Sign in</button>
+  </div>
+</div>
+
+<!-- ── Dashboard ───────────────────────────────────────────── -->
+<div id="dashboard">
+  <header class="dash-header">
+    <div class="dash-wordmark">klymot<span class="sub">usage analytics</span></div>
+    <div id="dash-updated" class="dash-updated"></div>
+    <button class="btn-logout" id="logout-btn">Sign out</button>
+  </header>
+  <main class="dash-main">
+    <div id="dash-error" class="dash-error" hidden></div>
+    <div id="loading" class="spinner-row">
+      <div class="spinner"></div>Loading stats…
+    </div>
+    <div id="dash-content" hidden>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Page views (90d)</div>
+          <div class="stat-value" id="s-total-views">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Unique visitors (90d)</div>
+          <div class="stat-value" id="s-total-uniq">—</div>
+          <div class="stat-sub">Daily-rotating estimate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Views today</div>
+          <div class="stat-value" id="s-today-views">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Uniques today</div>
+          <div class="stat-value" id="s-today-uniq">—</div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="card-title">Page views — last 30 days</div>
+        <div class="chart-wrap">
+          <canvas id="views-chart"></canvas>
+        </div>
+      </div>
+      <div class="tables-grid">
+        <div class="table-card">
+          <div class="card-title">Top pages</div>
+          <table class="stat-table" id="tbl-pages"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">By country</div>
+          <table class="stat-table" id="tbl-countries"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">By browser</div>
+          <table class="stat-table" id="tbl-browsers"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">By OS</div>
+          <table class="stat-table" id="tbl-os"></table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const API = 'https://api.klymot.com';
+  let _password = null;
+  let _chart    = null;
+
+  // ── Utilities ───────────────────────────────────────────────
+  function fmt(n) { return Number(n).toLocaleString(); }
+
+  function countryFlag(code) {
+    if (!code || code === 'ZZ') return '🌍 ';
+    return [...code.toUpperCase()]
+      .map(c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65))
+      .join('') + ' ';
+  }
+
+  // ── Login ───────────────────────────────────────────────────
+  const $loginScreen = document.getElementById('login-screen');
+  const $dashboard   = document.getElementById('dashboard');
+  const $pwInput     = document.getElementById('pw-input');
+  const $loginBtn    = document.getElementById('login-btn');
+  const $loginError  = document.getElementById('login-error');
+
+  async function attemptLogin() {
+    const pw = $pwInput.value.trim();
+    if (!pw) return;
+    $loginBtn.disabled = true;
+    $loginBtn.textContent = 'Signing in…';
+    $loginError.hidden = true;
+    try {
+      const ok = await loadStats(pw);
+      if (ok) {
+        _password = pw;
+        $loginScreen.style.display = 'none';
+        $dashboard.style.display = 'flex';
+      } else {
+        $loginError.hidden = false;
+        $pwInput.select();
+      }
+    } catch (e) {
+      $loginError.textContent = 'Error: ' + e.message;
+      $loginError.hidden = false;
+    } finally {
+      $loginBtn.disabled = false;
+      $loginBtn.textContent = 'Sign in';
+    }
+  }
+
+  $loginBtn.addEventListener('click', attemptLogin);
+  $pwInput.addEventListener('keydown', e => { if (e.key === 'Enter') attemptLogin(); });
+
+  // ── Logout ──────────────────────────────────────────────────
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    _password = null;
+    $dashboard.style.display = 'none';
+    $loginScreen.style.display = 'flex';
+    $pwInput.value = '';
+    $loginError.hidden = true;
+    clearDashboard();
+  });
+
+  function clearDashboard() {
+    if (_chart) { _chart.destroy(); _chart = null; }
+    ['tbl-pages', 'tbl-countries', 'tbl-browsers', 'tbl-os']
+      .forEach(id => { document.getElementById(id).replaceChildren(); });
+    document.getElementById('dash-content').hidden = true;
+    document.getElementById('loading').style.display = 'flex';
+  }
+
+  // ── Data ────────────────────────────────────────────────────
+  async function loadStats(pw) {
+    const res = await fetch(API + '/api/v1/usage/stats', {
+      headers: { Authorization: 'Bearer ' + pw }
+    });
+    if (res.status === 401) return false;
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const data = await res.json();
+    render(data);
+    return true;
+  }
+
+  async function refresh() {
+    if (!_password) return;
+    const $err = document.getElementById('dash-error');
+    $err.hidden = true;
+    try {
+      await loadStats(_password);
+    } catch (e) {
+      $err.textContent = 'Refresh failed: ' + e.message;
+      $err.hidden = false;
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────
+  function render(data) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('dash-content').hidden = false;
+
+    const dt = new Date(data.generated_at);
+    document.getElementById('dash-updated').textContent =
+      'Updated ' + dt.toLocaleTimeString();
+
+    setText('s-total-views', fmt(data.totals.views));
+    setText('s-total-uniq',  fmt(data.totals.uniques));
+
+    const today   = new Date().toISOString().slice(0, 10);
+    const todayPt = (data.by_date || []).find(d => d.date === today) || { views: 0, uniques: 0 };
+    setText('s-today-views', fmt(todayPt.views));
+    setText('s-today-uniq',  fmt(todayPt.uniques));
+
+    renderChart(data.by_date || []);
+
+    renderTable('tbl-pages',     data.by_page    || [], k => k);
+    renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);
+    renderTable('tbl-browsers',  data.by_browser || [], k => k);
+    renderTable('tbl-os',        data.by_os      || [], k => k);
+  }
+
+  function setText(id, text) {
+    document.getElementById(id).textContent = text;
+  }
+
+  function renderChart(byDate) {
+    const labels  = byDate.map(d => { const [,m,dy] = d.date.split('-'); return m + '/' + dy; });
+    const views   = byDate.map(d => d.views);
+    const uniques = byDate.map(d => d.uniques);
+
+    if (_chart) { _chart.destroy(); }
+    const ctx = document.getElementById('views-chart').getContext('2d');
+    _chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Page views',       data: views,
+            borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,.1)',
+            borderWidth: 2, pointRadius: 2, tension: .35, fill: true },
+          { label: 'Unique visitors',  data: uniques,
+            borderColor: '#3ecf8e', backgroundColor: 'rgba(62,207,142,.07)',
+            borderWidth: 2, pointRadius: 2, tension: .35, fill: true },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#6b7a95', font: { size: 11 }, boxWidth: 12, padding: 16 } },
+          tooltip: {
+            backgroundColor: '#161b24', borderColor: '#222c3c', borderWidth: 1,
+            titleColor: '#d4dbe8', bodyColor: '#6b7a95'
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#6b7a95', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 10 },
+               grid: { color: '#222c3c' } },
+          y: { ticks: { color: '#6b7a95', font: { size: 10 } },
+               grid: { color: '#222c3c' }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  function renderTable(id, rows, labelFn) {
+    const tbl = document.getElementById(id);
+    tbl.replaceChildren();
+    if (!rows.length) {
+      const tr = tbl.insertRow();
+      const td = tr.insertCell();
+      td.style.color = 'var(--muted)';
+      td.style.padding = '.4rem 0';
+      td.textContent = 'No data yet';
+      return;
+    }
+    const maxVal = Math.max(1, ...rows.map(r => r.value));
+    for (const { key, value } of rows.slice(0, 15)) {
+      const pct = Math.round((value / maxVal) * 100);
+      const tr  = tbl.insertRow();
+      tr.style.borderTop = '1px solid var(--border)';
+
+      // Label cell with mini bar
+      const td1 = tr.insertCell();
+      td1.style.padding = '.45rem 0';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'bar-label';
+      lbl.title = key;
+      lbl.textContent = labelFn(key);
+
+      const track = document.createElement('div');
+      track.className = 'bar-track';
+      const fill = document.createElement('div');
+      fill.className = 'bar-fill';
+      fill.style.width = pct + '%';
+      track.appendChild(fill);
+
+      wrap.appendChild(lbl);
+      wrap.appendChild(track);
+      td1.appendChild(wrap);
+
+      // Value cell
+      const td2 = tr.insertCell();
+      td2.style.cssText = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;color:var(--muted);padding:.45rem 0;padding-left:1rem;white-space:nowrap';
+      td2.textContent = fmt(value);
+    }
+  }
+
+  // Auto-refresh every 60 s while dashboard is visible
+  setInterval(() => {
+    if (_password && $dashboard.style.display !== 'none') refresh();
+  }, 60_000);
+</script>
+</body>
+</html>

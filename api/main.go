@@ -20,15 +20,18 @@ import (
 )
 
 var (
-	flagDataDir     = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
-	flagCache       = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
-	flagProd        = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
-	flagCertDir     = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
-	flagDomain      = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
-	flagPort        = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
-	flagIndex       = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
-	flagDiskCache   = flag.String("disk-cache", "", "directory for disk response cache (empty = disabled)")
-	flagConcurrency = flag.Int("concurrency", 0, "max concurrent aggregate computations (0 = number of CPU cores)")
+	flagDataDir      = flag.String("data", "../docs/data", "path to data directory containing qcf/ and qcu/ subdirectories")
+	flagCache        = flag.String("cache", "memory", "cache strategy: none, mmap, memory")
+	flagProd         = flag.Bool("prod", false, "production mode: TLS via ACME on :443/:80")
+	flagCertDir      = flag.String("cert-dir", "/var/cache/autocert", "autocert certificate cache directory")
+	flagDomain       = flag.String("domain", "api.klymot.com", "domain name for ACME TLS certificate")
+	flagPort         = flag.Int("port", 8081, "HTTP port for local (non-production) mode")
+	flagIndex        = flag.String("index", "", "path to index.json for geo-gridded weights (defaults to <data>/index.json)")
+	flagDiskCache    = flag.String("disk-cache", "", "directory for disk response cache (empty = disabled)")
+	flagConcurrency  = flag.Int("concurrency", 0, "max concurrent aggregate computations (0 = number of CPU cores)")
+	flagUsageData    = flag.String("usage-data", "", "path to usage stats JSON file (empty = in-memory only)")
+	flagUsagePwFile  = flag.String("usage-password-file", "", "file containing the stats endpoint password (empty = stats disabled)")
+	flagGeoIPDB      = flag.String("geoip-db", "", "path to GeoLite2-Country.mmdb for IP geolocation (optional)")
 )
 
 func main() {
@@ -81,6 +84,21 @@ func main() {
 	queue := newCalcQueue(*flagConcurrency, 45.0)
 	log.Printf("computation queue: max %d concurrent, 45s reject threshold", queue.concurrency())
 
+	usageStats := newUsageTracker(*flagUsageData, *flagGeoIPDB)
+
+	var statsPassword string
+	if *flagUsagePwFile != "" {
+		raw, err := os.ReadFile(*flagUsagePwFile)
+		if err != nil {
+			log.Fatalf("reading usage password file: %v", err)
+		}
+		statsPassword = strings.TrimSpace(string(raw))
+		if statsPassword == "" {
+			log.Fatalf("usage password file %s is empty", *flagUsagePwFile)
+		}
+		log.Printf("usage stats endpoint enabled")
+	}
+
 	// Seed the disk cache with the reference-coverage for all stations.
 	// This runs concurrently with precomputation so startup is not delayed.
 	if dc != nil {
@@ -115,12 +133,26 @@ func main() {
 			}),
 		),
 	)
+	mux.Handle("/api/v1/usage",
+		corsMiddleware(*flagProd)(
+			http.HandlerFunc(usageStats.beaconHandler),
+		),
+	)
+	if statsPassword != "" {
+		mux.Handle("/api/v1/usage/stats",
+			corsMiddleware(*flagProd)(
+				http.HandlerFunc(usageStats.statsHandler(statsPassword)),
+			),
+		)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	usageStats.startFlusher(ctx)
 
 	logged := loggingMiddleware(gzipMiddleware(mux))
 	if *flagProd {
@@ -288,8 +320,8 @@ func corsMiddleware(prod bool) func(http.Handler) http.Handler {
 				}
 				if allowed {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-					w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 					w.Header().Set("Access-Control-Max-Age", "86400")
 					w.Header().Set("Vary", "Origin")
 				}
