@@ -369,8 +369,9 @@
 
 <script>
   const API = 'https://api.klymot.com';
-  let _password = null;
-  let _chart    = null;
+  let _password   = null;
+  let _chart      = null;
+  let _refreshing = false;
 
   // ── Utilities ───────────────────────────────────────────────
   function fmt(n) { return Number(n).toLocaleString(); }
@@ -504,7 +505,8 @@
   }
 
   async function refresh() {
-    if (!_password) return;
+    if (!_password || _refreshing) return;
+    _refreshing = true;
     const $err = document.getElementById('dash-error');
     $err.hidden = true;
     try {
@@ -512,6 +514,8 @@
     } catch (e) {
       $err.textContent = 'Refresh failed: ' + e.message;
       $err.hidden = false;
+    } finally {
+      _refreshing = false;
     }
   }
 
