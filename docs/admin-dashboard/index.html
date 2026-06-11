@@ -461,28 +461,14 @@
     clearDashboard();
   });
 
-  // Auto-login if a saved password exists.
-  (async () => {
-    const saved = localStorage.getItem('klymot-admin-pw');
-    if (!saved) return;
-    $loginBtn.disabled = true;
-    $loginBtn.textContent = 'Signing in…';
-    try {
-      const ok = await loadStats(saved);
-      if (ok) {
-        _password = saved;
-        $loginScreen.style.display = 'none';
-        $dashboard.style.display = 'flex';
-      } else {
-        localStorage.removeItem('klymot-admin-pw');
-      }
-    } catch (_) {
-      // Network error — leave login screen up so user can retry.
-    } finally {
-      $loginBtn.disabled = false;
-      $loginBtn.textContent = 'Sign in';
-    }
-  })();
+  // If a saved password exists, show the dashboard immediately and fetch in the background.
+  const _saved = localStorage.getItem('klymot-admin-pw');
+  if (_saved) {
+    _password = _saved;
+    $loginScreen.style.display = 'none';
+    $dashboard.style.display = 'flex';
+    refresh();
+  }
 
   function clearDashboard() {
     if (_chart) { _chart.destroy(); _chart = null; }
@@ -510,7 +496,11 @@
     const $err = document.getElementById('dash-error');
     $err.hidden = true;
     try {
-      await loadStats(_password);
+      const ok = await loadStats(_password);
+      if (!ok) {
+        $err.textContent = 'Password rejected (401) — log out and sign in again.';
+        $err.hidden = false;
+      }
     } catch (e) {
       $err.textContent = 'Refresh failed: ' + e.message;
       $err.hidden = false;
