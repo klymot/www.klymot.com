@@ -91,6 +91,38 @@ func sanitizePath(p string) string {
 	return p
 }
 
+// --- Session tracking (2-minute inactivity window) ---
+
+type visitorSession struct {
+	ActiveSecs   int64 `json:"a"` // accumulated seconds from closed segments
+	LastEvent    int64 `json:"l"` // Unix time of last event
+	SegmentStart int64 `json:"s"` // Unix time of current segment start
+}
+
+func (vs *visitorSession) record(now int64) {
+	const gapSecs = 120
+	if vs.LastEvent == 0 {
+		vs.SegmentStart = now
+		vs.LastEvent = now
+		return
+	}
+	if now < vs.LastEvent {
+		return // ignore out-of-order events
+	}
+	if now-vs.LastEvent > gapSecs {
+		vs.ActiveSecs += (vs.LastEvent - vs.SegmentStart) + gapSecs
+		vs.SegmentStart = now
+	}
+	vs.LastEvent = now
+}
+
+func (vs *visitorSession) totalSecs() int64 {
+	if vs.LastEvent == 0 {
+		return 0
+	}
+	return vs.ActiveSecs + (vs.LastEvent - vs.SegmentStart) + 120
+}
+
 // --- Aggregation key: the grain at which we store page view counts ---
 
 type usageKey struct {
@@ -116,8 +148,9 @@ func decodeKey(s string) (usageKey, bool) {
 // --- Disk format ---
 
 type usageDisk struct {
-	Counts  map[string]int64 `json:"counts"`
-	Uniques map[string]int64 `json:"uniques"` // date -> unique visitor count
+	Counts   map[string]int64            `json:"counts"`
+	Uniques  map[string]int64            `json:"uniques"`
+	Sessions map[string]visitorSession   `json:"sessions,omitempty"` // "date\thash" -> session
 }
 
 // --- Tracker ---
@@ -127,6 +160,7 @@ type usageTracker struct {
 	counts   map[usageKey]int64
 	uniques  map[string]int64           // date -> unique count (persisted)
 	seen     map[string]map[string]bool // date -> daily-hash set (memory only, for dedup)
+	sessions map[string]visitorSession  // "date\thash" -> session (persisted)
 	salt     []byte
 	saltDate string
 	dataFile string
@@ -138,6 +172,7 @@ func newUsageTracker(dataFile, geoDBPath string) *usageTracker {
 		counts:   make(map[usageKey]int64),
 		uniques:  make(map[string]int64),
 		seen:     make(map[string]map[string]bool),
+		sessions: make(map[string]visitorSession),
 		dataFile: dataFile,
 	}
 
@@ -179,6 +214,9 @@ func (t *usageTracker) loadFromDisk() error {
 	for date, v := range d.Uniques {
 		t.uniques[date] = v
 	}
+	for k, v := range d.Sessions {
+		t.sessions[k] = v
+	}
 	return nil
 }
 
@@ -188,14 +226,18 @@ func (t *usageTracker) flushToDisk() {
 	}
 	t.mu.Lock()
 	d := usageDisk{
-		Counts:  make(map[string]int64, len(t.counts)),
-		Uniques: make(map[string]int64, len(t.uniques)),
+		Counts:   make(map[string]int64, len(t.counts)),
+		Uniques:  make(map[string]int64, len(t.uniques)),
+		Sessions: make(map[string]visitorSession, len(t.sessions)),
 	}
 	for k, v := range t.counts {
 		d.Counts[k.encode()] = v
 	}
 	for date, v := range t.uniques {
 		d.Uniques[date] = v
+	}
+	for k, v := range t.sessions {
+		d.Sessions[k] = v
 	}
 	t.mu.Unlock()
 
@@ -270,7 +312,7 @@ func (t *usageTracker) lookupCountry(ipStr string) string {
 	return rec.Country.IsoCode
 }
 
-func (t *usageTracker) record(path, browser, os, country, date, hash string) {
+func (t *usageTracker) record(path, browser, os, country, date, hash string, nowUnix int64) {
 	key := usageKey{Date: date, Path: path, Country: country, Browser: browser, OS: os}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -284,6 +326,11 @@ func (t *usageTracker) record(path, browser, os, country, date, hash string) {
 		t.seen[date][hash] = true
 		t.uniques[date]++
 	}
+
+	sessionKey := date + "\t" + hash
+	sess := t.sessions[sessionKey]
+	sess.record(nowUnix)
+	t.sessions[sessionKey] = sess
 }
 
 // beaconHandler handles POST /api/v1/usage.
@@ -312,11 +359,12 @@ func (t *usageTracker) beaconHandler(w http.ResponseWriter, r *http.Request) {
 	os := uaOS(ua)
 	ip := realIP(r)
 	path := sanitizePath(body.Path)
-	date := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+	date := now.Format("2006-01-02")
 	country := t.lookupCountry(ip)
 	hash := t.visitorHash(ip, browser, date)
 
-	t.record(path, browser, os, country, date, hash)
+	t.record(path, browser, os, country, date, hash, now.Unix())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -333,18 +381,26 @@ type DatePoint struct {
 	Uniques int64  `json:"uniques"`
 }
 
+type SessionPoint struct {
+	Date      string  `json:"date"`
+	Visitors  int     `json:"visitors"`
+	AvgMins   float64 `json:"avg_mins"`
+	TotalMins float64 `json:"total_mins"`
+}
+
 type StatsResponse struct {
 	GeneratedAt string `json:"generated_at"`
 	Totals      struct {
 		Views   int64 `json:"views"`
 		Uniques int64 `json:"uniques"`
 	} `json:"totals"`
-	ByDate    []DatePoint `json:"by_date"`
-	ByCountry []KV        `json:"by_country"`
-	ByBrowser []KV        `json:"by_browser"`
-	ByOS      []KV        `json:"by_os"`
-	ByFeature []KV        `json:"by_feature"` // /__feature__/* beacons
-	ByConsent []KV        `json:"by_consent"` // /__consent__/* beacons
+	ByDate    []DatePoint    `json:"by_date"`
+	ByCountry []KV           `json:"by_country"`
+	ByBrowser []KV           `json:"by_browser"`
+	ByOS      []KV           `json:"by_os"`
+	ByFeature []KV           `json:"by_feature"` // /__feature__/* beacons
+	ByConsent []KV           `json:"by_consent"` // /__consent__/* beacons
+	BySession []SessionPoint `json:"by_session"` // daily active-time breakdown
 }
 
 func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
@@ -369,6 +425,10 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		uniquesCopy := make(map[string]int64, len(t.uniques))
 		for k, v := range t.uniques {
 			uniquesCopy[k] = v
+		}
+		sessionsCopy := make(map[string]visitorSession, len(t.sessions))
+		for k, v := range t.sessions {
+			sessionsCopy[k] = v
 		}
 		t.mu.Unlock()
 
@@ -421,6 +481,29 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 			}
 		}
 
+		// Session aggregation — all available dates (not limited to 90d window).
+		dateActiveSecs := make(map[string]int64)
+		dateSessCount := make(map[string]int)
+		for key, sess := range sessionsCopy {
+			parts := strings.SplitN(key, "\t", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			dateActiveSecs[parts[0]] += sess.totalSecs()
+			dateSessCount[parts[0]]++
+		}
+		var bySessions []SessionPoint
+		for date, totalSecs := range dateActiveSecs {
+			count := dateSessCount[date]
+			bySessions = append(bySessions, SessionPoint{
+				Date:      date,
+				Visitors:  count,
+				AvgMins:   float64(totalSecs) / float64(count) / 60.0,
+				TotalMins: float64(totalSecs) / 60.0,
+			})
+		}
+		sort.Slice(bySessions, func(i, j int) bool { return bySessions[i].Date < bySessions[j].Date })
+
 		var resp StatsResponse
 		resp.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 		resp.Totals.Views = totalViews
@@ -431,6 +514,7 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		resp.ByOS = topN(oses, 10)
 		resp.ByFeature = topN(features, 30)
 		resp.ByConsent = topN(consent, 10)
+		resp.BySession = bySessions
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck

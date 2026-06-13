@@ -341,6 +341,10 @@
           <canvas id="views-chart"></canvas>
         </div>
       </div>
+      <div class="table-card" style="margin-bottom:1rem">
+        <div class="card-title">Daily active time</div>
+        <table class="stat-table" id="tbl-session"></table>
+      </div>
       <div class="tables-grid">
         <div class="table-card">
           <div class="card-title">Feature usage</div>
@@ -376,6 +380,11 @@
   // ── Utilities ───────────────────────────────────────────────
   function fmt(n) { return Number(n).toLocaleString(); }
   function pct(n, total) { return total > 0 ? Math.round((n / total) * 100) + '%' : '—'; }
+  function fmtMins(mins) {
+    const m = Math.floor(mins);
+    const s = Math.round((mins - m) * 60);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
 
   // Human-readable labels for synthetic /__feature__/* paths.
   const FEATURE_LABELS = {
@@ -472,7 +481,7 @@
 
   function clearDashboard() {
     if (_chart) { _chart.destroy(); _chart = null; }
-    ['tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
+    ['tbl-session', 'tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
       .forEach(id => { document.getElementById(id).replaceChildren(); });
     document.getElementById('dash-content').hidden = true;
     document.getElementById('loading').style.display = 'flex';
@@ -526,7 +535,8 @@
     setText('s-today-views', fmt(todayPt.views));
     setText('s-today-uniq',  fmt(todayPt.uniques));
 
-    renderChart(data.by_date || []);
+    renderChart(data.by_date || [], data.by_session || []);
+    renderSessionTable(data.by_session || []);
 
     renderTable('tbl-features',  data.by_feature || [], k => FEATURE_LABELS[k] || k);
     renderConsentTable('tbl-consent', data.by_consent || []);
@@ -539,10 +549,13 @@
     document.getElementById(id).textContent = text;
   }
 
-  function renderChart(byDate) {
+  function renderChart(byDate, bySession) {
     const labels  = byDate.map(d => { const [,m,dy] = d.date.split('-'); return m + '/' + dy; });
     const views   = byDate.map(d => d.views);
     const uniques = byDate.map(d => d.uniques);
+
+    const sessByDate = Object.fromEntries((bySession || []).map(s => [s.date, s.total_mins]));
+    const activeMins = byDate.map(d => sessByDate[d.date] ?? 0);
 
     if (_chart) { _chart.destroy(); }
     const ctx = document.getElementById('views-chart').getContext('2d');
@@ -559,6 +572,11 @@
             borderColor: '#3ecf8e', backgroundColor: 'rgba(62,207,142,.07)',
             borderWidth: 2, pointRadius: 2, tension: .35, fill: true,
             yAxisID: 'yUniques' },
+          { label: 'Active time (min)', data: activeMins,
+            borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.06)',
+            borderWidth: 1.5, pointRadius: 2, tension: .35, fill: true,
+            borderDash: [4, 3],
+            yAxisID: 'yTime' },
         ]
       },
       options: {
@@ -569,7 +587,15 @@
           legend: { labels: { color: '#6b7a95', font: { size: 11 }, boxWidth: 12, padding: 16 } },
           tooltip: {
             backgroundColor: '#161b24', borderColor: '#222c3c', borderWidth: 1,
-            titleColor: '#d4dbe8', bodyColor: '#6b7a95'
+            titleColor: '#d4dbe8', bodyColor: '#6b7a95',
+            callbacks: {
+              label: ctx => {
+                if (ctx.dataset.yAxisID === 'yTime') {
+                  return 'Active time: ' + fmtMins(ctx.parsed.y);
+                }
+                return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString();
+              }
+            }
           }
         },
         scales: {
@@ -588,6 +614,12 @@
             ticks: { color: '#3ecf8e', font: { size: 10 } },
             grid: { drawOnChartArea: false },
             title: { display: true, text: 'Unique visitors', color: '#3ecf8e', font: { size: 10 } },
+          },
+          yTime: {
+            position: 'right',
+            beginAtZero: true,
+            display: false,
+            grid: { drawOnChartArea: false },
           },
         }
       }
@@ -670,6 +702,38 @@
       const td2 = tr.insertCell();
       td2.style.cssText = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;color:var(--muted);padding:.45rem 0;padding-left:1rem;white-space:nowrap';
       td2.textContent = pct(count, total) + ' (' + fmt(count) + ')';
+    }
+  }
+
+  function renderSessionTable(sessions) {
+    const tbl = document.getElementById('tbl-session');
+    tbl.replaceChildren();
+    if (!sessions.length) {
+      const tr = tbl.insertRow();
+      const td = tr.insertCell();
+      td.colSpan = 4;
+      td.style.cssText = 'color:var(--muted);padding:.4rem 0';
+      td.textContent = 'No session data yet — accumulates as visitors use the site';
+      return;
+    }
+    const mono = 'font-family:var(--font-mono);font-size:.82rem;color:var(--muted);padding:.45rem 0;padding-left:1rem;white-space:nowrap;text-align:right';
+    const head = tbl.insertRow();
+    ['Date', 'Visitors', 'Avg active time', 'Total active time'].forEach(h => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      th.style.cssText = 'font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding-bottom:.4rem;font-weight:400;text-align:left';
+      if (h !== 'Date') th.style.textAlign = 'right';
+      head.appendChild(th);
+    });
+    const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+    for (const s of sorted) {
+      const tr = tbl.insertRow();
+      tr.style.borderTop = '1px solid var(--border)';
+      tr.insertCell().style.cssText = 'padding:.45rem 0';
+      tr.cells[0].textContent = s.date;
+      const c1 = tr.insertCell(); c1.style.cssText = mono; c1.textContent = fmt(s.visitors);
+      const c2 = tr.insertCell(); c2.style.cssText = mono; c2.textContent = fmtMins(s.avg_mins);
+      const c3 = tr.insertCell(); c3.style.cssText = mono; c3.textContent = fmtMins(s.total_mins);
     }
   }
 
