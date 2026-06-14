@@ -47,7 +47,7 @@ let _lastStationIds       = null;  // most recent station IDs passed to _loadDat
 let _loadGeneration       = 0;    // incremented on each _loadData call; stale responses are dropped
 
 // Anomaly baseline state
-let _anomalyMode          = 'station'; // station | auto_decade | auto_year | decade | year
+let _anomalyMode          = 'auto_decade'; // station | auto_decade | auto_year | decade | year
 let _anomalyFallback      = false;     // true → use *_fallback API variant for non-station modes
 let _anomalyRef           = null;      // decade start (multiple of 10) or year; null for auto/station
 let _refCoverageCache     = null;      // { decades: {decade→count}, years: {year→count}, maxCount, total }
@@ -1634,8 +1634,8 @@ function _seriesPanel(series, hidden) {
             <button class="chart-mode-arrow chart-ref-prev" aria-label="Scroll baseline left" hidden>‹</button>
             <div class="scroll-fade-wrap chart-ref-scroll-wrap">
               <div class="chart-ref-scroll" role="group">
-                <button class="chart-ref-btn active" data-ref="station">Station</button>
-                <button class="chart-ref-btn" data-ref="auto_decade">Auto Decade…</button>
+                <button class="chart-ref-btn" data-ref="station">Station</button>
+                <button class="chart-ref-btn active" data-ref="auto_decade">Auto Decade…</button>
                 <button class="chart-ref-btn" data-ref="auto_year">Auto Year…</button>
                 <button class="chart-ref-btn" data-ref="decade">Decade ▾</button>
                 <button class="chart-ref-btn" data-ref="year">Year ▾</button>
