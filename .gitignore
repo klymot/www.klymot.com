@@ -7,3 +7,5 @@ playwright-report/
 .DS_Store
 scripts/__pycache__/
 .playwright-mcp/
+BACKLOG.md
+
