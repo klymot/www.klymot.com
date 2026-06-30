@@ -303,8 +303,9 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 }
 
 var prodOrigins = map[string]bool{
-	"https://www.klymot.com": true,
-	"https://klymot.com":     true,
+	"https://www.klymot.com":  true,
+	"https://klymot.com":      true,
+	"https://labs.klymot.com": true,
 }
 
 // corsMiddleware sets CORS headers for requests from known origins.
