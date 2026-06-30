@@ -367,6 +367,10 @@
           <table class="stat-table" id="tbl-os"></table>
         </div>
       </div>
+      <div id="labs-funnels-wrap" hidden style="margin-top:1.5rem">
+        <div class="card-title" style="padding:0 0 .75rem">Labs funnels</div>
+        <div id="labs-funnels" class="tables-grid"></div>
+      </div>
     </div>
   </main>
 </div>
@@ -543,6 +547,7 @@
     renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);
     renderTable('tbl-browsers',  data.by_browser || [], k => k);
     renderTable('tbl-os',        data.by_os      || [], k => k);
+    renderLabsFunnels(data.by_feature || []);
   }
 
   function setText(id, text) {
@@ -734,6 +739,62 @@
       const c1 = tr.insertCell(); c1.style.cssText = mono; c1.textContent = fmt(s.visitors);
       const c2 = tr.insertCell(); c2.style.cssText = mono; c2.textContent = fmtMins(s.avg_mins);
       const c3 = tr.insertCell(); c3.style.cssText = mono; c3.textContent = fmtMins(s.total_mins);
+    }
+  }
+
+  // ── Labs funnels ────────────────────────────────────────────────
+  // Auto-discovers labs from feature beacons using key pattern:
+  // labs/{lab-slug}/{NN}-{step-name}
+  function renderLabsFunnels(features) {
+    const wrap = document.getElementById('labs-funnels-wrap');
+    const container = document.getElementById('labs-funnels');
+    const labs = new Map();
+    for (const { key, value } of features) {
+      const m = key.match(/^labs\/([^/]+)\/(\d+)-(.+)$/);
+      if (!m) continue;
+      const [, slug, numStr, name] = m;
+      if (!labs.has(slug)) labs.set(slug, []);
+      labs.get(slug).push({ num: parseInt(numStr, 10), name, value });
+    }
+    if (!labs.size) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    container.replaceChildren();
+    const mono = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;padding:.45rem 0;padding-left:.75rem;white-space:nowrap';
+    for (const [slug, steps] of [...labs.entries()].sort()) {
+      steps.sort((a, b) => a.num - b.num);
+      const card = document.createElement('div');
+      card.className = 'table-card';
+      const title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = slug.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      card.appendChild(title);
+      const tbl = document.createElement('table');
+      tbl.className = 'stat-table';
+      const head = tbl.insertRow();
+      ['Step', 'Count', 'of first'].forEach((h, i) => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        th.style.cssText = 'font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding-bottom:.4rem;font-weight:400;text-align:' + (i === 0 ? 'left' : 'right');
+        head.appendChild(th);
+      });
+      const top = steps[0]?.value || 0;
+      for (const step of steps) {
+        const tr = tbl.insertRow();
+        tr.style.borderTop = '1px solid var(--border)';
+        const td1 = tr.insertCell();
+        td1.style.padding = '.45rem 0';
+        td1.textContent = step.name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+        const td2 = tr.insertCell();
+        td2.style.cssText = mono + ';color:var(--muted)';
+        td2.textContent = fmt(step.value);
+        const td3 = tr.insertCell();
+        td3.style.cssText = mono;
+        const rate = top > 0 ? step.value / top : 0;
+        td3.textContent = top > 0 ? Math.round(rate * 100) + '%' : '—';
+        td3.style.color = rate >= 0.7 ? 'var(--green)' : rate >= 0.4 ? '#f59e0b' : 'var(--red)';
+      }
+      card.appendChild(tbl);
+      container.appendChild(card);
     }
   }
 
