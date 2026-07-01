@@ -220,14 +220,14 @@ export function initDetailPanel(getMapHash) {
     if (e.target === _overlay) closeDetail();
   });
 
-  // Keyboard handling: Escape to close; Tab to trap focus within the dialog.
+  // Escape closes the panel regardless of which element has focus (e.g. during loading).
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _overlay && !_overlay.hidden) closeDetail();
+  });
+
+  // Tab trap focus within the dialog.
   _overlay.addEventListener('keydown', (e) => {
     if (_overlay.hidden) return;
-
-    if (e.key === 'Escape') {
-      closeDetail();
-      return;
-    }
 
     if (e.key === 'Tab') {
       const focusable = [..._panel.querySelectorAll(FOCUSABLE)].filter(
