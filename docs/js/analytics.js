@@ -1,13 +1,23 @@
 const GA_ID = 'G-JRMHRKGT89';
 const API_BASE = 'https://api.klymot.com';
 
+function _utmParams(search) {
+  const p = new URLSearchParams(search);
+  return {
+    utm_source:   p.get('utm_source')   || '',
+    utm_medium:   p.get('utm_medium')   || '',
+    utm_campaign: p.get('utm_campaign') || '',
+  };
+}
+
 // Passive beacon — always fires regardless of GA consent.
 // Never stores raw IP or UA; the server derives only country code,
 // browser family and OS family, then discards the originals.
 function _beacon(path) {
   if (typeof navigator === 'undefined') return;
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return;
-  const payload = JSON.stringify({ path, referrer: document.referrer || '' });
+  const utm = _utmParams(window.location.search);
+  const payload = JSON.stringify({ path, referrer: document.referrer || '', ...utm });
   // text/plain = CORS simple request, no preflight, works reliably with sendBeacon.
   const blob = new Blob([payload], { type: 'text/plain' });
   if (navigator.sendBeacon) {

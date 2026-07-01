@@ -345,6 +345,20 @@
         <div class="card-title">Daily active time</div>
         <table class="stat-table" id="tbl-session"></table>
       </div>
+      <div class="tables-grid" style="margin-bottom:1rem">
+        <div class="table-card">
+          <div class="card-title">Top referrers — 30d</div>
+          <table class="stat-table" id="tbl-referrers"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">UTM source / medium — 30d</div>
+          <table class="stat-table" id="tbl-utm-source"></table>
+        </div>
+        <div class="table-card">
+          <div class="card-title">UTM campaign — 30d</div>
+          <table class="stat-table" id="tbl-utm-campaign"></table>
+        </div>
+      </div>
       <div class="tables-grid">
         <div class="table-card">
           <div class="card-title">Feature usage</div>
@@ -485,7 +499,8 @@
 
   function clearDashboard() {
     if (_chart) { _chart.destroy(); _chart = null; }
-    ['tbl-session', 'tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
+    ['tbl-session', 'tbl-referrers', 'tbl-utm-source', 'tbl-utm-campaign',
+     'tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
       .forEach(id => { document.getElementById(id).replaceChildren(); });
     document.getElementById('dash-content').hidden = true;
     document.getElementById('loading').style.display = 'flex';
@@ -542,6 +557,9 @@
     renderChart(data.by_date || [], data.by_session || []);
     renderSessionTable(data.by_session || []);
 
+    renderTable('tbl-referrers',    data.by_referrer     || [], k => k);
+    renderTable('tbl-utm-source',   data.by_utm_source   || [], k => k);
+    renderTable('tbl-utm-campaign', data.by_utm_campaign || [], k => k);
     renderTable('tbl-features',  data.by_feature || [], k => FEATURE_LABELS[k] || k);
     renderConsentTable('tbl-consent', data.by_consent || []);
     renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);

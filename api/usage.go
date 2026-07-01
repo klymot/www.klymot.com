@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -145,35 +146,69 @@ func decodeKey(s string) (usageKey, bool) {
 	return usageKey{p[0], p[1], p[2], p[3], p[4]}, true
 }
 
+// --- Referrer / UTM helpers ---
+
+// normalizeReferrer extracts the hostname from a referrer URL, stripping "www."
+// and query strings. Returns "direct" for empty or unparseable values.
+func normalizeReferrer(ref string) string {
+	if ref == "" {
+		return "direct"
+	}
+	u, err := url.Parse(ref)
+	if err != nil || u.Host == "" {
+		return "direct"
+	}
+	host := strings.ToLower(u.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	if len(host) > 100 {
+		host = host[:100]
+	}
+	return host
+}
+
+func sanitizeUTM(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 100 {
+		s = s[:100]
+	}
+	return s
+}
+
 // --- Disk format ---
 
 type usageDisk struct {
-	Counts   map[string]int64            `json:"counts"`
-	Uniques  map[string]int64            `json:"uniques"`
-	Sessions map[string]visitorSession   `json:"sessions,omitempty"` // "date\thash" -> session
+	Counts    map[string]int64          `json:"counts"`
+	Uniques   map[string]int64          `json:"uniques"`
+	Sessions  map[string]visitorSession `json:"sessions,omitempty"` // "date\thash" -> session
+	Referrers map[string]int64          `json:"referrers,omitempty"` // "date\thostname" -> count
+	UTMs      map[string]int64          `json:"utms,omitempty"`      // "date\tsource\tmedium\tcampaign" -> count
 }
 
 // --- Tracker ---
 
 type usageTracker struct {
-	mu       sync.Mutex
-	counts   map[usageKey]int64
-	uniques  map[string]int64           // date -> unique count (persisted)
-	seen     map[string]map[string]bool // date -> daily-hash set (memory only, for dedup)
-	sessions map[string]visitorSession  // "date\thash" -> session (persisted)
-	salt     []byte
-	saltDate string
-	dataFile string
-	geoDB    *geoip2.Reader // nil when geoip disabled
+	mu        sync.Mutex
+	counts    map[usageKey]int64
+	uniques   map[string]int64           // date -> unique count (persisted)
+	seen      map[string]map[string]bool // date -> daily-hash set (memory only, for dedup)
+	sessions  map[string]visitorSession  // "date\thash" -> session (persisted)
+	referrers map[string]int64           // "date\thostname" -> count (persisted)
+	utms      map[string]int64           // "date\tsource\tmedium\tcampaign" -> count (persisted)
+	salt      []byte
+	saltDate  string
+	dataFile  string
+	geoDB     *geoip2.Reader // nil when geoip disabled
 }
 
 func newUsageTracker(dataFile, geoDBPath string) *usageTracker {
 	t := &usageTracker{
-		counts:   make(map[usageKey]int64),
-		uniques:  make(map[string]int64),
-		seen:     make(map[string]map[string]bool),
-		sessions: make(map[string]visitorSession),
-		dataFile: dataFile,
+		counts:    make(map[usageKey]int64),
+		uniques:   make(map[string]int64),
+		seen:      make(map[string]map[string]bool),
+		sessions:  make(map[string]visitorSession),
+		referrers: make(map[string]int64),
+		utms:      make(map[string]int64),
+		dataFile:  dataFile,
 	}
 
 	if geoDBPath != "" {
@@ -217,6 +252,12 @@ func (t *usageTracker) loadFromDisk() error {
 	for k, v := range d.Sessions {
 		t.sessions[k] = v
 	}
+	for k, v := range d.Referrers {
+		t.referrers[k] = v
+	}
+	for k, v := range d.UTMs {
+		t.utms[k] = v
+	}
 	return nil
 }
 
@@ -226,9 +267,11 @@ func (t *usageTracker) flushToDisk() {
 	}
 	t.mu.Lock()
 	d := usageDisk{
-		Counts:   make(map[string]int64, len(t.counts)),
-		Uniques:  make(map[string]int64, len(t.uniques)),
-		Sessions: make(map[string]visitorSession, len(t.sessions)),
+		Counts:    make(map[string]int64, len(t.counts)),
+		Uniques:   make(map[string]int64, len(t.uniques)),
+		Sessions:  make(map[string]visitorSession, len(t.sessions)),
+		Referrers: make(map[string]int64, len(t.referrers)),
+		UTMs:      make(map[string]int64, len(t.utms)),
 	}
 	for k, v := range t.counts {
 		d.Counts[k.encode()] = v
@@ -238,6 +281,12 @@ func (t *usageTracker) flushToDisk() {
 	}
 	for k, v := range t.sessions {
 		d.Sessions[k] = v
+	}
+	for k, v := range t.referrers {
+		d.Referrers[k] = v
+	}
+	for k, v := range t.utms {
+		d.UTMs[k] = v
 	}
 	t.mu.Unlock()
 
@@ -312,7 +361,7 @@ func (t *usageTracker) lookupCountry(ipStr string) string {
 	return rec.Country.IsoCode
 }
 
-func (t *usageTracker) record(path, browser, os, country, date, hash string, nowUnix int64) {
+func (t *usageTracker) record(path, browser, os, country, date, hash, referrer, utmSource, utmMedium, utmCampaign string, nowUnix int64) {
 	key := usageKey{Date: date, Path: path, Country: country, Browser: browser, OS: os}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -331,6 +380,14 @@ func (t *usageTracker) record(path, browser, os, country, date, hash string, now
 	sess := t.sessions[sessionKey]
 	sess.record(nowUnix)
 	t.sessions[sessionKey] = sess
+
+	// Only record referrer/UTM for real page views, not synthetic feature beacons.
+	if !strings.HasPrefix(path, "/__") {
+		t.referrers[date+"\t"+referrer]++
+		if utmSource != "" || utmMedium != "" || utmCampaign != "" {
+			t.utms[date+"\t"+utmSource+"\t"+utmMedium+"\t"+utmCampaign]++
+		}
+	}
 }
 
 // beaconHandler handles POST /api/v1/usage.
@@ -341,8 +398,11 @@ func (t *usageTracker) beaconHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Path     string `json:"path"`
-		Referrer string `json:"referrer"`
+		Path        string `json:"path"`
+		Referrer    string `json:"referrer"`
+		UTMSource   string `json:"utm_source"`
+		UTMMedium   string `json:"utm_medium"`
+		UTMCampaign string `json:"utm_campaign"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -363,8 +423,12 @@ func (t *usageTracker) beaconHandler(w http.ResponseWriter, r *http.Request) {
 	date := now.Format("2006-01-02")
 	country := t.lookupCountry(ip)
 	hash := t.visitorHash(ip, browser, date)
+	referrer := normalizeReferrer(body.Referrer)
+	utmSource := sanitizeUTM(body.UTMSource)
+	utmMedium := sanitizeUTM(body.UTMMedium)
+	utmCampaign := sanitizeUTM(body.UTMCampaign)
 
-	t.record(path, browser, os, country, date, hash, now.Unix())
+	t.record(path, browser, os, country, date, hash, referrer, utmSource, utmMedium, utmCampaign, now.Unix())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -394,13 +458,16 @@ type StatsResponse struct {
 		Views   int64 `json:"views"`
 		Uniques int64 `json:"uniques"`
 	} `json:"totals"`
-	ByDate    []DatePoint    `json:"by_date"`
-	ByCountry []KV           `json:"by_country"`
-	ByBrowser []KV           `json:"by_browser"`
-	ByOS      []KV           `json:"by_os"`
-	ByFeature []KV           `json:"by_feature"` // /__feature__/* beacons
-	ByConsent []KV           `json:"by_consent"` // /__consent__/* beacons
-	BySession []SessionPoint `json:"by_session"` // daily active-time breakdown
+	ByDate        []DatePoint    `json:"by_date"`
+	ByCountry     []KV           `json:"by_country"`
+	ByBrowser     []KV           `json:"by_browser"`
+	ByOS          []KV           `json:"by_os"`
+	ByFeature     []KV           `json:"by_feature"`      // /__feature__/* beacons
+	ByConsent     []KV           `json:"by_consent"`      // /__consent__/* beacons
+	BySession     []SessionPoint `json:"by_session"`      // daily active-time breakdown
+	ByReferrer    []KV           `json:"by_referrer"`     // top referrer hostnames (30d)
+	ByUTMSource   []KV           `json:"by_utm_source"`   // top utm_source+medium combos (30d)
+	ByUTMCampaign []KV           `json:"by_utm_campaign"` // top utm_campaign values (30d)
 }
 
 func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
@@ -429,6 +496,14 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		sessionsCopy := make(map[string]visitorSession, len(t.sessions))
 		for k, v := range t.sessions {
 			sessionsCopy[k] = v
+		}
+		referrersCopy := make(map[string]int64, len(t.referrers))
+		for k, v := range t.referrers {
+			referrersCopy[k] = v
+		}
+		utmsCopy := make(map[string]int64, len(t.utms))
+		for k, v := range t.utms {
+			utmsCopy[k] = v
 		}
 		t.mu.Unlock()
 
@@ -504,6 +579,37 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		}
 		sort.Slice(bySessions, func(i, j int) bool { return bySessions[i].Date < bySessions[j].Date })
 
+		// Referrer and UTM aggregation — last 30 days only.
+		cutoff30 := time.Now().UTC().AddDate(0, 0, -30).Format("2006-01-02")
+		referrerTotals := make(map[string]int64)
+		utmSourceTotals := make(map[string]int64)
+		utmCampaignTotals := make(map[string]int64)
+
+		for k, v := range referrersCopy {
+			parts := strings.SplitN(k, "\t", 2)
+			if len(parts) != 2 || parts[0] < cutoff30 {
+				continue
+			}
+			referrerTotals[parts[1]] += v
+		}
+		for k, v := range utmsCopy {
+			parts := strings.SplitN(k, "\t", 4)
+			if len(parts) != 4 || parts[0] < cutoff30 {
+				continue
+			}
+			src, med, camp := parts[1], parts[2], parts[3]
+			if src != "" || med != "" {
+				label := src
+				if med != "" {
+					label += " / " + med
+				}
+				utmSourceTotals[label] += v
+			}
+			if camp != "" {
+				utmCampaignTotals[camp] += v
+			}
+		}
+
 		var resp StatsResponse
 		resp.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 		resp.Totals.Views = totalViews
@@ -515,6 +621,9 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		resp.ByFeature = topN(features, 30)
 		resp.ByConsent = topN(consent, 10)
 		resp.BySession = bySessions
+		resp.ByReferrer = topN(referrerTotals, 10)
+		resp.ByUTMSource = topN(utmSourceTotals, 10)
+		resp.ByUTMCampaign = topN(utmCampaignTotals, 10)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck
