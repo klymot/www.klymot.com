@@ -462,7 +462,8 @@ type StatsResponse struct {
 	ByCountry     []KV           `json:"by_country"`
 	ByBrowser     []KV           `json:"by_browser"`
 	ByOS          []KV           `json:"by_os"`
-	ByFeature     []KV           `json:"by_feature"`      // /__feature__/* beacons
+	ByFeature     []KV           `json:"by_feature"`      // main-site /__feature__/* only (top 30)
+	ByLabsFeature []KV           `json:"by_labs_feature"` // labs /__feature__/labs/* only (all steps)
 	ByConsent     []KV           `json:"by_consent"`      // /__consent__/* beacons
 	BySession     []SessionPoint `json:"by_session"`      // daily active-time breakdown
 	ByReferrer    []KV           `json:"by_referrer"`     // top referrer hostnames (30d)
@@ -515,7 +516,8 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		browsers := make(map[string]int64)
 		oses := make(map[string]int64)
 		dateViews := make(map[string]int64)
-		features := make(map[string]int64)
+		siteFeatures := make(map[string]int64)
+		labsFeatures := make(map[string]int64)
 		consent := make(map[string]int64)
 		var totalViews int64
 
@@ -524,7 +526,12 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 				continue
 			}
 			if strings.HasPrefix(k.Path, "/__feature__/") {
-				features[strings.TrimPrefix(k.Path, "/__feature__/")] += v
+				key := strings.TrimPrefix(k.Path, "/__feature__/")
+				if strings.HasPrefix(key, "labs/") {
+					labsFeatures[key] += v
+				} else {
+					siteFeatures[key] += v
+				}
 				continue
 			}
 			if strings.HasPrefix(k.Path, "/__consent__/") {
@@ -618,7 +625,8 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		resp.ByCountry = topN(countries, 30)
 		resp.ByBrowser = topN(browsers, 10)
 		resp.ByOS = topN(oses, 10)
-		resp.ByFeature = topN(features, 30)
+		resp.ByFeature = topN(siteFeatures, 30)
+		resp.ByLabsFeature = sortedKV(labsFeatures)
 		resp.ByConsent = topN(consent, 10)
 		resp.BySession = bySessions
 		resp.ByReferrer = topN(referrerTotals, 10)
@@ -631,13 +639,18 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 }
 
 func topN(m map[string]int64, n int) []KV {
+	kvs := sortedKV(m)
+	if n > 0 && len(kvs) > n {
+		kvs = kvs[:n]
+	}
+	return kvs
+}
+
+func sortedKV(m map[string]int64) []KV {
 	kvs := make([]KV, 0, len(m))
 	for k, v := range m {
 		kvs = append(kvs, KV{k, v})
 	}
 	sort.Slice(kvs, func(i, j int) bool { return kvs[i].Value > kvs[j].Value })
-	if len(kvs) > n {
-		kvs = kvs[:n]
-	}
 	return kvs
 }

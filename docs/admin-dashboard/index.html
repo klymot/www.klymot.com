@@ -361,7 +361,7 @@
       </div>
       <div class="tables-grid">
         <div class="table-card">
-          <div class="card-title">Feature usage</div>
+          <div class="card-title">Site feature usage</div>
           <table class="stat-table" id="tbl-features"></table>
         </div>
         <div class="table-card">
@@ -560,12 +560,13 @@
     renderTable('tbl-referrers',    data.by_referrer     || [], k => k);
     renderTable('tbl-utm-source',   data.by_utm_source   || [], k => k);
     renderTable('tbl-utm-campaign', data.by_utm_campaign || [], k => k);
-    renderTable('tbl-features',  data.by_feature || [], k => FEATURE_LABELS[k] || k);
+    const siteFeatures = (data.by_feature || []).filter(row => !row.key.startsWith('labs/'));
+    renderTable('tbl-features', siteFeatures, k => FEATURE_LABELS[k] || k);
     renderConsentTable('tbl-consent', data.by_consent || []);
     renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);
     renderTable('tbl-browsers',  data.by_browser || [], k => k);
     renderTable('tbl-os',        data.by_os      || [], k => k);
-    renderLabsFunnels(data.by_feature || []);
+    renderLabsFunnels(data.by_labs_feature || []);
   }
 
   function setText(id, text) {
