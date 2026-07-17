@@ -748,6 +748,17 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 			labsWindowDur = 90 * 24 * time.Hour
 		}
 		labsWindowCutoff := time.Now().UTC().Add(-labsWindowDur)
+		labsWindowCutoffDate := labsWindowCutoff.Format("2006-01-02")
+
+		// Dates that already have hour-level tracking (labsHourly only exists
+		// from the deploy that introduced it onward) — used below to avoid
+		// double-counting against the day-granularity fallback.
+		hourTrackedDates := make(map[string]bool, len(labsHourlyCopy))
+		for k := range labsHourlyCopy {
+			if i := strings.IndexByte(k, '\t'); i >= 0 {
+				hourTrackedDates[k[:i]] = true
+			}
+		}
 
 		labsFeatures := make(map[string]int64)
 		for k, v := range labsHourlyCopy {
@@ -768,12 +779,24 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 			}
 			labsFeatures[parts[2]] += v
 		}
+		// Fall back to day-granularity counts for any date that predates
+		// hour-level tracking, so pre-existing funnel history isn't lost —
+		// countsCopy still has every labs beacon ever recorded (record() has
+		// always incremented it unconditionally), just without an hour.
+		for k, v := range countsCopy {
+			if !strings.HasPrefix(k.Path, "/__feature__/labs/") {
+				continue
+			}
+			if hourTrackedDates[k.Date] || k.Date < labsWindowCutoffDate {
+				continue
+			}
+			labsFeatures[strings.TrimPrefix(k.Path, "/__feature__/")] += v
+		}
 
 		// Average engaged time per lab, same window as labsFeatures above
 		// (approximated at date granularity, consistent with the fact that
 		// the whole-site "daily active time" table is likewise never windowed
 		// to sub-day precision).
-		labsWindowCutoffDate := labsWindowCutoff.Format("2006-01-02")
 		labSecs := make(map[string]int64)
 		labSessCount := make(map[string]int)
 		for key, sess := range labSessionsCopy {

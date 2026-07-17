@@ -69,6 +69,51 @@ func TestStatsHandlerSegregatesLabsFeatures(t *testing.T) {
 	}
 }
 
+// TestStatsHandlerLabsFeatureFallsBackToCountsBeforeHourTracking guards
+// against a regression where switching by_labs_feature to be sourced from
+// labsHourly silently dropped all pre-existing funnel history recorded
+// before that map existed (labsHourly only has data from the deploy that
+// introduced it onward; countsCopy has always had every labs beacon).
+func TestStatsHandlerLabsFeatureFallsBackToCountsBeforeHourTracking(t *testing.T) {
+	oldDate := time.Now().UTC().AddDate(0, 0, -10).Format("2006-01-02")
+	newDate := time.Now().UTC().Format("2006-01-02")
+
+	tracker := &usageTracker{
+		counts: map[usageKey]int64{
+			// Recorded by an older binary, before hour-level tracking existed —
+			// no corresponding labsHourly entry for this date.
+			{Date: oldDate, Path: "/__feature__/labs/network-altitude/01-visited", Country: "US", Browser: "Chrome", OS: "macOS"}: 20,
+			// Recorded on a date that DOES have labsHourly data — must not be
+			// double-counted alongside the labsHourly entry below.
+			{Date: newDate, Path: "/__feature__/labs/network-altitude/01-visited", Country: "US", Browser: "Chrome", OS: "macOS"}: 3,
+		},
+		labsHourly: map[string]int64{
+			newDate + "\t12\tlabs/network-altitude/01-visited": 3,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/stats", nil)
+	req.Header.Set("Authorization", "Bearer test-secret")
+	w := httptest.NewRecorder()
+	tracker.statsHandler("test-secret")(w, req)
+
+	var resp StatsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	var got int64
+	for _, kv := range resp.ByLabsFeature {
+		if kv.Key == "labs/network-altitude/01-visited" {
+			got = kv.Value
+		}
+	}
+	const want = 23 // 20 (pre-tracking, via counts fallback) + 3 (hour-tracked, not doubled)
+	if got != want {
+		t.Fatalf("labs/network-altitude/01-visited = %d, want %d", got, want)
+	}
+}
+
 func TestUsageTrackerHourlyRoundTrip(t *testing.T) {
 	dataFile := t.TempDir() + "/usage.json"
 
