@@ -152,7 +152,7 @@
       color: var(--muted);
       font-family: var(--font-mono);
     }
-    .btn-logout {
+    .btn-logout, .btn-reset {
       padding: .38rem .85rem;
       background: transparent;
       border: 1px solid var(--border);
@@ -162,7 +162,7 @@
       cursor: pointer;
       transition: border-color .15s, color .15s;
     }
-    .btn-logout:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-logout:hover, .btn-reset:hover { border-color: var(--accent); color: var(--accent); }
     .dash-main {
       flex: 1;
       padding: 1.5rem;
@@ -170,86 +170,6 @@
       width: 100%;
       margin: 0 auto;
     }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.1rem 1.2rem;
-    }
-    .stat-label {
-      font-size: .75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: var(--muted);
-      margin-bottom: .35rem;
-    }
-    .stat-value {
-      font-family: var(--font-mono);
-      font-size: 1.75rem;
-      color: var(--text);
-      line-height: 1;
-    }
-    .stat-sub {
-      font-size: .78rem;
-      color: var(--muted);
-      margin-top: .3rem;
-    }
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.2rem 1.4rem;
-      margin-bottom: 1.5rem;
-    }
-    .card-title {
-      font-size: .78rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: var(--muted);
-      margin-bottom: 1rem;
-    }
-    .chart-wrap { height: 200px; position: relative; }
-    .tables-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-    }
-    .table-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.1rem 1.2rem;
-      overflow: hidden;
-    }
-    .stat-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
-    .stat-table tr + tr td { border-top: 1px solid var(--border); }
-    .stat-table td { padding: .45rem 0; }
-    .stat-table td:last-child {
-      text-align: right;
-      font-family: var(--font-mono);
-      font-size: .82rem;
-      color: var(--muted);
-      padding-left: 1rem;
-      white-space: nowrap;
-    }
-    .bar-wrap { display: flex; align-items: center; gap: .6rem; }
-    .bar-label {
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 160px;
-    }
-    .bar-track { flex: 0 0 56px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
     .spinner-row {
       display: flex;
       align-items: center;
@@ -274,6 +194,171 @@
       padding: .8rem 1rem;
       font-size: .88rem;
       margin-bottom: 1rem;
+    }
+
+    /* ── Widgets (collapsible / draggable) ───────────────────── */
+    #widget-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+    .widget {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .widget-wide { grid-column: 1 / -1; }
+    .widget.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+    .widget-header {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .8rem 1rem;
+    }
+    .widget:not(.collapsed) .widget-header { border-bottom: 1px solid var(--border); }
+    .widget-title {
+      flex: 1;
+      font-size: .78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+    }
+    .widget-collapse {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .8rem;
+      line-height: 1;
+      padding: .1rem .3rem;
+      transition: transform .15s, color .15s;
+    }
+    .widget-collapse:hover { color: var(--accent); }
+    .widget.collapsed .widget-collapse { transform: rotate(-90deg); }
+    .widget-drag {
+      cursor: grab;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 .2rem;
+      user-select: none;
+    }
+    .widget-drag:hover { color: var(--accent); }
+    .widget-body { padding: 1.1rem 1.2rem; }
+    .widget.collapsed .widget-body { display: none; }
+
+    .stat-label-value { }
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: 1.75rem;
+      color: var(--text);
+      line-height: 1;
+    }
+    .stat-sub {
+      font-size: .78rem;
+      color: var(--muted);
+      margin-top: .3rem;
+    }
+    .chart-wrap { height: 200px; position: relative; }
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.2rem;
+      overflow: hidden;
+    }
+    .tables-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .stat-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .stat-table tr + tr td { border-top: 1px solid var(--border); }
+    .stat-table td { padding: .45rem 0; }
+    .stat-table td:last-child {
+      text-align: right;
+      font-family: var(--font-mono);
+      font-size: .82rem;
+      color: var(--muted);
+      padding-left: 1rem;
+      white-space: nowrap;
+    }
+    .bar-wrap { display: flex; align-items: center; gap: .6rem; }
+    .bar-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+    .bar-track { flex: 0 0 56px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+    /* ── Heatmap ──────────────────────────────────────────────── */
+    .heatmap-wrap { overflow-x: auto; }
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: 40px repeat(24, minmax(18px, 1fr));
+      gap: 2px;
+      min-width: 640px;
+    }
+    .heatmap-hour-label {
+      text-align: center;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: .65rem;
+      padding-bottom: .3rem;
+    }
+    .heatmap-day-label {
+      color: var(--muted);
+      font-size: .72rem;
+      display: flex;
+      align-items: center;
+    }
+    .heatmap-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 2px;
+      min-height: 14px;
+      background: var(--bg);
+    }
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin-top: .9rem;
+      font-size: .72rem;
+      color: var(--muted);
+    }
+    .heatmap-legend-ramp {
+      display: flex;
+      height: 10px;
+      width: 120px;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .heatmap-legend-ramp span { flex: 1; }
+
+    /* ── Labs window toggle ───────────────────────────────────── */
+    .labs-window-toggle { display: flex; gap: .3rem; }
+    .labs-window-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: .72rem;
+      font-family: var(--font-mono);
+      padding: .25rem .55rem;
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .labs-window-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .labs-window-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
     }
   </style>
 </head>
@@ -308,6 +393,7 @@
   <header class="dash-header">
     <div class="dash-wordmark">klymot<span class="sub">usage analytics</span></div>
     <div id="dash-updated" class="dash-updated"></div>
+    <button class="btn-reset" id="reset-layout-btn" title="Restore default widget order and expand everything">Reset layout</button>
     <button class="btn-logout" id="logout-btn">Sign out</button>
   </header>
   <main class="dash-main">
@@ -316,74 +402,193 @@
       <div class="spinner"></div>Loading stats…
     </div>
     <div id="dash-content" hidden>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Page views (90d)</div>
-          <div class="stat-value" id="s-total-views">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Unique visitors (90d)</div>
-          <div class="stat-value" id="s-total-uniq">—</div>
-          <div class="stat-sub">Daily-rotating estimate</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Views today</div>
-          <div class="stat-value" id="s-today-views">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Uniques today</div>
-          <div class="stat-value" id="s-today-uniq">—</div>
-        </div>
-      </div>
-      <div class="chart-card">
-        <div class="card-title">Page views — last 30 days</div>
-        <div class="chart-wrap">
-          <canvas id="views-chart"></canvas>
-        </div>
-      </div>
-      <div class="table-card" style="margin-bottom:1rem">
-        <div class="card-title">Daily active time</div>
-        <table class="stat-table" id="tbl-session"></table>
-      </div>
-      <div class="tables-grid" style="margin-bottom:1rem">
-        <div class="table-card">
-          <div class="card-title">Top referrers — 30d</div>
-          <table class="stat-table" id="tbl-referrers"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">UTM source / medium — 30d</div>
-          <table class="stat-table" id="tbl-utm-source"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">UTM campaign — 30d</div>
-          <table class="stat-table" id="tbl-utm-campaign"></table>
-        </div>
-      </div>
-      <div class="tables-grid">
-        <div class="table-card">
-          <div class="card-title">Site feature usage</div>
-          <table class="stat-table" id="tbl-features"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">GA consent</div>
-          <table class="stat-table" id="tbl-consent"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">By country</div>
-          <table class="stat-table" id="tbl-countries"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">By browser</div>
-          <table class="stat-table" id="tbl-browsers"></table>
-        </div>
-        <div class="table-card">
-          <div class="card-title">By OS</div>
-          <table class="stat-table" id="tbl-os"></table>
-        </div>
-      </div>
-      <div id="labs-funnels-wrap" hidden style="margin-top:1.5rem">
-        <div class="card-title" style="padding:0 0 .75rem">Labs funnels</div>
-        <div id="labs-funnels" class="tables-grid"></div>
+      <div id="widget-grid">
+
+        <section class="widget" data-widget-id="kpi-total-views">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Page views (90d)</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="stat-value" id="s-total-views">—</div>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="kpi-total-uniq">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Unique visitors (90d)</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="stat-value" id="s-total-uniq">—</div>
+            <div class="stat-sub">Daily-rotating estimate</div>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="kpi-today-views">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Views today</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="stat-value" id="s-today-views">—</div>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="kpi-today-uniq">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Uniques today</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="stat-value" id="s-today-uniq">—</div>
+          </div>
+        </section>
+
+        <section class="widget widget-wide" data-widget-id="chart-views">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Page views — last 30 days</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="chart-wrap">
+              <canvas id="views-chart"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <section class="widget widget-wide" data-widget-id="heatmap">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Page views by hour &amp; day (UTC, 90d)</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div class="heatmap-wrap" id="heatmap-wrap"></div>
+          </div>
+        </section>
+
+        <section class="widget widget-wide" data-widget-id="tbl-session">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Daily active time</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-session"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-referrers">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Top referrers — 30d</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-referrers"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-utm-source">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">UTM source / medium — 30d</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-utm-source"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-utm-campaign">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">UTM campaign — 30d</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-utm-campaign"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-features">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Site feature usage</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-features"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-consent">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">GA consent</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-consent"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-countries">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">By country</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-countries"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-browsers">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">By browser</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-browsers"></table>
+          </div>
+        </section>
+
+        <section class="widget" data-widget-id="tbl-os">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">By OS</span>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <table class="stat-table" id="tbl-os"></table>
+          </div>
+        </section>
+
+        <section class="widget widget-wide" data-widget-id="labs-funnels-wrap">
+          <header class="widget-header">
+            <button class="widget-collapse" type="button" aria-label="Collapse widget" aria-expanded="true">▾</button>
+            <span class="widget-title">Labs funnels</span>
+            <div class="labs-window-toggle" role="group" aria-label="Labs funnel time range">
+              <button class="labs-window-btn" data-window="90d" type="button">90d</button>
+              <button class="labs-window-btn" data-window="30d" type="button">30d</button>
+              <button class="labs-window-btn" data-window="7d" type="button">7d</button>
+              <button class="labs-window-btn" data-window="24h" type="button">24h</button>
+            </div>
+            <span class="widget-drag" draggable="true" title="Drag to reorder">⠿</span>
+          </header>
+          <div class="widget-body">
+            <div id="labs-funnels" class="tables-grid"></div>
+          </div>
+        </section>
+
       </div>
     </div>
   </main>
@@ -437,8 +642,115 @@
     if (!code || code === 'ZZ') return '🌍 ';
     return [...code.toUpperCase()]
       .map(c => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65))
-      .join('') + ' ';
+      .join('') + ' ';
   }
+
+  // ── Widget layout: collapse, drag-to-reorder, persistence ───
+  const LAYOUT_KEY = 'klymot-admin-layout';
+  const $widgetGrid = document.getElementById('widget-grid');
+  const DEFAULT_ORDER = [...$widgetGrid.children].map(el => el.dataset.widgetId);
+
+  function loadLayout() {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  let _layout = loadLayout() || { order: DEFAULT_ORDER.slice(), collapsed: {}, labsWindow: '90d' };
+  let _labsWindow = _layout.labsWindow || '90d';
+
+  function persistLayout() {
+    const order = [...$widgetGrid.children].map(el => el.dataset.widgetId);
+    const collapsed = {};
+    for (const el of $widgetGrid.children) {
+      if (el.classList.contains('collapsed')) collapsed[el.dataset.widgetId] = true;
+    }
+    _layout = { order, collapsed, labsWindow: _labsWindow };
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(_layout));
+  }
+
+  function applyOrder(order) {
+    for (const id of order) {
+      const el = $widgetGrid.querySelector(`[data-widget-id="${id}"]`);
+      if (el) $widgetGrid.appendChild(el);
+    }
+  }
+
+  function applyCollapsed(collapsed) {
+    for (const el of $widgetGrid.children) {
+      const isCollapsed = !!collapsed[el.dataset.widgetId];
+      el.classList.toggle('collapsed', isCollapsed);
+      el.querySelector('.widget-collapse')?.setAttribute('aria-expanded', String(!isCollapsed));
+    }
+  }
+
+  applyOrder(_layout.order && _layout.order.length ? _layout.order : DEFAULT_ORDER);
+  applyCollapsed(_layout.collapsed || {});
+
+  $widgetGrid.addEventListener('click', e => {
+    const btn = e.target.closest('.widget-collapse');
+    if (!btn) return;
+    const widget = btn.closest('.widget');
+    const collapsed = widget.classList.toggle('collapsed');
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    persistLayout();
+  });
+
+  let _dragEl = null;
+  $widgetGrid.addEventListener('dragstart', e => {
+    const handle = e.target.closest('.widget-drag');
+    if (!handle) { e.preventDefault(); return; }
+    _dragEl = handle.closest('.widget');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _dragEl.dataset.widgetId);
+  });
+  $widgetGrid.addEventListener('dragover', e => {
+    if (!_dragEl) return;
+    const target = e.target.closest('.widget');
+    if (!target || target === _dragEl) return;
+    e.preventDefault();
+    const rect = target.getBoundingClientRect();
+    const before = (e.clientY - rect.top) < rect.height / 2;
+    target.parentNode.insertBefore(_dragEl, before ? target : target.nextSibling);
+  });
+  $widgetGrid.addEventListener('dragend', () => {
+    if (!_dragEl) return;
+    _dragEl = null;
+    persistLayout();
+  });
+
+  document.getElementById('reset-layout-btn').addEventListener('click', () => {
+    localStorage.removeItem(LAYOUT_KEY);
+    applyOrder(DEFAULT_ORDER);
+    for (const el of $widgetGrid.children) {
+      el.classList.remove('collapsed');
+      el.querySelector('.widget-collapse')?.setAttribute('aria-expanded', 'true');
+    }
+    _labsWindow = '90d';
+    updateLabsWindowButtons();
+    persistLayout();
+    refresh();
+  });
+
+  // ── Labs funnel time-range toggle ────────────────────────────
+  const $labsWindowToggle = document.querySelector('.labs-window-toggle');
+  function updateLabsWindowButtons() {
+    $labsWindowToggle.querySelectorAll('.labs-window-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.window === _labsWindow);
+    });
+  }
+  $labsWindowToggle.addEventListener('click', e => {
+    const btn = e.target.closest('.labs-window-btn');
+    if (!btn) return;
+    _labsWindow = btn.dataset.window;
+    updateLabsWindowButtons();
+    persistLayout();
+    refresh();
+  });
+  updateLabsWindowButtons();
 
   // ── Login ───────────────────────────────────────────────────
   const $loginScreen = document.getElementById('login-screen');
@@ -502,13 +814,15 @@
     ['tbl-session', 'tbl-referrers', 'tbl-utm-source', 'tbl-utm-campaign',
      'tbl-features', 'tbl-consent', 'tbl-countries', 'tbl-browsers', 'tbl-os']
       .forEach(id => { document.getElementById(id).replaceChildren(); });
+    document.getElementById('heatmap-wrap').replaceChildren();
+    document.getElementById('labs-funnels').replaceChildren();
     document.getElementById('dash-content').hidden = true;
     document.getElementById('loading').style.display = 'flex';
   }
 
   // ── Data ────────────────────────────────────────────────────
   async function loadStats(pw) {
-    const res = await fetch(API + '/api/v1/usage/stats', {
+    const res = await fetch(API + '/api/v1/usage/stats?labs_window=' + encodeURIComponent(_labsWindow), {
       headers: { Authorization: 'Bearer ' + pw }
     });
     if (res.status === 401) return false;
@@ -546,6 +860,13 @@
     document.getElementById('dash-updated').textContent =
       'Updated ' + dt.toLocaleTimeString();
 
+    // Reflect the window the server actually applied (handles a stale/invalid
+    // saved preference falling back to the server default).
+    if (data.labs_window && data.labs_window !== _labsWindow) {
+      _labsWindow = data.labs_window;
+      updateLabsWindowButtons();
+    }
+
     setText('s-total-views', fmt(data.totals.views));
     setText('s-total-uniq',  fmt(data.totals.uniques));
 
@@ -555,6 +876,7 @@
     setText('s-today-uniq',  fmt(todayPt.uniques));
 
     renderChart(data.by_date || [], data.by_session || []);
+    renderHeatmap(data.by_hour || []);
     renderSessionTable(data.by_session || []);
 
     renderTable('tbl-referrers',    data.by_referrer     || [], k => k);
@@ -566,7 +888,7 @@
     renderTable('tbl-countries', data.by_country || [], k => countryFlag(k) + k);
     renderTable('tbl-browsers',  data.by_browser || [], k => k);
     renderTable('tbl-os',        data.by_os      || [], k => k);
-    renderLabsFunnels(data.by_labs_feature || []);
+    renderLabsFunnels(data.by_labs_feature || [], data.by_lab_time || []);
   }
 
   function setText(id, text) {
@@ -648,6 +970,77 @@
         }
       }
     });
+  }
+
+  // ── Heatmap: hour-of-day x day-of-week page views ────────────
+  const HEATMAP_DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  // Server weekday is 0=Sunday..6=Saturday (time.Weekday / JS Date.getDay());
+  // displayed rows run Monday..Sunday, so remap to a 0=Monday..6=Sunday row index.
+  function weekdayToRow(weekday) { return (weekday + 6) % 7; }
+
+  function renderHeatmap(points) {
+    const wrap = document.getElementById('heatmap-wrap');
+    wrap.replaceChildren();
+
+    const grid = document.createElement('div');
+    grid.className = 'heatmap-grid';
+
+    grid.appendChild(document.createElement('div')); // corner
+    for (let h = 0; h < 24; h++) {
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-hour-label';
+      cell.textContent = (h % 3 === 0) ? h : '';
+      grid.appendChild(cell);
+    }
+
+    const byCell = {};
+    let maxViews = 0;
+    for (const p of points) {
+      byCell[weekdayToRow(p.weekday) + ':' + p.hour] = p.views;
+      if (p.views > maxViews) maxViews = p.views;
+    }
+
+    const colorFor = views => {
+      if (!views) return 'var(--bg)';
+      const frac = maxViews > 0 ? views / maxViews : 0;
+      const mixPct = Math.round(8 + frac * 82);
+      return `color-mix(in srgb, var(--accent) ${mixPct}%, var(--surface))`;
+    };
+
+    for (let row = 0; row < 7; row++) {
+      const label = document.createElement('div');
+      label.className = 'heatmap-day-label';
+      label.textContent = HEATMAP_DAY_NAMES[row].slice(0, 3);
+      grid.appendChild(label);
+      for (let h = 0; h < 24; h++) {
+        const views = byCell[row + ':' + h] || 0;
+        const cell = document.createElement('div');
+        cell.className = 'heatmap-cell';
+        cell.style.background = colorFor(views);
+        const tooltip = `${HEATMAP_DAY_NAMES[row]} ${String(h).padStart(2, '0')}:00 UTC — ${fmt(views)} view${views === 1 ? '' : 's'}`;
+        cell.title = tooltip;
+        cell.setAttribute('aria-label', tooltip);
+        grid.appendChild(cell);
+      }
+    }
+    wrap.appendChild(grid);
+
+    const legend = document.createElement('div');
+    legend.className = 'heatmap-legend';
+    const lo = document.createElement('span'); lo.textContent = 'Fewer';
+    const ramp = document.createElement('div');
+    ramp.className = 'heatmap-legend-ramp';
+    for (let i = 0; i <= 4; i++) {
+      const sw = document.createElement('span');
+      sw.style.background = colorFor(maxViews > 0 ? (i / 4) * maxViews : 0);
+      ramp.appendChild(sw);
+    }
+    const hi = document.createElement('span');
+    hi.textContent = maxViews > 0 ? `More (max ${fmt(maxViews)})` : 'More';
+    legend.appendChild(lo);
+    legend.appendChild(ramp);
+    legend.appendChild(hi);
+    wrap.appendChild(legend);
   }
 
   function renderTable(id, rows, labelFn) {
@@ -764,9 +1157,9 @@
   // ── Labs funnels ────────────────────────────────────────────────
   // Auto-discovers labs from feature beacons using key pattern:
   // labs/{lab-slug}/{NN}-{step-name}
-  function renderLabsFunnels(features) {
-    const wrap = document.getElementById('labs-funnels-wrap');
+  function renderLabsFunnels(features, labTimes) {
     const container = document.getElementById('labs-funnels');
+    const labTimeBySlug = Object.fromEntries((labTimes || []).map(lt => [lt.slug, lt]));
     const labs = new Map();
     for (const { key, value } of features) {
       const m = key.match(/^labs\/([^/]+)\/(\d+)-(.+)$/);
@@ -775,9 +1168,14 @@
       if (!labs.has(slug)) labs.set(slug, []);
       labs.get(slug).push({ num: parseInt(numStr, 10), name, value });
     }
-    if (!labs.size) { wrap.hidden = true; return; }
-    wrap.hidden = false;
     container.replaceChildren();
+    if (!labs.size) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:var(--muted);padding:.4rem 0';
+      empty.textContent = 'No lab activity yet';
+      container.appendChild(empty);
+      return;
+    }
     const mono = 'text-align:right;font-family:var(--font-mono);font-size:.82rem;padding:.45rem 0;padding-left:.75rem;white-space:nowrap';
     for (const [slug, steps] of [...labs.entries()].sort()) {
       steps.sort((a, b) => a.num - b.num);
@@ -811,6 +1209,18 @@
         const rate = top > 0 ? step.value / top : 0;
         td3.textContent = top > 0 ? Math.round(rate * 100) + '%' : '—';
         td3.style.color = rate >= 0.7 ? 'var(--green)' : rate >= 0.4 ? '#f59e0b' : 'var(--red)';
+      }
+      const lt = labTimeBySlug[slug];
+      if (lt) {
+        const tr = tbl.insertRow();
+        tr.style.borderTop = '1px solid var(--border)';
+        const td1 = tr.insertCell();
+        td1.style.cssText = 'padding:.45rem 0;color:var(--muted)';
+        td1.textContent = 'Avg. time on lab';
+        const td2 = tr.insertCell();
+        td2.colSpan = 2;
+        td2.style.cssText = mono + ';color:var(--muted);text-align:right';
+        td2.textContent = fmtMins(lt.avg_mins);
       }
       card.appendChild(tbl);
       container.appendChild(card);

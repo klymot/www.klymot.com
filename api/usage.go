@@ -14,6 +14,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -174,41 +175,54 @@ func sanitizeUTM(s string) string {
 	return s
 }
 
+// reLabsSlug extracts the lab slug from a labs feature-beacon path, e.g.
+// "labs/network-altitude/01-visited" -> "network-altitude".
+var reLabsSlug = regexp.MustCompile(`^labs/([^/]+)/`)
+
 // --- Disk format ---
 
 type usageDisk struct {
-	Counts    map[string]int64          `json:"counts"`
-	Uniques   map[string]int64          `json:"uniques"`
-	Sessions  map[string]visitorSession `json:"sessions,omitempty"` // "date\thash" -> session
-	Referrers map[string]int64          `json:"referrers,omitempty"` // "date\thostname" -> count
-	UTMs      map[string]int64          `json:"utms,omitempty"`      // "date\tsource\tmedium\tcampaign" -> count
+	Counts      map[string]int64          `json:"counts"`
+	Uniques     map[string]int64          `json:"uniques"`
+	Sessions    map[string]visitorSession `json:"sessions,omitempty"`     // "date\thash" -> session
+	Referrers   map[string]int64          `json:"referrers,omitempty"`    // "date\thostname" -> count
+	UTMs        map[string]int64          `json:"utms,omitempty"`         // "date\tsource\tmedium\tcampaign" -> count
+	Hourly      map[string]int64          `json:"hourly,omitempty"`       // "date\thour" -> real-pageview count
+	LabsHourly  map[string]int64          `json:"labs_hourly,omitempty"`  // "date\thour\tlabsKey" -> count
+	LabSessions map[string]visitorSession `json:"lab_sessions,omitempty"` // "date\thash\tlabSlug" -> session
 }
 
 // --- Tracker ---
 
 type usageTracker struct {
-	mu        sync.Mutex
-	counts    map[usageKey]int64
-	uniques   map[string]int64           // date -> unique count (persisted)
-	seen      map[string]map[string]bool // date -> daily-hash set (memory only, for dedup)
-	sessions  map[string]visitorSession  // "date\thash" -> session (persisted)
-	referrers map[string]int64           // "date\thostname" -> count (persisted)
-	utms      map[string]int64           // "date\tsource\tmedium\tcampaign" -> count (persisted)
-	salt      []byte
-	saltDate  string
-	dataFile  string
-	geoDB     *geoip2.Reader // nil when geoip disabled
+	mu          sync.Mutex
+	counts      map[usageKey]int64
+	uniques     map[string]int64           // date -> unique count (persisted)
+	seen        map[string]map[string]bool // date -> daily-hash set (memory only, for dedup)
+	sessions    map[string]visitorSession  // "date\thash" -> session (persisted)
+	referrers   map[string]int64           // "date\thostname" -> count (persisted)
+	utms        map[string]int64           // "date\tsource\tmedium\tcampaign" -> count (persisted)
+	hourly      map[string]int64           // "date\thour" -> real-pageview count (persisted)
+	labsHourly  map[string]int64           // "date\thour\tlabsKey" -> count (persisted)
+	labSessions map[string]visitorSession  // "date\thash\tlabSlug" -> session (persisted)
+	salt        []byte
+	saltDate    string
+	dataFile    string
+	geoDB       *geoip2.Reader // nil when geoip disabled
 }
 
 func newUsageTracker(dataFile, geoDBPath string) *usageTracker {
 	t := &usageTracker{
-		counts:    make(map[usageKey]int64),
-		uniques:   make(map[string]int64),
-		seen:      make(map[string]map[string]bool),
-		sessions:  make(map[string]visitorSession),
-		referrers: make(map[string]int64),
-		utms:      make(map[string]int64),
-		dataFile:  dataFile,
+		counts:      make(map[usageKey]int64),
+		uniques:     make(map[string]int64),
+		seen:        make(map[string]map[string]bool),
+		sessions:    make(map[string]visitorSession),
+		referrers:   make(map[string]int64),
+		utms:        make(map[string]int64),
+		hourly:      make(map[string]int64),
+		labsHourly:  make(map[string]int64),
+		labSessions: make(map[string]visitorSession),
+		dataFile:    dataFile,
 	}
 
 	if geoDBPath != "" {
@@ -258,6 +272,15 @@ func (t *usageTracker) loadFromDisk() error {
 	for k, v := range d.UTMs {
 		t.utms[k] = v
 	}
+	for k, v := range d.Hourly {
+		t.hourly[k] = v
+	}
+	for k, v := range d.LabsHourly {
+		t.labsHourly[k] = v
+	}
+	for k, v := range d.LabSessions {
+		t.labSessions[k] = v
+	}
 	return nil
 }
 
@@ -267,11 +290,14 @@ func (t *usageTracker) flushToDisk() {
 	}
 	t.mu.Lock()
 	d := usageDisk{
-		Counts:    make(map[string]int64, len(t.counts)),
-		Uniques:   make(map[string]int64, len(t.uniques)),
-		Sessions:  make(map[string]visitorSession, len(t.sessions)),
-		Referrers: make(map[string]int64, len(t.referrers)),
-		UTMs:      make(map[string]int64, len(t.utms)),
+		Counts:      make(map[string]int64, len(t.counts)),
+		Uniques:     make(map[string]int64, len(t.uniques)),
+		Sessions:    make(map[string]visitorSession, len(t.sessions)),
+		Referrers:   make(map[string]int64, len(t.referrers)),
+		UTMs:        make(map[string]int64, len(t.utms)),
+		Hourly:      make(map[string]int64, len(t.hourly)),
+		LabsHourly:  make(map[string]int64, len(t.labsHourly)),
+		LabSessions: make(map[string]visitorSession, len(t.labSessions)),
 	}
 	for k, v := range t.counts {
 		d.Counts[k.encode()] = v
@@ -287,6 +313,15 @@ func (t *usageTracker) flushToDisk() {
 	}
 	for k, v := range t.utms {
 		d.UTMs[k] = v
+	}
+	for k, v := range t.hourly {
+		d.Hourly[k] = v
+	}
+	for k, v := range t.labsHourly {
+		d.LabsHourly[k] = v
+	}
+	for k, v := range t.labSessions {
+		d.LabSessions[k] = v
 	}
 	t.mu.Unlock()
 
@@ -361,7 +396,7 @@ func (t *usageTracker) lookupCountry(ipStr string) string {
 	return rec.Country.IsoCode
 }
 
-func (t *usageTracker) record(path, browser, os, country, date, hash, referrer, utmSource, utmMedium, utmCampaign string, nowUnix int64) {
+func (t *usageTracker) record(path, browser, os, country, date string, hour int, hash, referrer, utmSource, utmMedium, utmCampaign string, nowUnix int64) {
 	key := usageKey{Date: date, Path: path, Country: country, Browser: browser, OS: os}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -386,6 +421,20 @@ func (t *usageTracker) record(path, browser, os, country, date, hash, referrer, 
 		t.referrers[date+"\t"+referrer]++
 		if utmSource != "" || utmMedium != "" || utmCampaign != "" {
 			t.utms[date+"\t"+utmSource+"\t"+utmMedium+"\t"+utmCampaign]++
+		}
+		t.hourly[date+"\t"+strconv.Itoa(hour)]++
+	}
+
+	// Labs feature beacons: track per-lab step counts and per-lab engaged time,
+	// separately from the site-wide counters above.
+	if strings.HasPrefix(path, "/__feature__/labs/") {
+		labsKey := strings.TrimPrefix(path, "/__feature__/")
+		t.labsHourly[date+"\t"+strconv.Itoa(hour)+"\t"+labsKey]++
+		if m := reLabsSlug.FindStringSubmatch(labsKey); m != nil {
+			labSessionKey := date + "\t" + hash + "\t" + m[1]
+			ls := t.labSessions[labSessionKey]
+			ls.record(nowUnix)
+			t.labSessions[labSessionKey] = ls
 		}
 	}
 }
@@ -428,7 +477,7 @@ func (t *usageTracker) beaconHandler(w http.ResponseWriter, r *http.Request) {
 	utmMedium := sanitizeUTM(body.UTMMedium)
 	utmCampaign := sanitizeUTM(body.UTMCampaign)
 
-	t.record(path, browser, os, country, date, hash, referrer, utmSource, utmMedium, utmCampaign, now.Unix())
+	t.record(path, browser, os, country, date, now.Hour(), hash, referrer, utmSource, utmMedium, utmCampaign, now.Unix())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -452,6 +501,23 @@ type SessionPoint struct {
 	TotalMins float64 `json:"total_mins"`
 }
 
+// HeatmapPoint is one non-zero cell of the hour-of-day x day-of-week
+// page-view heatmap. Weekday matches time.Time.Weekday() / JS Date.getDay()
+// (0 = Sunday .. 6 = Saturday). Hour is 0-23, UTC.
+type HeatmapPoint struct {
+	Weekday int   `json:"weekday"`
+	Hour    int   `json:"hour"`
+	Views   int64 `json:"views"`
+}
+
+// LabTimePoint is the average engaged time visitors spend on a given lab,
+// derived from session-gap tracking scoped to that lab's feature beacons.
+type LabTimePoint struct {
+	Slug     string  `json:"slug"`
+	AvgMins  float64 `json:"avg_mins"`
+	Sessions int     `json:"sessions"`
+}
+
 type StatsResponse struct {
 	GeneratedAt string `json:"generated_at"`
 	Totals      struct {
@@ -459,11 +525,14 @@ type StatsResponse struct {
 		Uniques int64 `json:"uniques"`
 	} `json:"totals"`
 	ByDate        []DatePoint    `json:"by_date"`
+	ByHour        []HeatmapPoint `json:"by_hour"` // page-view heatmap, hour x weekday (90d window, UTC)
 	ByCountry     []KV           `json:"by_country"`
 	ByBrowser     []KV           `json:"by_browser"`
 	ByOS          []KV           `json:"by_os"`
 	ByFeature     []KV           `json:"by_feature"`      // main-site /__feature__/* only (top 30)
-	ByLabsFeature []KV           `json:"by_labs_feature"` // labs /__feature__/labs/* only (all steps)
+	ByLabsFeature []KV           `json:"by_labs_feature"` // labs /__feature__/labs/* only (all steps), windowed by labs_window
+	LabsWindow    string         `json:"labs_window"`     // window actually applied: 90d, 30d, 7d, or 24h
+	ByLabTime     []LabTimePoint `json:"by_lab_time"`     // avg engaged time per lab, same window as labs_window
 	ByConsent     []KV           `json:"by_consent"`      // /__consent__/* beacons
 	BySession     []SessionPoint `json:"by_session"`      // daily active-time breakdown
 	ByReferrer    []KV           `json:"by_referrer"`     // top referrer hostnames (30d)
@@ -506,6 +575,18 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		for k, v := range t.utms {
 			utmsCopy[k] = v
 		}
+		hourlyCopy := make(map[string]int64, len(t.hourly))
+		for k, v := range t.hourly {
+			hourlyCopy[k] = v
+		}
+		labsHourlyCopy := make(map[string]int64, len(t.labsHourly))
+		for k, v := range t.labsHourly {
+			labsHourlyCopy[k] = v
+		}
+		labSessionsCopy := make(map[string]visitorSession, len(t.labSessions))
+		for k, v := range t.labSessions {
+			labSessionsCopy[k] = v
+		}
 		t.mu.Unlock()
 
 		// Aggregate over the last 90 days.
@@ -517,7 +598,6 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 		oses := make(map[string]int64)
 		dateViews := make(map[string]int64)
 		siteFeatures := make(map[string]int64)
-		labsFeatures := make(map[string]int64)
 		consent := make(map[string]int64)
 		var totalViews int64
 
@@ -527,9 +607,8 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 			}
 			if strings.HasPrefix(k.Path, "/__feature__/") {
 				key := strings.TrimPrefix(k.Path, "/__feature__/")
-				if strings.HasPrefix(key, "labs/") {
-					labsFeatures[key] += v
-				} else {
+				// labs/* steps are windowed separately below, from labsHourlyCopy.
+				if !strings.HasPrefix(key, "labs/") {
 					siteFeatures[key] += v
 				}
 				continue
@@ -562,6 +641,38 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 				Uniques: uniquesCopy[d],
 			}
 		}
+
+		// Hour-of-day x day-of-week heatmap, same 90d window as everything else above.
+		type weekdayHour struct {
+			weekday int
+			hour    int
+		}
+		heatmap := make(map[weekdayHour]int64)
+		for k, v := range hourlyCopy {
+			parts := strings.SplitN(k, "\t", 2)
+			if len(parts) != 2 || parts[0] < cutoff {
+				continue
+			}
+			d, err := time.Parse("2006-01-02", parts[0])
+			if err != nil {
+				continue
+			}
+			hour, err := strconv.Atoi(parts[1])
+			if err != nil {
+				continue
+			}
+			heatmap[weekdayHour{int(d.Weekday()), hour}] += v
+		}
+		byHour := make([]HeatmapPoint, 0, len(heatmap))
+		for wh, v := range heatmap {
+			byHour = append(byHour, HeatmapPoint{Weekday: wh.weekday, Hour: wh.hour, Views: v})
+		}
+		sort.Slice(byHour, func(i, j int) bool {
+			if byHour[i].Weekday != byHour[j].Weekday {
+				return byHour[i].Weekday < byHour[j].Weekday
+			}
+			return byHour[i].Hour < byHour[j].Hour
+		})
 
 		// Session aggregation — all available dates (not limited to 90d window).
 		dateActiveSecs := make(map[string]int64)
@@ -617,16 +728,87 @@ func (t *usageTracker) statsHandler(password string) http.HandlerFunc {
 			}
 		}
 
+		// Labs funnels: windowed by the labs_window query param (90d/30d/7d/24h,
+		// default 90d — matches the fixed window this endpoint used before the
+		// toggle existed). Sourced from labsHourlyCopy so a 24h window can be
+		// expressed exactly (countsCopy above only has day granularity).
+		labsWindow := r.URL.Query().Get("labs_window")
+		var labsWindowDur time.Duration
+		switch labsWindow {
+		case "24h":
+			labsWindowDur = 24 * time.Hour
+		case "7d":
+			labsWindowDur = 7 * 24 * time.Hour
+		case "30d":
+			labsWindowDur = 30 * 24 * time.Hour
+		case "90d":
+			labsWindowDur = 90 * 24 * time.Hour
+		default:
+			labsWindow = "90d"
+			labsWindowDur = 90 * 24 * time.Hour
+		}
+		labsWindowCutoff := time.Now().UTC().Add(-labsWindowDur)
+
+		labsFeatures := make(map[string]int64)
+		for k, v := range labsHourlyCopy {
+			parts := strings.SplitN(k, "\t", 3)
+			if len(parts) != 3 {
+				continue
+			}
+			d, err := time.Parse("2006-01-02", parts[0])
+			if err != nil {
+				continue
+			}
+			hour, err := strconv.Atoi(parts[1])
+			if err != nil {
+				continue
+			}
+			if d.Add(time.Duration(hour) * time.Hour).Before(labsWindowCutoff) {
+				continue
+			}
+			labsFeatures[parts[2]] += v
+		}
+
+		// Average engaged time per lab, same window as labsFeatures above
+		// (approximated at date granularity, consistent with the fact that
+		// the whole-site "daily active time" table is likewise never windowed
+		// to sub-day precision).
+		labsWindowCutoffDate := labsWindowCutoff.Format("2006-01-02")
+		labSecs := make(map[string]int64)
+		labSessCount := make(map[string]int)
+		for key, sess := range labSessionsCopy {
+			parts := strings.SplitN(key, "\t", 3)
+			if len(parts) != 3 || parts[0] < labsWindowCutoffDate {
+				continue
+			}
+			slug := parts[2]
+			labSecs[slug] += sess.totalSecs()
+			labSessCount[slug]++
+		}
+		var byLabTime []LabTimePoint
+		for slug, secs := range labSecs {
+			count := labSessCount[slug]
+			byLabTime = append(byLabTime, LabTimePoint{
+				Slug:     slug,
+				AvgMins:  float64(secs) / float64(count) / 60.0,
+				Sessions: count,
+			})
+		}
+		sort.Slice(byLabTime, func(i, j int) bool { return byLabTime[i].Slug < byLabTime[j].Slug })
+
 		var resp StatsResponse
 		resp.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 		resp.Totals.Views = totalViews
 		resp.Totals.Uniques = totalUniques
 		resp.ByDate = dates
+		resp.ByHour = byHour
 		resp.ByCountry = topN(countries, 30)
 		resp.ByBrowser = topN(browsers, 10)
 		resp.ByOS = topN(oses, 10)
 		resp.ByFeature = topN(siteFeatures, 30)
 		resp.ByLabsFeature = sortedKV(labsFeatures)
+		resp.LabsWindow = labsWindow
+		resp.ByLabTime = byLabTime
 		resp.ByConsent = topN(consent, 10)
 		resp.BySession = bySessions
 		resp.ByReferrer = topN(referrerTotals, 10)
