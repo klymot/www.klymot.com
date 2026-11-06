@@ -5,7 +5,7 @@ description = "Data generation scripts for the Meridian global station viewer"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.4.4",
-    "pillow>=12.2.0",
+    "pillow>=12.3.0",
     "pyproj>=3.7.2",
     "rasterio>=1.5.0",
 ]
